@@ -28,7 +28,7 @@
  *  THE WALL FACES are chosen by THE WALL PERSPECTIVES (the table
  *  at the foot of this file): the drawing that is the edge's own
  *  stance × facing, seated by similarity on its edge, corner to
- *  corner — the grammar of wallArt.ts: (x1,y1)-(x2,y2) is the
+ *  corner — the grammar the wall faces have always kept: (x1,y1)-(x2,y2) is the
  *  face's base segment in its own pixels (measured off the
  *  drawing: the panel's bottom edge, jamb foot to jamb foot),
  *  mapped onto the edge's ends by the seating law stated with the
@@ -355,7 +355,7 @@ export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: num
 }
 
 /** Seat a wall face on its edge by similarity — base corner to
- *  base corner, the wallArt grammar — the wall standing at Nigel's
+ *  base corner, the wall faces' own grammar — the wall standing at Nigel's
  *  drawn height (the piece scales so its base length equals the
  *  edge, and the height follows). Nothing is squashed or redrawn:
  *  one uniform scale per face, and the drawing is never mirrored —

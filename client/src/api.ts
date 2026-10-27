@@ -94,15 +94,6 @@ export interface BuildPiece {
   protected: boolean;
 }
 
-export interface EdgeWork {
-  edgeKey: string; q: number; r: number; dir: number;
-  hp: number; maxHp: number;
-  kind: "wall" | "thorns" | "ward" | "rune";
-  level: number; runeKind?: "snare" | "harm" | "meld" | null;
-  /** A wall's SKIN, chosen per edge at the building (Nigel, 2026-10-16). */
-  style?: "stone" | "spire" | null;
-}
-
 /** A Written Light working standing on the land (the Grimoire):
  *  a ward on an edge (edgeKey/q/r/dir) or a rune on a floor
  *  (tileId). Its numbers were snapshotted from the book at the
@@ -816,7 +807,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; walls: EdgeWork[]; skills: { awakenedId: number; skill: string }[]; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; strikes?: HomelandStrike[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; strikes?: HomelandStrike[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
@@ -925,8 +916,6 @@ export const api = {
   deleteGlyph: (value: { id: number }) => post<{ ok: boolean }>("deleteGlyph", value),
   applyAspect: (value: { awakenedId: number; inventoryAspectId: number }) => post<{ ok: boolean; element: string; newLevel?: number; upgraded?: boolean; cost?: number; targetName?: string; targetKey?: string; imageUrl?: string; stacked?: number }>("applyAspect", value),
   updateTrackPages: (value: { id: number; pages: string[] }) => post<{ ok: boolean }>("updateTrackPages", value),
-  placeWall: (args: { tileId: number; dir: number }) =>
-    post<{ ok: true; wall: { edgeKey: string; q: number; r: number; dir: number; hp: number; maxHp: number }; cost: number }>("placeWall", args),
   /** THE HEX BUILDING SYSTEM (Nigel, 2026-10-25): lay a piece of
    *  the construction — named by its plate-plane vertices; the
    *  server re-derives the true piece and its footprint. */
@@ -934,14 +923,6 @@ export const api = {
     post<{ ok: true; piece: BuildPiece }>("placeBuildPiece", args),
   removeBuildPiece: (args: { id: number }) =>
     post<{ ok: true; removed: number[] }>("removeBuildPiece", args),
-  placeEdgeWork: (args: { tileId: number; dir: number; kind: "wall" | "thorns" | "ward" | "rune"; runeKind?: "snare" | "harm" | "meld"; style?: "stone" | "spire" }) =>
-    post<{ ok: true; work: EdgeWork; cost: number }>("placeEdgeWork", args),
-  strengthenEdgeWork: (args: { tileId: number; dir: number }) =>
-    post<{ ok: true; work: { edgeKey: string; kind: string; level: number; hp: number; maxHp: number }; cost: number; nextCost: number }>("strengthenEdgeWork", args),
-  removeEdgeWork: (args: { tileId: number; dir: number }) =>
-    post<{ ok: true; edgeKey: string }>("removeEdgeWork", args),
-  teachSkill: (args: { awakenedId: number; skill: "warding" | "runeing" }) =>
-    post<{ ok: true; awakenedId: number; skill: string; cost: number }>("teachSkill", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   setMarch: (args: { awakenedId: number; tileId: number; posQ?: number; posR?: number }) =>
@@ -1004,7 +985,7 @@ export const api = {
   addBattleTrack: (args: { name: string; trackData: string }) => post<{ id: number }>("addBattleTrack", args),
   toggleBattleTrack: (args: { id: number; enabled: boolean }) => post<{ ok: true }>("toggleBattleTrack", args),
   deleteBattleTrack: (args: { id: number }) => post<{ ok: true }>("deleteBattleTrack", args),
-  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean; targetTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number; }) =>
+  resolveBattle: (args: { victory: boolean; waveNumber: number; survivorIds: number[]; continueWave?: boolean; targetTileId?: number; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number; }) =>
     post<{ ok: true; bonusEligible?: { id: number; q: number; r: number }[]; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[]; committedPower?: number; wavePower?: number }>("resolveBattle", args),
   claimBonusTile: (args: { tileId: number }) =>
     post<{ ok: boolean }>("claimBonusTile", args),

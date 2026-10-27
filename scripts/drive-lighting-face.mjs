@@ -139,14 +139,26 @@ ok("§F1 a tile two hexes east stands for the Bastion building", !!bastionTile);
 purify(bastionTile);
 db.prepare("INSERT INTO territory_buildings (owner_key, tile_id, building_type, placed_at) VALUES (?, ?, 'bastion', ?)").run(ownerKey, bastionTile.id, now);
 
-// A wall run: three edges of the west ring hex.
+// A wall run: three edges of the west ring hex — the
+// construction's walls (build_pieces) standing on those
+// edges. (Edge Works' edge walls stood here until the
+// system was removed whole, Nigel 2026-10-27; the
+// construction's walls are the light's bars now.) A hex
+// edge's ends are its two vertex fractions — the average
+// of the three hexes meeting at each vertex.
+const VERT_FRAC = [[-1 / 3, -1 / 3], [1 / 3, -2 / 3], [2 / 3, -1 / 3], [1 / 3, 1 / 3], [-1 / 3, 2 / 3], [-2 / 3, 1 / 3]];
+const SQ3F = Math.sqrt(3);
+const axialToPlateF = ([q, r]) => [3 * q / 2, -SQ3F * r - (SQ3F / 2) * q];
+const insWallPiece = (owner, tile, dir, tag) => {
+  const a = [tile.q + VERT_FRAC[dir][0], tile.r + VERT_FRAC[dir][1]];
+  const b = [tile.q + VERT_FRAC[(dir + 1) % 6][0], tile.r + VERT_FRAC[(dir + 1) % 6][1]];
+  db.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, 'wall', ?, ?, ?, ?)")
+    .run(owner, `wall#${tag}-${tile.q},${tile.r},${dir}`, JSON.stringify([axialToPlateF(a), axialToPlateF(b)]), JSON.stringify([a, b]), now);
+};
 const westTile = tileAt(tiles, S.q - 1, S.r);
 ok("§F1 the west ring tile stands for the wall run and the Tender", !!westTile);
 purify(westTile);
-for (const dir of [2, 3, 4]) {
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, style, created_at) VALUES (?, ?, ?, ?, ?, 10, 10, 'wall', 1, NULL, 'stone', ?)")
-    .run(ownerKey, `${westTile.q},${westTile.r},${dir}`, westTile.q, westTile.r, dir, now);
-}
+for (const dir of [2, 3, 4]) insWallPiece(ownerKey, westTile, dir, "seeded-face");
 // The Tender stands on the west hex, the beacon at his back's east.
 db.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(westTile.id, ownerKey);
 
@@ -368,26 +380,20 @@ for (const [dq, dr] of [[0, -1], [0, 0], [0, 1], [-1, 0]]) {
   const t = tileAt(tiles2, S2.q + dq, S2.r + dr);
   if (t) purify(t);
 }
-// Five solid edges down the beacon's east side, under
-// their canonical keys (the server's bar reads the key;
-// the client draws the stored row's own edge).
-const WD6 = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
-const WOPP6 = [3, 4, 5, 0, 1, 2];
-const insWall2 = (q, r, dir) => {
-  const nq = q + WD6[dir][0], nr = r + WD6[dir][1];
-  const flip = nq < q || (nq === q && nr < r);
-  const row = flip ? { q: nq, r: nr, dir: WOPP6[dir] } : { q, r, dir };
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, style, created_at) VALUES (?, ?, ?, ?, ?, 10, 10, 'wall', 1, NULL, 'stone', ?)")
-    .run(ownerKey2, `${row.q},${row.r},${row.dir}`, row.q, row.r, row.dir, now);
-};
+// Five solid edges down the beacon's east side — the
+// construction's walls (build_pieces) standing on those
+// edges; the server's bar and the face's shade both read
+// the pieces' own footprints. (Edge Works' edge walls
+// stood here until their removal, Nigel 2026-10-27.)
+const SQ3 = Math.sqrt(3);
+const axialToPlate2 = ([q, r]) => [3 * q / 2, -SQ3 * r - (SQ3 / 2) * q];
+const insWall2 = (q, r, dir) => insWallPiece(ownerKey2, { q, r }, dir, "seeded-arch");
 insWall2(S2.q, S2.r - 1, 1); insWall2(S2.q, S2.r - 1, 2);
 insWall2(S2.q, S2.r, 1);
 insWall2(S2.q, S2.r + 1, 1); insWall2(S2.q, S2.r + 1, 2);
 // THE ARCHWAY at the run's middle: a door piece on the
 // beacon's lower-east edge — vertex R (2/3, −1/3) to
 // vertex BR (1/3, 1/3), in axial fractions.
-const SQ3 = Math.sqrt(3);
-const axialToPlate2 = ([q, r]) => [3 * q / 2, -SQ3 * r - (SQ3 / 2) * q];
 const doorA = [S2.q + 2 / 3, S2.r - 1 / 3], doorB = [S2.q + 1 / 3, S2.r + 1 / 3];
 const doorId = Number(db.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, 'door', 'door#seeded-arch', ?, ?, ?)")
   .run(ownerKey2, JSON.stringify([axialToPlate2(doorA), axialToPlate2(doorB)]), JSON.stringify([doorA, doorB]), now).lastInsertRowid);
@@ -426,7 +432,11 @@ await enterHomelandOn(page2, retry2);
 const g = await probeLayerOn(retry2);
 console.log("  G probe:", JSON.stringify({ blocks: g.blocks?.length, doorLine: g.doorLine, nodes: g.nodes, centroids: g.centroids?.length }));
 ok("§G the light layer stands on the wall-and-archway land", g.layer === true);
-const edgeBlocks = (g.blocks ?? []).filter((b) => (b.block ?? "").startsWith("edgewall-"));
+// The run's five walls are build pieces now (Edge Works'
+// edge walls stood here until their removal, Nigel
+// 2026-10-27): their volumes carry the pieces' own keys.
+const wallPieceIds = db.prepare("SELECT id FROM build_pieces WHERE owner_key = ? AND kind = 'wall'").all(ownerKey2).map((r) => r.id);
+const edgeBlocks = (g.blocks ?? []).filter((b) => wallPieceIds.some((id) => (b.block ?? "").startsWith(`piece-${id}:`)));
 const doorBlocks = (g.blocks ?? []).filter((b) => (b.block ?? "").startsWith(`piece-${doorId}:`));
 ok("§G blocking volumes stand for the run's five solid edges", edgeBlocks.length >= 5, `n=${edgeBlocks.length} of ${g.blocks?.length} volumes`);
 ok("§G the archway blocks by its TWO standing parts only — one volume per part", doorBlocks.length === 2, `n=${doorBlocks.length}`);

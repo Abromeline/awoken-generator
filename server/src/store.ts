@@ -494,49 +494,14 @@ sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_newborn_claims_owner ON pend
 // (Nigel, 2026-10-24 — "that battle mode should no longer exist
 // and its triggers should go too"). Databases that already hold
 // them keep two orphan tables nothing reads or writes.
-// Hex walls (War-Ground charter extension, Nigel 2026-10-15): an
-// Awoken standing on a hex raises a wall on one of its six edges for
-// energy. The edge is stored CANONICALLY (the lexicographically
-// smaller tile + the dir from that tile), so the border between two
-// hexes is ONE wall, never two. Walls block enemies in battle and
-// carry their own HP; battle damage is reported at resolution and
-// only ever lowers HP. Building/wall locations are locked once set.
-sqlite.exec(`CREATE TABLE IF NOT EXISTS hex_walls (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  owner_key TEXT NOT NULL,
-  edge_key TEXT NOT NULL,
-  q INTEGER NOT NULL,
-  r INTEGER NOT NULL,
-  dir INTEGER NOT NULL,
-  hp INTEGER NOT NULL,
-  max_hp INTEGER NOT NULL,
-  created_at INTEGER NOT NULL,
-  UNIQUE(owner_key, edge_key)
-);`);
-sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_hex_walls_owner ON hex_walls (owner_key);`);
-// Edge works (War-Ground, Nigel 2026-10-15): the hex_walls ledger
-// grows from walls alone to the four edge works — WALL (blocks, no
-// damage), THORNS (passage, slowed), WARD (a wall of the other kind;
-// blocks or traps every reach, fliers included; Warding hands only),
-// RUNE (a trap, not a barrier; Runeing hands only; kinds snare /
-// harm / meld chosen at casting). One work per edge, six per hex.
-// Walls, wards and runes may be STRENGTHENED at exponential energy
-// cost; thorns are growth, not craft, and cannot be strengthened.
-const hexWallCols = sqlite.prepare(`PRAGMA table_info(hex_walls)`).all() as { name: string }[];
-if (!hexWallCols.some((col) => col.name === "kind")) {
-  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN kind TEXT NOT NULL DEFAULT 'wall'`);
-}
-if (!hexWallCols.some((col) => col.name === "level")) {
-  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN level INTEGER NOT NULL DEFAULT 1`);
-}
-if (!hexWallCols.some((col) => col.name === "rune_kind")) {
-  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN rune_kind TEXT`);
-}
-// A wall's SKIN (Nigel, 2026-10-16): chosen per edge at the
-// building — stone or spires. Older walls wear stone.
-if (!hexWallCols.some((col) => col.name === "style")) {
-  sqlite.exec(`ALTER TABLE hex_walls ADD COLUMN style TEXT NOT NULL DEFAULT 'stone'`);
-}
+// EDGE WORKS REMOVED (Nigel, 2026-10-27: "runes and wards are no
+// longer locked to hexs there is no reason for the edgeworks
+// system" — the book's workings stay): the hex_walls ledger and
+// every standing edge work in it are gone. The drop is the
+// migration: idempotent, and boot-safe on a fresh database
+// (nothing to drop) and on one that still holds the table
+// (its rows die with it, by his ruling).
+sqlite.exec(`DROP TABLE IF EXISTS hex_walls;`);
 // The Written Light on the land (the Grimoire, Nigel 2026-10-17):
 // workings the Tender casts personally from the book — WARDS on
 // hex edges, RUNES on hex floors — standing on the map until
@@ -707,20 +672,10 @@ try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN rising_live INTEGER 
 try { sqlite.exec("ALTER TABLE first_seed_events ADD COLUMN rising_stood TEXT"); } catch { /* exists */ }
 
 try { sqlite.exec("ALTER TABLE territory_workings ADD COLUMN max_hp INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
-// Awoken skills (War-Ground, Nigel 2026-10-15): the ledger of who
-// holds WARDING and who holds RUNEING. Until the milestone ability
-// picks are built, skills are TEACHINGS: a Tender teaches an Awoken
-// of level 5+ for energy (teachSkill), and this ledger is the only
-// gate the edge works answer to.
-sqlite.exec(`CREATE TABLE IF NOT EXISTS awoken_skills (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  owner_key TEXT NOT NULL,
-  awakened_id INTEGER NOT NULL,
-  skill TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  UNIQUE(owner_key, awakened_id, skill)
-);`);
-sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_awoken_skills_owner ON awoken_skills (owner_key);`);
+// The awoken_skills ledger went with Edge Works (Nigel,
+// 2026-10-27): its only readers were the edge works' gates and
+// the teaching door, and both are removed. Dropped, not kept.
+sqlite.exec(`DROP TABLE IF EXISTS awoken_skills;`);
 // Wave defense: the Unraveling attacks the bastion in waves.
 sqlite.exec(`CREATE TABLE IF NOT EXISTS wave_state (
   owner_key TEXT PRIMARY KEY,

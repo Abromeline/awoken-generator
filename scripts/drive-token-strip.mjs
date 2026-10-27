@@ -23,10 +23,11 @@
 //   §C STRIKE WITNESS: getTerritory serves placement strikes
 //      in the weaponStrike record's shape, struck by the one
 //      real fight inside the read.
-//   §T THE THORNS, RE-HOMED: a Thorn Wall building's bite
-//      fells a dark that enters its hex inside
-//      settleHomelandBattle; edge-Thorns hold a crossing dark
-//      for a beat (held_until), in the same engine.
+//   §T THE THORNS: a Thorn Wall building's bite fells a
+//      dark that enters its hex inside settleHomelandBattle.
+//      (The edge-Thorns half — Edge Works' thorns holding a
+//      crossing dark for a beat — went with that system,
+//      removed whole, Nigel 2026-10-27.)
 //   §M THE MID-MUSTER LAW: a follower a read has just
 //      mustered onto a march ANSWERS from her ground in that
 //      same battle settle — her strikes are witnessed — while
@@ -248,22 +249,11 @@ console.log("§T the Thorn Wall's bite and the edge-Thorns' skip cost, inside se
   await advance(G.ownerKey, G.token, 10000);
   ok("entering the Thorn Wall's hex felled it — the bite fires in the living battle", !darkRow(dark));
 }
-{
-  const G = await claim("Edge Thorns Skip");
-  seedTile(G.ownerKey, 0, 0, 0);
-  seedTile(G.ownerKey, 1, 0, 1);
-  const tC = seedTile(G.ownerKey, 2, 0, 1);
-  const aw = seedAwokin(G.ownerKey, "Edge Thorns Skip", "Quiet Binder", "root", 3, 3);
-  placeAwokin(G.ownerKey, aw, db.prepare("SELECT id FROM territory_tiles WHERE owner_key = ? AND q = 0 AND r = 0").get(G.ownerKey).id, 0, 0, { stance: "binding", ordered: true, hp: 99 });
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, created_at) VALUES (?, '1,0,0', 1, 0, 0, 10, 10, 'thorns', 1, ?)").run(G.ownerKey, Date.now());
-  const dark = seedDark(G.ownerKey, tC, "fray", 2, 0, { hp: 50, power: 1 });
-  await prime(G.ownerKey, G.token);
-  ok("no hold before the crossing", (darkRow(dark)?.held_until ?? 0) === 0, JSON.stringify(darkRow(dark)?.held_until));
-  await advance(G.ownerKey, G.token, 3000);
-  const row = darkRow(dark);
-  ok("crossing the edge-Thorns cost it its next action — held a beat in the living battle",
-    !!row && (row.held_until ?? 0) > Date.now() - 1000, `held_until ${row?.held_until} vs now ${Date.now()}`);
-}
+/* The "Edge Thorns Skip" section stood here: Edge Works'
+   thorns holding a crossing dark for one beat in the living
+   battle. The system is removed whole (Nigel, 2026-10-27)
+   and the hold with it — the Thorn Wall building's bite
+   above is the thorn law that remains. */
 
 /* ══ §M THE MID-MUSTER LAW ═════════════════════════════════ */
 console.log("§M a follower mustered by a read answers in that battle — she is not disarmed");

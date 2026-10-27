@@ -13,8 +13,9 @@
 //   §H2 a build WALL on the shared edge darkens the hex
 //       behind it; a DOORWAY in that same edge lights it
 //       again (the centre throw threads the door's gap);
-//       a hex_walls wall on another shared edge darkens
-//       its hex too.
+//       a cast WARD of the book on another shared edge
+//       bars its throw too (its hex reads no FIGHTING —
+//       FAINT at most, from the ward's own glow).
 //   §H4 spawns across trials never land on FIGHTING
 //       ground (a bastion building's throw over the
 //       furthest cursed ring), and do land on unlit ring
@@ -43,8 +44,8 @@
 //       glow from its source — no hex-shaped light polygons
 //       anywhere (the per-hex pools were struck at Nigel's
 //       word) — and the dusk as ONE continuous wash, below
-//       the standings; the rune's figure carries its glow
-//       line; a wanderer's figure wears no darkening (no
+//       the standings; the book's rune stands drawn on
+//       its hex; a wanderer's figure wears no darkening (no
 //       filter, no wash in its group).
 //   §T1 a campaign Table room whose seed stands grown to
 //       the Beacon (white-box level, named here) serves
@@ -226,7 +227,10 @@ if (across) {
   const xDoored = tiles.find((t) => t.id === X.id);
   ok("§H2 with a DOORWAY in that same edge, the hex reads FIGHTING (2) again — the throw threads the gap", xDoored.light === 2, `light=${xDoored.light}`);
 }
-// The edge records of hex_walls bar a throw the same way.
+// The book's cast wards bar a throw the same way: a ward
+// standing on the shared edge between the seed and Y.
+// (Edge Works' edge walls barred throws here too, until
+// the system was removed whole — Nigel, 2026-10-27.)
 const Y = ring1[1];
 const WALL_DIRS = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
 const WALL_OPP = [3, 4, 5, 0, 1, 2];
@@ -235,13 +239,19 @@ const WALL_OPP = [3, 4, 5, 0, 1, 2];
   const d = WALL_DIRS.findIndex(([dq, dr]) => seedTile.q + dq === Y.q && seedTile.r + dr === Y.r);
   const flip = Y.q < seedTile.q || (Y.q === seedTile.q && Y.r < seedTile.r);
   const cq = flip ? Y.q : seedTile.q, cr = flip ? Y.r : seedTile.r, cdir = flip ? WALL_OPP[d] : d;
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, created_at) VALUES (?, ?, ?, ?, ?, 10, 10, 'wall', 1, ?)")
-    .run(A.ownerKey, `${cq},${cr},${cdir}`, cq, cr, cdir, Date.now());
+  const edgeKey = `${cq},${cr},${cdir}`;
+  db.prepare("INSERT INTO territory_workings (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, created_at) VALUES (?, 'seal', 'seal', 'ward', 'unaligned', ?, ?, ?, ?, ?, '{}', 15, ?)")
+    .run(A.ownerKey, seedTile.id, edgeKey, cq, cr, cdir, Date.now());
   freezeBattle(A.ownerKey);
   tiles = await tilesOf(A);
-  const yWalled = tiles.find((t) => t.id === Y.id);
-  ok("§H2 a hex_walls WALL on the shared edge darkens its hex too (0)", yWalled.light === 0, `light=${yWalled.light}`);
-  db.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND kind = 'wall'").run(A.ownerKey);
+  const yWarded = tiles.find((t) => t.id === Y.id);
+  // The throw is barred — Y reads no FIGHTING. The ward is
+  // itself made of light, faintly: if its own canonical hex
+  // is Y, Y wears that FAINT glow and nothing more.
+  const wardHexIsY = cq === Y.q && cr === Y.r;
+  ok("§H2 a cast WARD on the shared edge bars the throw — its hex reads no FIGHTING",
+    yWarded.light === (wardHexIsY ? 1 : 0), `light=${yWarded.light}`);
+  db.prepare("DELETE FROM territory_workings WHERE owner_key = ? AND edge_key = ?").run(A.ownerKey, edgeKey);
 }
 
 /* ══ §H4 THE SPAWN BAR ════════════════════════════════ */
@@ -302,11 +312,12 @@ tiles = await tilesOf(A);
 const R = tiles.find((t) => hexDist(t, seedTile) >= 3 && t.id !== bastionTile?.id && hexDist(t, bastionTile ?? seedTile) >= 2);
 ok("§H6 a plain tile stands clear of every source for the rune", !!R);
 if (R) {
-  // A rune on R's own edge (dir 2 names R the canonical
-  // tile of its edge — the neighbour across it is the
-  // lexicographically larger tile, so no flip).
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, rune_kind, style, created_at) VALUES (?, ?, ?, ?, 2, 10, 10, 'rune', 1, 'harm', 'stone', ?)")
-    .run(A.ownerKey, `${R.q},${R.r},2`, R.q, R.r, Date.now());
+  // A rune of the book on R's own floor — the Grimoire's
+  // Lattice (territory_workings). The book's runes are the
+  // field's only runes since Edge Works' removal (Nigel,
+  // 2026-10-27).
+  db.prepare("INSERT INTO territory_workings (owner_key, spell_key, engine, kind, hue, tile_id, edge_key, q, r, dir, nums, hp, created_at) VALUES (?, 'lattice', 'lattice', 'rune', 'unaligned', ?, NULL, ?, ?, NULL, '{}', 6, ?)")
+    .run(A.ownerKey, R.id, R.q, R.r, Date.now());
   freezeBattle(A.ownerKey);
   tiles = await tilesOf(A);
   const rLit = tiles.find((t) => t.id === R.id);
@@ -508,7 +519,12 @@ console.log("§H7 the homeland's face — the light layer in the DOM");
         glowFighting: layer.querySelectorAll('.light-glow[data-glow="fighting"]').length,
         hexes: layer.querySelectorAll(".light-hex").length,
         dusk: layer.querySelectorAll(".light-dusk").length,
-        glow: !!document.querySelector(".edge-light-glow"),
+        // The book's rune (§H6's Lattice) stands drawn:
+        // its figure's title rides the workings layer.
+        // (The .edge-light-glow line this once read was an
+        // Edge Works drawing — that system is removed
+        // whole, Nigel 2026-10-27.)
+        runeDrawn: titles.some((t) => (t.textContent ?? "").includes("— rune")),
         wanderer: !!wg,
         wandererFilter: wimg ? (wimg.style.filter ?? "") : null,
         wandererWash: wg ? (wg.innerHTML.includes("7,9,22") || wg.innerHTML.includes("7, 9, 22")) : null,
@@ -520,7 +536,7 @@ console.log("§H7 the homeland's face — the light layer in the DOM");
     ok("§H7 the beacon's light is drawn as continuous glow from its source (.light-glow[data-glow=fighting] ellipses)", (dom.glowFighting ?? 0) > 0, `n=${dom.glowFighting}`);
     ok("§H7 NO hex-shaped light remains — zero .light-hex polygons in the layer", dom.hexes === 0, `n=${dom.hexes}`);
     ok("§H7 the dusk stands as ONE continuous wash (a single .light-dusk path), not per-hex shapes", dom.dusk === 1, `n=${dom.dusk}`);
-    ok("§H7 the rune's figure carries its faint glow line (.edge-light-glow)", dom.glow === true);
+    ok("§H7 the book's rune stands drawn on its hex (its figure in the workings layer)", dom.runeDrawn === true);
     ok("§H7 a wanderer figure stands on the dark ground", dom.wanderer === true,
       dom.wanderer === true ? "" : `titles: ${JSON.stringify(dom.titlesSeen ?? [])}`);
     ok("§H7 the wanderer's figure is NOT darkened — no filter on its face, no dusk wash in its group",

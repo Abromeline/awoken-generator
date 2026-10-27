@@ -205,20 +205,19 @@ const energy0 = (await call("getEnergy", {}, A.token)).data.maxEnergy;
   ok("traversal: even airborne, a leap crosses ONE hex — the far heart refuses", far.status >= 400, `status=${far.status}`);
   const off = await call("setTenderTile", { tileId: tileAt(A.me)(6, 0, 0).id }, A.token);
   ok("traversal: stepping off the isle onto its newborn is a walk", off.data.ok === true);
-  // A WALL between heart and east (canonical edge 0,0 dir 2).
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, created_at) VALUES (?, '0,0,2', 0, 0, 2, 10, 10, 'wall', 1, ?)").run(A.me, Date.now());
+  // NO EDGE BARS (Nigel, 2026-10-27): Edge Works' walls once
+  // refused this walk and its wards refused even the leap;
+  // the system is removed whole, and a bare edge between
+  // heart and east is walked freely — the traversal law
+  // judges rises and isles alone (proven on every side of
+  // this section). The construction's walls still bar the
+  // stride on the ground, through the figure collision —
+  // the end-to-end wall section at this suite's foot proves
+  // that bar with a built wall.
   await standOn(A.token, heart.id);
-  const walled = await standOn(A.token, east.id);
-  ok("traversal: a wall refuses the walk", walled.status >= 400, `status=${walled.status}`);
-  const over = await call("setTenderTile", { tileId: east.id, airborne: true }, A.token);
-  ok("traversal: the leap crosses the wall", over.data.ok === true);
-  db.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = '0,0,2'").run(A.me);
-  // A WARD between heart and south (canonical edge 0,0 dir 3).
-  db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, created_at) VALUES (?, '0,0,3', 0, 0, 3, 15, 15, 'ward', 1, ?)").run(A.me, Date.now());
+  const free = await standOn(A.token, east.id);
+  ok("traversal: a bare edge is walked freely — no edge work bars it", free.status < 400, `status=${free.status}`);
   await standOn(A.token, heart.id);
-  const warded = await call("setTenderTile", { tileId: south.id, airborne: true }, A.token, true);
-  ok("traversal: a ward refuses even the leap — a wall the sky cannot ignore", warded.status >= 400, `status=${warded.status}`);
-  db.prepare("DELETE FROM hex_walls WHERE owner_key = ? AND edge_key = '0,0,3'").run(A.me);
   // A rise of two trays.
   db.prepare("UPDATE territory_tiles SET height = 3 WHERE id = ?").run(south.id);
   const climb = await standOn(A.token, south.id);
@@ -407,12 +406,22 @@ const energy0 = (await call("getEnergy", {}, A.token)).data.maxEnergy;
     }
     ok("jump/sage: the third chained leap is the backflip", flipped);
   }
-  // The wall, end to end: the Binder's walk is refused at the
-  // stride AND the server's anchor; his leap carries him over.
+  // The wall, end to end: a CONSTRUCTION wall standing on
+  // the heart's east edge (the hex's vertices (2/3,−1/3) →
+  // (1/3,1/3) in axial fractions) — the Binder's walk is
+  // refused at the stride AND the server's anchor never
+  // moves; his leap carries him over. (This section proved
+  // the same bar with an Edge Works wall until that system
+  // was removed whole, Nigel 2026-10-27; the built wall is
+  // the bar that stands now.)
   {
     const B = classTenders.binder;
     const heart = tileAt(B.me)(0, 0), east = tileAt(B.me)(1, 0);
-    db.prepare("INSERT INTO hex_walls (owner_key, edge_key, q, r, dir, hp, max_hp, kind, level, created_at) VALUES (?, '0,0,2', 0, 0, 2, 10, 10, 'wall', 1, ?)").run(B.me, Date.now());
+    const SQ3W = Math.sqrt(3);
+    const plateW = ([q, r]) => [3 * q / 2, -SQ3W * r - (SQ3W / 2) * q];
+    const wA = [2 / 3, -1 / 3], wB = [1 / 3, 1 / 3];
+    db.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, 'wall', 'wall#test59-crossing', ?, ?, ?)")
+      .run(B.me, JSON.stringify([plateW(wA), plateW(wB)]), JSON.stringify([wA, wB]), Date.now());
     await call("setTenderTile", { tileId: heart.id }, B.token);
     await openTerritory(B.token, "binder");
     await sleep(600);

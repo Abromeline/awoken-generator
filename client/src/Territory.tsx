@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Awakened, type TerritoryTile, type FieldPlacement, type EdgeWork } from "./api";
+import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
-import { WALL_STYLES } from "./wallArt";
 import { triangleFaceFor, affineFor, wallPerspectiveFor, seatWallFace, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
@@ -275,18 +274,10 @@ function shroomWedgeOf(b: any, siblingsByAge: any[]): number {
   return idx >= 0 ? idx : 0;
 }
 
-/** Canonical wall edge key — MUST match the server (placeWall): the
- *  edge lives under the lexicographically smaller of its two tiles,
- *  so a shared border is one wall from either side. Dirs follow the
- *  FACE_HEX corner order (0 = top edge, then clockwise). */
+/** The six edge directions of a hex, in FACE_HEX corner order
+ *  (0 = top edge, then clockwise) — read by the written workings'
+ *  edge geometry (grimEdgeTiles). */
 const WALL_DIR_DELTAS: [number, number][] = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
-const WALL_OPPOSITE = [3, 4, 5, 0, 1, 2];
-function canonicalWallEdgeKey(q: number, r: number, dir: number): string {
-  const nq = q + WALL_DIR_DELTAS[dir][0], nr = r + WALL_DIR_DELTAS[dir][1];
-  if (nq < q || (nq === q && nr < r)) return `${nq},${nr},${WALL_OPPOSITE[dir]}`;
-  return `${q},${r},${dir}`;
-}
-
 interface Props {
   tenderItems: Awakened[];
   assets: { sourceId: string; name: string; imageUrl: string; category: string }[];
@@ -710,8 +701,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // THE JUMP (Nigel, 2026-10-19) come home to the real map: the
   // Proving Ground's engine (client/src/jump.ts) rides the stride
   // clock — Space leaps, the class's own arc raises the figure,
-  // and the traversal law judges his crossings (walls, wards,
-  // two-tray rises, floating isles) on the stride and the anchor
+  // and the traversal law judges his crossings (two-tray
+  // rises, floating isles) on the stride and the anchor
   // report, with the server's setTenderTile as the final word.
   // THE QUICKNESS LADDER rides the same engine (Nigel,
   // 2026-10-22; Recovery R14): the stride below runs at the
@@ -721,7 +712,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const tenderJumpRef = useRef<JumpEngine>(createJumpEngine());
   const spaceHeldRef = useRef(false);
   const energyRef = useRef(10);
-  const tenderWallsRef = useRef<EdgeWork[]>([]);
   // THE BUILDING SYSTEM's face (Nigel, 2026-10-19): the terrain
   // bank the land has paid, and the open build card — a ghost hex
   // on the void, or a work already rising.
@@ -826,13 +816,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [pendingMarch, setPendingMarch] = useState<{ ids: number[] } | null>(null);
   const [lineDrag, setLineDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const lineDragRef = useRef<{ sx: number; sy: number } | null>(null);
-  // The taught works' arming (Nigel, 2026-10-18): a work
-  // chosen from the Awokin's wheel (its Binding constellation,
-  // carried into the wheel by the orders law) arms the work
-  // and opens the War-Grounds panel on the warden's hex,
-  // where the edge is chosen by the panel's own flow — one
-  // casting path, never two.
-  const [wgArmedWork, setWgArmedWork] = useState<{ kind: "ward" | "rune"; runeKind?: "snare" | "harm" | "meld" } | null>(null);
   // Feeding lives in the energy globe now (Nigel, 2026-10-18): the
   // bump re-reads the orb's own energy after a feed lands.
   const [orbBump, setOrbBump] = useState(0);
@@ -1056,7 +1039,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
   };
   const PATROL_SPEED = 26; // px per second — a hex crossing in ~3.5s
-  const [walls, setWalls] = useState<EdgeWork[]>([]); // edge works (server-canonical edges): wall / thorns / ward / rune
   // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT"),
   // slice 1: the construction's pieces on this land, served by
   // getTerritory with their footprints and derived protection;
@@ -1092,15 +1074,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [buildGhost, setBuildGhost] = useState<BuildGhost>(null);
   const [buildNote, setBuildNote] = useState<string>("");
   const buildDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
-  useEffect(() => { tenderWallsRef.current = walls; }, [walls]);
-  // An armed work (chosen in the radial's Binding menu) is spent the
-  // moment a work action resolves into fresh walls — the laying is
-  // done; a refusal leaves the walls untouched and the arm in hand.
-  const wallsSeenRef = useRef<EdgeWork[] | null>(null);
-  useEffect(() => {
-    if (wallsSeenRef.current === null) { wallsSeenRef.current = walls; return; }
-    if (wallsSeenRef.current !== walls) { wallsSeenRef.current = walls; setWgArmedWork(null); }
-  }, [walls]);
   // ── The Written Light on the land (the Grimoire, Nigel 2026-10-17) ──
   // The Tender's own castings from the book: standings served by
   // getTerritory, the book itself by getGrimoire, the Lv 3 gate by
@@ -1180,8 +1153,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
   // (The ward anchor state died with the two-tap ward flow — the T, Nigel 2026-10-24.)
 
-  const [skills, setSkills] = useState<{ awakenedId: number; skill: string }[]>([]); // Awoken skills ledger (warding / runeing)
-  const [wallTargeting, setWallTargeting] = useState(false); // true when the selected Awoken is choosing a hex edge to wall
   const [applyingAspect, setApplyingAspect] = useState<any | null>(null); // aspect orb selected, tap Awoken to apply
   // An aspect looking for a card brings the Awoken face forward.
   useEffect(() => { if (applyingAspect) { setCastMode(false); } }, [applyingAspect]);
@@ -1262,15 +1233,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [showBattleground, setShowBattleground] = useState(false);
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
-  /** The edge works touching a tile: a work stands on the edge
-   *  between its own hex and the neighbour across its dir, so
-   *  it touches both. Read by the Battleground's props (its
-   *  runes and thorns by tile) — the mirror that also read it
-   *  is retired (the Token Strip, 2026-10-23). */
-  const wallsTouchingTile = (t: { q: number; r: number }) => walls.filter(w =>
-    (w.q === t.q && w.r === t.r) ||
-    (w.q + WALL_DIR_DELTAS[w.dir][0] === t.q && w.r + WALL_DIR_DELTAS[w.dir][1] === t.r));
-  /** A written working's two hexes: its own, and the one
+  /** A written working's two hexes:  /** A written working's two hexes: its own, and the one
    *  across its written direction. */
   const grimEdgeTiles = (w: MapWorking): [{ q: number; r: number }, { q: number; r: number }] => {
     const a = { q: w.q ?? 0, r: w.r ?? 0 };
@@ -1918,7 +1881,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     appliedTokenRef.current = snap.token;
     const refreshed = snap.t;
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
-    setWalls(refreshed.walls ?? []); setSkills(refreshed.skills ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setWorkings(refreshed.workings ?? []);
     setTenderStand(refreshed.tender ?? null);
@@ -2189,28 +2151,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // ── THE TRAVERSAL LAW, the client's half (Nigel, 2026-10-19) ──
   // The same judgements the server makes on the anchor report,
   // kept here so the figure never presses its face into a closed
-  // edge: a WALL stops a walk but not a leap; a WARD stops even
-  // the sky; a rise of two trays wants a leap; a FLOATING ISLE
-  // wants the leap at its height.
-  const WALL_DIRS6: ReadonlyArray<readonly [number, number]> = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
-  const WALL_OPP6: ReadonlyArray<number> = [3, 4, 5, 0, 1, 2];
+  // crossing: a rise of two trays wants a leap; a FLOATING ISLE
+  // wants the leap at its height. (Edge Works' walls and wards
+  // once barred crossings here too; the system is removed whole
+  // — Nigel, 2026-10-27. The construction's walls bar the stride
+  // through the figure collision below, not through this law.)
   const hexDistOf = (a: { q: number; r: number }, b: { q: number; r: number }) =>
     (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-  const edgeKindClient = (a: TerritoryTile, b: TerritoryTile): string | null => {
-    const d = WALL_DIRS6.findIndex(([dq, dr]) => a.q + dq === b.q && a.r + dr === b.r);
-    if (d < 0) return null;
-    const flip = b.q < a.q || (b.q === a.q && b.r < a.r);
-    const cq = flip ? b.q : a.q, cr = flip ? b.r : a.r, cdir = flip ? WALL_OPP6[d] : d;
-    const w = tenderWallsRef.current.find(w => w.q === cq && w.r === cr && w.dir === cdir);
-    return w?.kind ?? null;
-  };
   const crossingBlocked = (a: TerritoryTile, b: TerritoryTile, now: number): boolean => {
     const eng = tenderJumpRef.current;
     if ((b.z ?? 0) > 0) return !jumpApex(eng, now);
     if (hexDistOf(a, b) === 1) {
-      const kind = edgeKindClient(a, b);
-      if (kind === "ward") return true;
-      if (kind === "wall" && !jumpAirborne(eng, now)) return true;
       if (((b.height ?? 1) - (a.height ?? 1)) >= 2 && !jumpAirborne(eng, now)) return true;
     }
     return false;
@@ -2218,7 +2169,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const crossingNeedsAir = (a: TerritoryTile, b: TerritoryTile): boolean => {
     if ((b.z ?? 0) > 0) return true;
     if (hexDistOf(a, b) === 1) {
-      if (edgeKindClient(a, b) === "wall") return true;
       if (((b.height ?? 1) - (a.height ?? 1)) >= 2) return true;
     }
     return false;
@@ -2722,17 +2672,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
     entries.push({ key: "ord-binding", sigil: "binding", label: "Binding", lit: p.stance === "binding", act: () => { void handleSetStance(id, "binding"); } } as WheelEntry);
-    if (p.stance === "binding") {
-      const taught = skills.filter(s => s.awakenedId === id).map(s => s.skill);
-      const arm = (kind: "ward" | "rune", runeKind?: "snare" | "harm" | "meld") => {
-        setWgArmedWork({ kind, runeKind });
-        setAttackTargeting(false);
-        setMoveTargeting(false);
-        setWgTileId(p.tileId);
-      };
-      if (taught.includes("warding")) entries.push({ key: "ord-ward", emoji: "🔷", label: "Ward · 3✦", act: () => arm("ward") } as WheelEntry);
-      if (taught.includes("runeing")) for (const rk of ["snare", "harm", "meld"] as const) entries.push({ key: `ord-rune-${rk}`, emoji: "🔶", label: `${rk.charAt(0).toUpperCase() + rk.slice(1)} · 3✦`, act: () => arm("rune", rk) } as WheelEntry);
-    }
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
     entries.push({ key: "ord-patrol", sigil: "arrow", label: p.patrolPath ? "Re-lay patrol" : "Patrol", lit: !!p.patrolPath, act: () => { setPatrolDraft(patrolRoadOf(p)); setPatrolSettingFor(id); } } as WheelEntry);
     const inParty = !!partyQ.data?.members.some(m => m.awakenedId === id);
@@ -3015,24 +2954,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     onUpdate();
   };
 
-  // ── Hex walls (War-Ground, Nigel 2026-10-15) ──────────────────────
-  // An Awoken standing on a hex raises a wall on one of its six edges:
-  // one tap on the edge itself (a fat invisible hit-strip laid exactly
-  // along the painted edge), 2 energy, instant. The wall blocks
-  // enemies in battle — their strikes land on it first — and carries
-  // its own HP. Edge dirs follow hexCellVertices order (0 = top edge,
-  // then clockwise), the same numbering the server canonicalises.
-  const handlePlaceWall = async (tileId: number, dir: number) => {
-    try {
-      await api.placeWall({ tileId, dir });
-      await refreshTerritory();
-      onUpdate();
-      showHexNotice("A wall rises on the hex edge — it will take the enemy's blows first.");
-    } catch (e) {
-      showHexNotice(e instanceof Error ? e.message : "The wall would not rise.");
-    }
-  };
-
   // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25) ─────────────────
   // Build mode's own click scaffolding: while it stands, the map's
   // presses belong to the construction (the capture layer in the
@@ -3225,60 +3146,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (q === a.q && r === a.r) return [tx, ty];
     const s = axialToScreenPt(q, r);
     return [s[0], s[1]];
-  };
-
-  // ── Edge works (War-Ground, Nigel 2026-10-15) ────────────────────
-  // The War-Grounds panel lays any of the four works through the one
-  // server law (placeEdgeWork): wall, thorns, ward (Warding hands),
-  // rune (Runeing hands, kind chosen at casting). Standing works can
-  // be strengthened at exponential cost or taken down; skills are
-  // taught through teachSkill. Every refusal speaks.
-  const refreshWorks = async () => {
-    await refreshTerritory();
-    onUpdate();
-  };
-  const WORK_NOTICE: Record<string, string> = {
-    wall: "A wall rises on the hex edge — passage closed, at no harm to any who test it.",
-    thorns: "Thorns take the hex edge — the crossing stays open, and dear in time.",
-    ward: "A ward is cast on the hex edge — a wall the sky cannot ignore.",
-    rune: "A rune is set on the hex edge — a trap, sleeping until it is sprung.",
-  };
-  const handlePlaceWork = async (tileId: number, dir: number, kind: "wall" | "thorns" | "ward" | "rune", runeKind?: "snare" | "harm" | "meld", style?: "stone" | "spire") => {
-    try {
-      await api.placeEdgeWork({ tileId, dir, kind, runeKind, style });
-      await refreshWorks();
-      showHexNotice(WORK_NOTICE[kind]);
-    } catch (e) {
-      showHexNotice(e instanceof Error ? e.message : "The work would not stand.");
-    }
-  };
-  const handleStrengthenWork = async (tileId: number, dir: number) => {
-    try {
-      const res = await api.strengthenEdgeWork({ tileId, dir });
-      await refreshWorks();
-      showHexNotice(`The ${res.work.kind} is strengthened to level ${res.work.level} — the next strengthening would cost ${res.nextCost}✦.`);
-    } catch (e) {
-      showHexNotice(e instanceof Error ? e.message : "The strengthening failed.");
-    }
-  };
-  const handleRemoveWork = async (tileId: number, dir: number) => {
-    try {
-      await api.removeEdgeWork({ tileId, dir });
-      await refreshWorks();
-      showHexNotice("The work comes down. The edge is open ground again.");
-    } catch (e) {
-      showHexNotice(e instanceof Error ? e.message : "The work would not come down.");
-    }
-  };
-  const handleTeachSkill = async (awakenedId: number, skill: "warding" | "runeing") => {
-    try {
-      await api.teachSkill({ awakenedId, skill });
-      await refreshWorks();
-      const aw = tenderItems.find(a => a.id === awakenedId);
-      showHexNotice(`${aw?.name ?? "The Awokin"} learns the ${skill === "warding" ? "Warding" : "Runeing"} skill — the teaching holds.`);
-    } catch (e) {
-      showHexNotice(e instanceof Error ? e.message : "The teaching failed.");
-    }
   };
 
   // The First Seed's company (Nigel via Wake, 2026-10-17): sending
@@ -3938,12 +3805,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the same victory twice. (A boss fight once resolved HERE, through
   // resolveBossBattle — the boss battle mode is abolished, Nigel
   // 2026-10-24, and its resolution path is gone with it.)
-  const handleVictoryDetected = async (survivors: number[] = [], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[], grim?: { grimState: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy: number }) => {
+  const handleVictoryDetected = async (survivors: number[] = [], grim?: { grimState: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy: number }) => {
     if (battleResolvedRef.current) return;
     battleResolvedRef.current = true;
   };
 
-  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => {
+  const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => {
     setShowBattleground(false);
     battleResolvedRef.current = false; // reset for next battle
     // Wave-pull battle (from mystery purification): resolve separately
@@ -3975,8 +3842,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         survivorIds: result.survivors,
         continueWave: result.continueWave,
         targetTileId: waveTarget?.tile?.id,
-        wallState: result.wallState,
-        runesTriggered: result.runesTriggered,
         grimState: result.grimState,
         grimEnergy: result.grimEnergy,
       });
@@ -5076,9 +4941,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         const { cx, cy } = tilePos(t);
         faint.push({ x: cx, y: cy, key });
       };
-      for (const w of walls) {
-        if (w.kind === "rune" || w.kind === "ward") addFaintAt(w.q, w.r, `edge-${w.edgeKey}`);
-      }
       for (const w of workings) {
         if (w.kind !== "rune" && w.kind !== "ward") continue;
         if (w.q != null && w.r != null) addFaintAt(w.q, w.r, `work-${w.id}`);
@@ -5096,21 +4958,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const HOLE_RX = size * 2.9, HOLE_RY = HOLE_RX * 0.55;
       // THE BLOCKING SEGMENTS — the standing geometry the
       // light may not cross, read from the same records
-      // the server's throw reads: the edge works' walls
-      // and wards stand on their whole edge; the
-      // construction's walls and doors stand by
-      // collisionSegments — a door's two standing parts,
-      // its open middle no segment at all.
+      // the server's throw reads: the construction's
+      // walls and doors stand by collisionSegments — a
+      // door's two standing parts, its open middle no
+      // segment at all. (The book's wards bar the server's
+      // per-hex throw at their edge; they cast no shade
+      // volume here — their glow is their own. Edge Works'
+      // walls and wards stood as segments too, until the
+      // system was removed whole, Nigel 2026-10-27.)
       type BlockSeg = { ax: number; ay: number; bx: number; by: number; key: string };
       const blockSegs: BlockSeg[] = [];
-      for (const w of walls) {
-        if (w.kind !== "wall" && w.kind !== "ward") continue;
-        const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
-        const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
-        const verts = hexCellVertices(c.cx, c.cy, size);
-        const a = verts[w.dir], b = verts[(w.dir + 1) % 6];
-        blockSegs.push({ ax: a[0], ay: a[1], bx: b[0], by: b[1], key: `edgewall-${w.edgeKey}` });
-      }
       for (const p of buildPieces) {
         if (p.kind !== "wall" && p.kind !== "door") continue;
         const fp = (pt: [number, number]) => { const { px, py } = isoOffset(pt[0], pt[1], size); return { x: originX + px, y: originY + py }; };
@@ -5434,12 +5291,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       ? cellLayer(hoverHexId, "hover") : null;
     const mistLayer = cellLayer(mistTileId, "mist");
     const targetMarker = cellLayer(targetHexId, "shine");
-    // Hex walls: a raised segment drawn along the wall's edge (a dark
-    // outer face offset outward, a paler top), paling as its HP falls.
-    // In wall-raising mode the selected Awoken's hex shows its six
-    // edges — a gold guide line plus a FAT invisible hit-strip along
-    // each free edge, so one tap (finger or mouse) picks exactly one
-    // side. Edges already walled show grey and take no tap.
     // The Written Light standing on the land (the Grimoire):
     // wards burn along their edge with their glyph at its heart,
     // runes sleep on their hex's floor. A Trees pales as it is
@@ -5750,117 +5601,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       </g>
     ) : null;
 
-    // THE DEPTH PASS (2026-10-26): the edge works' walls are
-    // standing things — collected as loose nodes for the pass
-    // (each wall's base anchor is the front end of its edge);
-    // the targeting overlay below keeps its own layer.
-    const edgeWallNodes = walls.map(w => {
-          const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
-          const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
-          const verts = hexCellVertices(c.cx, c.cy, size);
-          const [x1, y1] = verts[w.dir];
-          const [x2, y2] = verts[(w.dir + 1) % 6];
-          const mx = (x1 + x2) / 2 - c.cx, my = (y1 + y2) / 2 - c.cy;
-          const mlen = Math.hypot(mx, my) || 1;
-          const ox = (mx / mlen) * size * 0.07, oy = (my / mlen) * size * 0.07;
-          const frac = w.maxHp > 0 ? w.hp / w.maxHp : 0;
-          // Each work draws in its own grammar (War-Ground, 2026-10-15):
-          // walls timber, wards violet light, thorns green teeth,
-          // runes amber dashes with a sleeping diamond at the middle.
-          if (w.kind === "thorns") {
-            const seg = 7; const pts: string[] = [];
-            for (let i = 0; i <= seg; i++) {
-              const t = i / seg;
-              const bx = x1 + (x2 - x1) * t, by = y1 + (y2 - y1) * t;
-              const off = i % 2 === 0 ? 0 : size * 0.055;
-              pts.push(`${(bx + (mx / mlen) * off).toFixed(1)},${(by + (my / mlen) * off).toFixed(1)}`);
-            }
-            return (
-              <g key={w.edgeKey}>
-                <polyline points={pts.join(" ")} fill="none" stroke="#69a84f" strokeWidth={size * 0.045} strokeLinejoin="round" />
-              </g>
-            );
-          }
-          if (w.kind === "wall") {
-            // Nigel's pieces (2026-10-16): the drawn segment for
-            // this edge, seated corner-to-corner by similarity —
-            // one wall of a hex, built at a time, as he layered
-            // them. Which set a wall wears was chosen when it
-            // was built, edge by edge (Nigel, 2026-10-16):
-            // stone, or spires. Wear shows as fading, the
-            // drawing intact.
-            const piece = WALL_STYLES[w.style === "spire" ? "spire" : "stone"][w.dir];
-            const pdx = piece.x2 - piece.x1, pdy = piece.y2 - piece.y1;
-            const mdx = x2 - x1, mdy = y2 - y1;
-            const sc = Math.hypot(mdx, mdy) / Math.max(1, Math.hypot(pdx, pdy));
-            const rot = (Math.atan2(mdy, mdx) - Math.atan2(pdy, pdx)) * 180 / Math.PI;
-            return (
-              <g key={w.edgeKey} transform={`translate(${x1} ${y1}) rotate(${rot.toFixed(2)}) scale(${sc.toFixed(4)}) translate(${(-piece.x1).toFixed(1)} ${(-piece.y1).toFixed(1)})`} opacity={(0.3 + 0.7 * frac).toFixed(2)}>
-                <image href={piece.src} x={0} y={0} width={piece.w} height={piece.h} />
-              </g>
-            );
-          }
-          if (w.kind === "ward") {
-            return (
-              <g key={w.edgeKey}>
-                {/* THE LIGHTING SYSTEM (2026-10-26): the ward
-                    itself carries its faint glow — the wide
-                    soft line under its bright core, in the
-                    ink-wash language: a soft light, no neon. */}
-                <line className="edge-light-glow" x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(150,130,255,0.35)" strokeWidth={size * 0.12} strokeLinecap="round" />
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={frac > 0.5 ? "#b7a6ff" : frac > 0.25 ? "#8d7bd8" : "#5d4d99"} strokeWidth={size * 0.04} strokeLinecap="round" />
-              </g>
-            );
-          }
-          if (w.kind === "rune") {
-            const cxm = (x1 + x2) / 2, cym = (y1 + y2) / 2, dd = size * 0.07;
-            return (
-              <g key={w.edgeKey}>
-                {/* THE LIGHTING SYSTEM (2026-10-26): the rune
-                    carries its faint glow too — a soft amber
-                    bed under its dashes and diamond, the
-                    ward's own grammar of light in amber. */}
-                <line className="edge-light-glow" x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(232,161,60,0.26)" strokeWidth={size * 0.12} strokeLinecap="round" />
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e8a13c" strokeWidth={size * 0.035} strokeDasharray={`${2 / zoom} ${6 / zoom}`} strokeLinecap="round" />
-                <polygon points={`${cxm},${cym - dd} ${cxm + dd},${cym} ${cxm},${cym + dd} ${cxm - dd},${cym}`} fill="#e8a13c" opacity={0.9} />
-              </g>
-            );
-          }
-          return (
-            <g key={w.edgeKey}>
-              <line x1={x1 + ox} y1={y1 + oy} x2={x2 + ox} y2={y2 + oy} stroke="#4a3826" strokeWidth={size * 0.11} strokeLinecap="round" />
-              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={frac > 0.5 ? "#d9c68f" : frac > 0.25 ? "#b39b5e" : "#7d5f30"} strokeWidth={size * 0.075} strokeLinecap="round" />
-            </g>
-          );
-        });
-    const wallTargetingLayer = wallTargeting && selectedAwoken !== null ? (
-      <g key="wall-targeting">
-        {(() => {
-          const p = placements.find(pp => pp.awakenedId === selectedAwoken);
-          const t = p ? tiles.find(tt => tt.id === p.tileId) : null;
-          if (!t || t.cursed) return null;
-          const { cx, cy } = tilePos(t);
-          const verts = hexCellVertices(cx, cy, size);
-          return (
-            <g>
-              {verts.map((v, d) => {
-                const n = verts[(d + 1) % 6];
-                const taken = walls.some(w => w.edgeKey === canonicalWallEdgeKey(t.q, t.r, d));
-                return (
-                  <g key={d}>
-                    <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke={taken ? "rgba(140,140,140,0.35)" : "rgba(255,215,0,0.6)"} strokeWidth={3 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none" />
-                    {!taken && (
-                      <line x1={v[0]} y1={v[1]} x2={n[0]} y2={n[1]} stroke="rgba(255,215,0,0.02)" strokeWidth={24 / zoom} strokeLinecap="round" style={{ cursor: "pointer" }}
-                        onClick={(e) => { e.stopPropagation(); handlePlaceWall(t.id, d); }} />
-                    )}
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })()}
-      </g>
-    ) : null;
     // War-Grounds guide (Nigel, 2026-10-16): while the dock stands
     // open, every hex where a work may be laid — an Awoken standing,
     // the ground uncursed — wears a dotted outline on the map, and
@@ -5880,7 +5620,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               strokeDasharray={isOpen ? undefined : `${1 / zoom} ${6 / zoom}`}
               strokeLinecap="round"
               style={{ cursor: "pointer" }}
-              onClick={(e) => { e.stopPropagation(); if (t.id !== wgTileId) setWgArmedWork(null); setWgTileId(t.id); }}
+              onClick={(e) => { e.stopPropagation(); setWgTileId(t.id); }}
             />
           );
         })}
@@ -6623,7 +6363,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // uses, so the sort can never drift from the picture:
     //   · a field Awoken — the ground under its feet (fy, the
     //     figures' own depth measure since free standing);
-    //   · an edge work's wall — the front end of its edge;
     //   · a construction wall — the front point of its
     //     footprint;
     //   · a seed — a grown seed's drawn base (the hex heart
@@ -6633,14 +6372,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     figureRows.forEach((row, i) => {
       const node = awokenElements[i];
       if (node) standingItems.push({ key: `standing-fig-${row.placement.id}`, baseY: row.fy, node });
-    });
-    walls.forEach((w, i) => {
-      const node = edgeWallNodes[i];
-      if (!node) return;
-      const wt = tiles.find(tt => tt.q === w.q && tt.r === w.r);
-      const c = wt ? tilePos(wt) : (() => { const { px, py } = isoOffset(w.q, w.r, size); return { cx: originX + px, cy: originY + py }; })();
-      const verts = hexCellVertices(c.cx, c.cy, size);
-      standingItems.push({ key: `standing-edge-${w.edgeKey}`, baseY: Math.max(verts[w.dir][1], verts[(w.dir + 1) % 6][1]), node });
     });
     buildPieces.filter(p => p.kind === "wall" || p.kind === "door").forEach((p, i) => {
       const node = buildWallNodes[i];
@@ -6723,7 +6454,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         {tenderLayer}
         <g key="land-front-top" className="land-cam" transform={camTransform}>
           {standingsFront.map(it => it.node)}
-          {wallTargetingLayer}
           {columnsLayer}
           {dropFxLayer}
           {patrolGuideLayer}
@@ -8436,19 +8166,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             bonusTiles={bonusTiles}
             onVictoryDetected={handleVictoryDetected}
             mood={mood?.mood ?? null}
-            wallsByTile={Object.fromEntries(tiles.map(t => [
-              t.id,
-              wallsTouchingTile(t)
-                .filter(w => w.kind === "wall" || w.kind === "ward")
-                .map(w => ({ edgeKey: w.edgeKey, hp: w.hp, kind: w.kind })),
-            ]))}
-            runesByTile={Object.fromEntries(tiles.map(t => [
-              t.id,
-              wallsTouchingTile(t)
-                .filter(w => w.kind === "rune")
-                .map(w => ({ edgeKey: w.edgeKey, runeKind: (w.runeKind ?? "meld") as "snare" | "harm" | "meld", level: w.level ?? 1 })),
-            ]))}
-            edgeThornTiles={tiles.filter(t => wallsTouchingTile(t).some(w => w.kind === "thorns")).map(t => t.id)}
             grimWorkings={workings}
             grimRunesByTile={Object.fromEntries(workings.filter(w => (w.kind === "rune" || w.kind === "spell") && w.tileId != null).map(w => [w.tileId!, w]))}
             grimWardsByTile={grimBattleProps().wardsByTile}
@@ -8482,15 +8199,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       <button
         className={`wg-toggle ${wgTileId !== null ? "open" : ""}`}
         onClick={() => {
-          if (wgTileId !== null) { setWgTileId(null); setWgArmedWork(null); return; }
+          if (wgTileId !== null) { setWgTileId(null); return; }
           const sel = selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken) : undefined;
           const target = sel ?? placements[0];
           if (!target) { showHexNotice("Station an Awokin on the field first — the War-Grounds open on the hex an Awokin stands on."); return; }
-          setWgArmedWork(null);
           setWgTileId(target.tileId);
           showHexNotice("The War-Grounds are open.");
         }}
-        title="War-Grounds — fine work on one hex: edge works, buildings, readings"
+        title="War-Grounds — fine work on one hex: buildings, readings"
       >
         <svg viewBox="0 0 32 32"><path d="M10 27 V5"/><path d="M10 6 C13.5 4.6 16.5 7 21.5 5.4 V12.4 C16.5 14 13.5 11.4 10 12.8"/><path d="M6 27 H14"/></svg>
       </button>
@@ -8790,7 +8506,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         );
       })()}
       {/* War-Grounds fine-edit panel (War-Ground, Nigel 2026-10-15):
-          one hex enlarged — fat edges for walls, the building seat,
+          one hex enlarged — the building seat, the seed missions,
           the tile's readings. All actions ride existing server law. */}
       {wgTileId !== null && (() => {
         const tile = tiles.find(t => t.id === wgTileId);
@@ -8801,10 +8517,9 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             const a = tenderItems.find(x => x.id === p.awakenedId);
             return a ? {
               id: a.id, name: a.name, power: a.power, stance: p.stance, level: a.level,
-              skills: skills.filter(s => s.awakenedId === a.id).map(s => s.skill),
             } : null;
           })
-          .filter(Boolean) as { id: number; name: string; power: number; stance: string; level?: number; skills: string[] }[];
+          .filter(Boolean) as { id: number; name: string; power: number; stance: string; level?: number }[];
         return (
           <WarGrounds
             seed={seedsQ.data?.seeds.find(sd => sd.tileId === tile.id) ?? null}
@@ -8815,23 +8530,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             onFetchSeed={handleFetchSeed}
             onHoldSeed={handleHoldSeed}
             tile={tile}
-            walls={walls}
             standing={standing}
             tileBuildings={buildings.filter(b => b.tileId === tile.id)}
             energy={energy}
-            onClose={() => { setWgTileId(null); setWgArmedWork(null); }}
-            onPlaceWork={(dir, kind, runeKind, style) => handlePlaceWork(tile.id, dir, kind, runeKind, style)}
-            onStrengthenWork={(dir) => handleStrengthenWork(tile.id, dir)}
-            onRemoveWork={(dir) => handleRemoveWork(tile.id, dir)}
-            onTeachSkill={(awakenedId, skill) => handleTeachSkill(awakenedId, skill)}
-            armedWork={wgArmedWork}
-            onCancelArm={() => setWgArmedWork(null)}
+            onClose={() => { setWgTileId(null); }}
             onChooseBuilding={(def) => {
               setSelectedBuilding(def);
               setPendingTile(tile.id);
               setSelectedBuilders([]);
               setWgTileId(null);
-              setWgArmedWork(null);
             }}
             onDemolish={async (buildingId) => {
               try {
@@ -8844,7 +8551,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 showHexNotice(e instanceof Error ? e.message : "The building would not come down.");
               }
             }}
-            onClaimSpark={tile.spark ? () => { setWgTileId(null); setWgArmedWork(null); void handleSparkClick(tile.id); } : undefined}
+            onClaimSpark={tile.spark ? () => { setWgTileId(null); void handleSparkClick(tile.id); } : undefined}
           />
         );
       })()}

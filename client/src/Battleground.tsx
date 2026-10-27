@@ -57,22 +57,10 @@ interface BattlegroundProps {
   assets: FieldAsset[];
   energy: number;
   maxEnergy: number;
-  onBattleEnd: (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; wallState?: { edgeKey: string; hp: number }[]; runesTriggered?: string[]; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => void;
+  onBattleEnd: (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => void;
   onClose: () => void;
   bonusTiles?: { id: number; q: number; r: number }[];
-  onVictoryDetected?: (survivors: number[], wallState?: { edgeKey: string; hp: number }[], runesTriggered?: string[], grim?: { grimState: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy: number }) => Promise<void>;
-  // Hex walls standing on the defenders' tiles (War-Ground, 2026-10-15):
-  // tileId → the walls on that tile's edges. Enemy strikes against a
-  // fighter land on its tile's walls first; the walls' remaining HP is
-  // reported back at resolution and persisted by the server.
-  wallsByTile?: Record<number, { edgeKey: string; hp: number; kind?: string }[]>;
-  // Edge works, continued (War-Ground, Nigel 2026-10-15): runes laid
-  // on the defenders' tiles spring on the first enemy who closes on
-  // them (one-shot — the sprung edges are reported at resolution and
-  // consumed by the server); thorns on a tile's edges slow its
-  // attackers, costing each its next strike.
-  runesByTile?: Record<number, { edgeKey: string; runeKind: "snare" | "harm" | "meld"; level: number }[]>;
-  edgeThornTiles?: number[];
+  onVictoryDetected?: (survivors: number[], grim?: { grimState: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy: number }) => Promise<void>;
   // The Written Light standing on this battle's ground (the
   // Grimoire, Nigel 2026-10-17): the Tender's map castings whose
   // hexes and edges this battle touches, with the lookups the
@@ -208,38 +196,14 @@ function dominantElementOf(aw?: Awakened): Element {
   return best;
 }
 
-export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, mood = null, wallsByTile = {}, runesByTile = {}, edgeThornTiles = [], grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {}, grimTileAxial = {} }: BattlegroundProps) {
+export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, mood = null, grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {}, grimTileAxial = {} }: BattlegroundProps) {
   // The creator's live enemy art (UI Workspace uploads/selection).
   const { data: enemyArtData } = useEnemyArt();
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [enemies, setEnemies] = useState<Fighter[]>([]);
-  // Hex walls (War-Ground, 2026-10-15): live HP per wall edge during
-  // the battle. Enemy strikes against a fighter whose tile still has
-  // a standing wall land on the wall instead — the wall blocks the
-  // crossing. Remaining HP is reported at resolution.
-  const [wallHp, setWallHpState] = useState<Record<string, number>>(() => {
-    const init: Record<string, number> = {};
-    for (const list of Object.values(wallsByTile)) for (const w of list) init[w.edgeKey] = w.hp;
-    return init;
-  });
-  const wallHpRef = useRef(wallHp);
-  const setWallHp = (updater: (prev: Record<string, number>) => Record<string, number>) => {
-    wallHpRef.current = updater(wallHpRef.current);
-    setWallHpState(wallHpRef.current);
-  };
-  const currentWallState = (): { edgeKey: string; hp: number }[] =>
-    Object.entries(wallHpRef.current).map(([edgeKey, hp]) => ({ edgeKey, hp }));
-  // Edge-work traps (War-Ground, Nigel 2026-10-15): skip tokens are
-  // strikes an enemy owes to thorns or a snare; sprung runes are
-  // one-shot and reported at resolution for the server to consume.
+  // Strikes an enemy owes (the book's Lattice pins with
+  // these): a held enemy's strike never lands.
   const skipStrikesRef = useRef<Map<string, number>>(new Map());
-  const runesFiredRef = useRef<Set<string>>(new Set());
-  const runesTriggeredRef = useRef<string[]>([]);
-  const currentRunesTriggered = (): string[] => [...runesTriggeredRef.current];
-  const wallShieldFor = (tileId?: number): number => {
-    if (tileId == null) return 0;
-    return (wallsByTile[tileId] ?? []).reduce((sum, w) => sum + (wallHpRef.current[w.edgeKey] ?? 0), 0);
-  };
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState("The Unraveling comes...");
   const [logHistory, setLogHistory] = useState<string[]>(["The Unraveling comes..."]);
@@ -672,50 +636,19 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
   };
 
   const applyEnemyStrike = (attacker: Fighter, target: Fighter) => {
-    // Held fast (War-Ground, Nigel 2026-10-15): a strike owed to
-    // thorns crossed or a snare sprung is a strike that never lands.
+    // Held fast: a strike owed to a sprung working (the book's
+    // Lattice pin) is a strike that never lands.
     const held = skipStrikesRef.current.get(attacker.id) ?? 0;
     if (held > 0) {
       skipStrikesRef.current.set(attacker.id, held - 1);
-      addLog(`${attacker.name} is held fast — thorns and sprung runes drag at it, and its strike falters.`);
+      addLog(`${attacker.name} is held fast — the working's pin drags at it, and its strike falters.`);
       return;
-    }
-    if (target.tileId != null) {
-      // A rune springs as the enemy closes on the tile — the trap is
-      // on the crossing, before any barrier is tested. One-shot.
-      const rune = (runesByTile[target.tileId] ?? []).find(r => !runesFiredRef.current.has(r.edgeKey));
-      if (rune) {
-        runesFiredRef.current.add(rune.edgeKey);
-        runesTriggeredRef.current.push(rune.edgeKey);
-        const scale = Math.pow(2, (rune.level ?? 1) - 1);
-        if (rune.runeKind === "harm" || rune.runeKind === "meld") {
-          const rd = (rune.runeKind === "harm" ? 6 : 3) * scale;
-          setEnemiesBoth(prev => prev.map(e => e.id === attacker.id ? { ...e, hp: Math.max(0, e.hp - rd) } : e));
-          const rNumId = `rune-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-          setDmgNumbers(prev => [...prev, { id: rNumId, fighterId: attacker.id, dmg: rd, crit: false }]);
-          later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== rNumId)));
-        }
-        if (rune.runeKind === "snare") {
-          skipStrikesRef.current.set(attacker.id, (skipStrikesRef.current.get(attacker.id) ?? 0) + 1);
-          addLog(`A snare rune springs under ${attacker.name} — it is held fast, and its strike never comes!`);
-          return;
-        }
-        if (rune.runeKind === "meld") {
-          addLog(`A meld rune springs under ${attacker.name} — bitten and held, its strike never comes!`);
-          return;
-        }
-        addLog(`A harm rune springs under ${attacker.name} — the Unraveling is torn!`);
-      }
-      // Thorns slow the crossing: this strike lands, the next is owed.
-      if (edgeThornTiles.includes(target.tileId)) {
-        skipStrikesRef.current.set(attacker.id, Math.max(skipStrikesRef.current.get(attacker.id) ?? 0, 1));
-      }
     }
     // The Written Light answers on this ground (the Grimoire):
     // a floor rune springs as the dark closes on its hex, a Seal
     // across the very crossing stops the blow and answers it,
-    // and the Trees take the blow into their own health — all
-    // before the walls are tested, by the book's numbers.
+    // and the Trees take the blow into their own health, by
+    // the book's numbers.
     if (target.tileId != null) {
       const grune = grimRunesByTile[target.tileId];
       const gst = grune ? grimRef.current.get(grune.id) : undefined;
@@ -821,30 +754,6 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           : `${grimName(w)} are broken bringing ${attacker.name}'s strike down — for this battle. The seed remembers them.`);
         setHitFlash(target.id);
         later(400, () => setHitFlash(null));
-        return;
-      }
-    }
-    // Hex walls block the crossing (War-Ground, 2026-10-15): while a
-    // wall stands on the target's tile, the enemy's strike lands on
-    // the WALL — its full power against the wall's HP, no toughness —
-    // and the fighter behind it is untouched. Wards stand in the same
-    // ledger and answer strikes the same way — a wall of the other
-    // kind (and the only one the sky cannot ignore, when fliers come).
-    if (target.tileId != null) {
-      const standing = (wallsByTile[target.tileId] ?? []).find(w => (wallHpRef.current[w.edgeKey] ?? 0) > 0);
-      if (standing) {
-        const wallDmg = Math.max(1, attacker.power);
-        const left = Math.max(0, (wallHpRef.current[standing.edgeKey] ?? 0) - wallDmg);
-        setWallHp(prev => ({ ...prev, [standing.edgeKey]: left }));
-        const workName = standing.kind === "ward" ? "ward" : "wall";
-        addLog(left > 0
-          ? `${attacker.name} hammers the ${workName} before ${target.name} — the ${workName} holds at ${left}.`
-          : `${attacker.name} brings the ${workName} down before ${target.name}!`);
-        setHitFlash(target.id);
-        later(400, () => setHitFlash(null));
-        const numId = `wall-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setDmgNumbers(prev => [...prev, { id: numId, fighterId: target.id, dmg: wallDmg, crit: false }]);
-        later(1200, () => setDmgNumbers(prev => prev.filter(n => n.id !== numId)));
         return;
       }
     }
@@ -997,7 +906,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setTimeout(async () => {
         if (onVictoryDetected) {
           const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!).filter(Boolean);
-          await onVictoryDetected(survivors, currentWallState(), currentRunesTriggered(), grimReportBg());
+          await onVictoryDetected(survivors, grimReportBg());
         }
         setShowVictoryScreen(true);
       }, 1500);
@@ -1007,7 +916,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       setSimRunning(false);
       trackPlayer.stop();
       addLog("THE LINE FALLS...");
-      setTimeout(() => onBattleEnd({ victory: false, survivors: [], wallState: currentWallState(), runesTriggered: currentRunesTriggered(), ...grimReportBg() }), 2500);
+      setTimeout(() => onBattleEnd({ victory: false, survivors: [], ...grimReportBg() }), 2500);
     }
   }, [fighters, enemies]);
 
@@ -1131,7 +1040,6 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
               <div className="thermo-bulb" />
             </div>
             {f.field && <div className="field-badge">⚔</div>}
-            {(() => { const shield = wallShieldFor(f.tileId); return shield > 0 ? <div className="field-badge" style={{ right: "auto", left: 2 }} title="Hex wall HP shielding this fighter">🧱{shield}</div> : null; })()}
             {dmgNumbers.filter(n => n.fighterId === f.id).map(n => (
               <div key={n.id} className={`dmg-number ${n.crit ? "crit" : ""}`}>-{n.dmg}</div>
             ))}
@@ -1264,13 +1172,13 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
           <div className="victory-buttons">
             <button className="abtn raise-binding" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered(), ...grimReportBg() });
+              onBattleEnd({ victory: true, survivors, bonusTileId: pickedTerritory ?? undefined, ...grimReportBg() });
             }}>
               ✦ Rest — end the run
             </button>
             <button className="abtn continue-wave" onClick={() => {
               const survivors = fighters.filter(f => f.hp > 0 && f.field).map(f => f.awokenId!);
-              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined, wallState: currentWallState(), runesTriggered: currentRunesTriggered(), ...grimReportBg() });
+              onBattleEnd({ victory: true, survivors, continueWave: true, bonusTileId: pickedTerritory ?? undefined, ...grimReportBg() });
             }}>
               Continue →
             </button>
