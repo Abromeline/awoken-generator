@@ -160,10 +160,10 @@
    2026-10-17): the TOP-RIGHT THIRD of the screen, given a
    GLOW, and LOCKED IN PLACE — fixed, it does not scroll,
    shift, or ride the header's flow. */
-.deck-button{position:fixed;top:12px;left:67%;right:auto;display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:60}
-.deck-button img{width:324px;height:324px;object-fit:contain;animation:terrain-glow 2.8s ease-in-out infinite}
+.deck-button{position:fixed;top:12px;left:67%;right:auto;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;color:inherit;padding:0;z-index:60}
+.deck-button img{width:162px;height:162px;object-fit:contain;animation:terrain-glow 2.8s ease-in-out infinite}
 @keyframes terrain-glow{0%,100%{filter:drop-shadow(0 0 9px rgba(240,214,140,0.55)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}50%{filter:drop-shadow(0 0 22px rgba(240,214,140,0.95)) drop-shadow(0 4px 12px rgba(0,0,0,0.5))}}
-.deck-button span{font-size:39px;font-weight:600;letter-spacing:0.05em;text-shadow:0 2px 8px #000}
+.deck-button span{font-size:19.5px;font-weight:600;letter-spacing:0.05em;text-shadow:0 2px 8px #000}
 .decks-view{max-width:900px;margin:0 auto;padding:16px}
 .decks-view header{margin-bottom:16px}
 .deck-create{display:flex;gap:8px;margin-bottom:20px}
@@ -2606,10 +2606,14 @@ body.defeat-flash {
   /* Make terrain map button smaller — superseded in size by
      Nigel's 2026-10-25 "make 2x bigger", and grown by half
      again the same night ("trim the button to it own edges
-     yes but then make it bigger"): the phone mark now
-     stands at 60px, three times the 20px it once stood at. */
-  .deck-button { font-size: 18px; padding: 9px 15px; }
-  .deck-button img { width: 60px; height: 60px; }
+     yes but then make it bigger"): the phone mark then
+     stood at 60px. Halved again by Nigel's 2026-10-27
+     ruling (mark 60->30, this rule's own font 18->9 and
+     padding 9px 15px -> 4.5px 7.5px — the padding actually
+     rendered at phone width is the .tender-tools rule
+     below, halved there in step). */
+  .deck-button { font-size: 9px; padding: 4.5px 7.5px; }
+  .deck-button img { width: 30px; height: 30px; }
 }
 
 /* Terrain Map button — the RIGHT side of the screen (Nigel,
@@ -2625,7 +2629,13 @@ body.defeat-flash {
    is trimmed to the motif's own edges AND every part of
    the box grows BY HALF AGAIN from the doubled stand
    (mark 216->324, label 26->39, gap 4->6, padding
-   16px 0 -> 24px 0), the corner anchor unmoved. */
+   16px 0 -> 24px 0), the corner anchor unmoved.
+   2026-10-27 (Nigel: halve the Return / Terrain button):
+   every part of the box stands at HALF again — mark
+   324->162, label 39->19.5, gap 6->3, padding
+   24px 0 -> 12px 0 — the corner anchor (right:90px,
+   bottom:200px) unmoved, the hit area shrinking with
+   the visual. */
 .deck-button {
   position: fixed !important;
   bottom: 200px !important;
@@ -2633,7 +2643,7 @@ body.defeat-flash {
   left: auto !important;
   top: auto !important;
   z-index: 1000 !important;
-  padding: 24px 0 !important;
+  padding: 12px 0 !important;
 }
 @media (max-width: 768px) {
   .deck-button {
@@ -2649,9 +2659,10 @@ body.defeat-flash {
      .tender-tools button) doubled to 20px 8px, then grew
      by half again to 30px 12px (Nigel, 2026-10-25:
      "trim the button to it own edges yes but then make
-     it bigger"). */
+     it bigger"). Halved with the rest of the box by
+     Nigel's 2026-10-27 ruling: 30px 12px -> 15px 6px. */
   .tender-tools .deck-button {
-    padding: 30px 12px !important;
+    padding: 15px 6px !important;
   }
 }
 
