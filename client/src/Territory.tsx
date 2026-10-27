@@ -251,6 +251,25 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
   return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 }
 
+/** The drawn width of the fitted hex cell at a horizontal line
+ *  y — the face polygon's own cross-section there, read off the
+ *  same vertices the tiles are drawn with, so it is exact at
+ *  every zoom. */
+function hexWidthAtY(cx: number, cy: number, size: number, y: number): number {
+  const verts = hexCellVertices(cx, cy, size);
+  let minX = Infinity, maxX = -Infinity;
+  for (let i = 0; i < verts.length; i++) {
+    const [x1, y1] = verts[i];
+    const [x2, y2] = verts[(i + 1) % verts.length];
+    if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) {
+      const x = x1 + ((y - y1) / (y2 - y1)) * (x2 - x1);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+    }
+  }
+  return maxX - minX;
+}
+
 /** The six wedge points of a hex (Nigel, 2026-10-18 — his design):
  *  the face divides into six FLAT-EDGED triangles — centre plus two
  *  neighbouring corners each — and the Dream Shroom's plots sit at
@@ -5729,15 +5748,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // for the star seed" — the ⭐ glyph that stood at those
     // seats is gone; the meteor is the seed's face);
     // the Sapling and the Beacon wear Nigel's own artwork,
-    // standing on their hex. THE BEACON'S HEIGHT IS RULED
-    // (2026-10-24): twice the Tender figure's height — the
-    // Tender figure stands 62 of these map units, so the
-    // Beacon stands 124. THE SAPLING'S HEIGHT IS NOT RULED:
-    // it stands at the Tender figure's height (62) as a
-    // STAND-IN measure for Nigel's ruling, named in the
-    // build report. THE BASTION HAS NO FACE — a Bastion-
-    // stage seed wears the Beacon's face and the Bastion's
-    // name until Nigel draws its own.
+    // standing on their hex. THE BEACON FILLS ITS HEX AND
+    // WEARS NO NAME (Nigel, 2026-10-27: "make the beacon big
+    // enough to fully fill its hex. and remove the text from
+    // it labeling it a beacon we dont need that... no beacon
+    // on any field needs to by labled beacon... its a giant
+    // shining beacon... we get it"): the beacon-stage art is
+    // drawn as wide as its hex's face at the art's base line
+    // (hexWidthAtY — the face's own geometry), its height
+    // following the art's own proportions; the twice-the-
+    // Tender measure of 2026-10-24 is superseded. THE
+    // SAPLING'S HEIGHT IS NOT RULED: it stands at the Tender
+    // figure's height (62) as a STAND-IN measure for Nigel's
+    // ruling, named in the build report. THE BASTION HAS NO
+    // FACE — a Bastion-stage seed wears the Beacon's face at
+    // the same fill (the one art is never two sizes on one
+    // field) and keeps the Bastion's name.
     const SEED_STAGE_FACE: Record<string, string> = {
       starseed: "Starseed", sapling: "Sapling of Light", beacon: "Beacon", bastion: "Bastion",
     };
@@ -5770,15 +5796,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           if (stage === "sapling" || stage === "beacon" || stage === "bastion") {
             // The grown faces: Nigel's artwork, standing on the
             // hex, base at the hex's heart. The Beacon's beam
-            // runs off the top of his canvas, as drawn.
+            // runs off the top of his canvas, as drawn. The
+            // beacon-stage art (and the bastion wearing it)
+            // fills its hex: as wide as the face at the base
+            // line, the height following the art's own
+            // 512/992 proportions — and the beacon stage wears
+            // no name text under it (Nigel, 2026-10-27).
             const art = stage === "sapling" ? seedSaplingArt : seedBeaconArt;
-            const figH = stage === "sapling" ? 62 : 124; // land units; the Tender figure stands 62
-            const figW = figH * (stage === "sapling" ? 512 / 846 : 512 / 992);
             const base = cy + size * 0.3;
+            const figW = stage === "sapling" ? 62 * (512 / 846) : hexWidthAtY(cx, cy, size, base);
+            const figH = stage === "sapling" ? 62 : figW * (992 / 512);
             return (
               <g key={sd.id}>
                 <image href={art} x={cx - figW / 2} y={base - figH} width={figW} height={figH} preserveAspectRatio="xMidYMax meet" />
-                <text x={cx} y={base + size * 0.42} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">{SEED_STAGE_FACE[stage]}</text>
+                {stage !== "beacon" && <text x={cx} y={base + size * 0.42} textAnchor="middle" fontSize={size * 0.25} fill="#ffd700">{SEED_STAGE_FACE[stage]}</text>}
                 {sd.state === "held" && <text x={cx} y={base + size * 0.72} textAnchor="middle" fontSize={size * 0.22} fill="#e8cf8a">held through {sd.defenses} {sd.defenses === 1 ? "stand" : "stands"}</text>}
                 {sd.nextStageAt != null && sd.fedEnergy > 0 && <text x={cx} y={base + size * (sd.state === "held" ? 1.0 : 0.72)} textAnchor="middle" fontSize={size * 0.22} fill="#b8a06a">fed {sd.fedEnergy} of {sd.nextStageAt}</text>}
               </g>

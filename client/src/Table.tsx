@@ -443,6 +443,25 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
   return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 }
 
+/** The drawn width of the fitted hex cell at a horizontal line
+ *  y — the face polygon's own cross-section there, read off the
+ *  same vertices the tiles are drawn with, so it is exact at
+ *  every zoom. */
+function hexWidthAtY(cx: number, cy: number, size: number, y: number): number {
+  const verts = hexCellVertices(cx, cy, size);
+  let minX = Infinity, maxX = -Infinity;
+  for (let i = 0; i < verts.length; i++) {
+    const [x1, y1] = verts[i];
+    const [x2, y2] = verts[(i + 1) % verts.length];
+    if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) {
+      const x = x1 + ((y - y1) / (y2 - y1)) * (x2 - x1);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+    }
+  }
+  return maxX - minX;
+}
+
 /** The stage's one measure: the hex base size the instance is
  *  drawn at. The stage's frame is NOT fixed — the viewBox is
  *  computed from state.map's own extents (see stageBox), so the
@@ -2997,13 +3016,24 @@ export default function Table() {
   if (shared.seed && shared.seed.level >= 2) {
     const c = centerOf(SEED_TILE_ID);
     if (c) {
+      // THE BEACON FILLS ITS HEX (Nigel, 2026-10-27 — the same
+      // ruling as the homeland's): at level 3 the seed's art is
+      // drawn as wide as its hex's face at the art's base line
+      // (hexWidthAtY — the face's own geometry), its height
+      // following the art's own 512/992 proportions, seated on
+      // the same base (centre +8). The sapling (level 2) keeps
+      // its measure. This ground never wore a field label on
+      // the seed, and none is added.
+      const grown = shared.seed.level >= 3;
+      const seedW = grown ? hexWidthAtY(c.cx, c.cy, TILE_SIZE, c.cy + 8) : 24;
+      const seedH = grown ? seedW * (992 / 512) : 40;
       figures.push({
         key: "seed-face", gy: c.cy + 8,
         node: (
           <g key="seed-face" pointerEvents="none">
             <image href={shared.seed.stage === "beacon" || shared.seed.stage === "bastion" ? seedBeaconArt : seedSaplingArt}
-              x={c.cx - (shared.seed.level >= 3 ? 20.5 : 12)} y={c.cy + 8 - (shared.seed.level >= 3 ? 80 : 40)}
-              width={shared.seed.level >= 3 ? 41 : 24} height={shared.seed.level >= 3 ? 80 : 40}
+              x={c.cx - seedW / 2} y={c.cy + 8 - seedH}
+              width={seedW} height={seedH}
               preserveAspectRatio="xMidYMax meet" pointerEvents="none" />
           </g>
         ),
