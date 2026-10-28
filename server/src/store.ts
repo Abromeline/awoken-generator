@@ -402,6 +402,18 @@ if (!placementCols.some((col) => col.name === "actor_key")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN actor_key TEXT`);
   sqlite.exec(`UPDATE field_placements SET actor_key = owner_key WHERE actor_key IS NULL`);
 }
+// FIX THE CLOCKS (Nigel, 2026-10-28): per-placement settle
+// cursors for the two standing clocks — bind_paid_at (the
+// aspect accrual) and press_paid_at (the tile press). Every
+// standing row's cursors start at the upgrade moment: the
+// new law pays from here forward, so no span already settled
+// (or burned) under the old read-clock is ever paid twice.
+if (!placementCols.some((col) => col.name === "bind_paid_at")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN bind_paid_at INTEGER`);
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN press_paid_at INTEGER`);
+  const clocksStart = Date.now();
+  sqlite.exec(`UPDATE field_placements SET bind_paid_at = ${clocksStart}, press_paid_at = ${clocksStart}`);
+}
 // Curse HP for territory tiles.
 if (!tileCols.some((col) => col.name === "curse_hp")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_hp INTEGER`);
@@ -634,6 +646,21 @@ try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN bastion_building_id INTEGER
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN fed_energy INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN feed_credit REAL NOT NULL DEFAULT 0"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN feed_anchor_at INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+// THE ROOM'S SEED LAW (Nigel, 2026-10-28: "star seeds should
+// draw energy from any tender standing on them"): the draw
+// drinks for EVERY Tender standing on a seed — a guest on a
+// hosted homeland's seed, the seats on a fresh table's heart
+// seed — each at their own rate out of their own purse. The
+// fractional pace of every feeder past the land's own Tender
+// is carried here, one row a (seed, feeder) pair, the same
+// banking the seed's own feed_credit gives the land Tender:
+// no feeder's fraction is ever lost between settles.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seed_feed_credits (
+  seed_id INTEGER NOT NULL,
+  feeder_key TEXT NOT NULL,
+  credit REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (seed_id, feeder_key)
+);`);
 // STARFALL — ONLINE ONLY (Nigel, 2026-10-24 23:43): the last
 // moment a settle saw this Tender present, so the hourly gate
 // can refuse the hours he was away — no falls bank up offline.
@@ -772,6 +799,15 @@ try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN held_until INTEGER 
 // corrupted seed waits on. A seed's corruption lifts when
 // no wanderer of its guarding column still stands.
 try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN column_id INTEGER"); } catch { /* exists */ }
+// THE MASTER CLOCK (Nigel, 2026-10-28): a wanderer born of
+// homeland_wanderers.retaliation: a DEAD column. The edge
+// retaliation it was born for was struck whole (Nigel,
+// 2026-10-28 17:10: "if he beacon is on there are no
+// enemies if its of they can attakc thats it") — nothing
+// stamps it, nothing reads it. The ALTER stays so no
+// migration rides a column's removal; lands that already
+// carry it simply carry a column nothing looks at.
+try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN retaliation INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // THE RISINGS RIDE THE ENGINE (Nigel, 2026-10-24): a
 // first-seed rising's Fray stand on the land as real
 // wanderers of the living battle, and each carries the

@@ -844,8 +844,16 @@ export const api = {
   // shard forge — twenty rune shards into one attunement
   // point of the element the Tender chooses.
   getInventory: () => post<{ pack: PackView }>("getInventory", {}),
-  claimPackDrop: (args: { entryId: number }) =>
+  claimPackDrop: (args: { entryId: number; amount?: number }) =>
     post<{ ok: true; line: string; loot: LootEntry[]; pack: PackView }>("claimPackDrop", args),
+  // THE ROOM'S PACK (2026-10-28): the split's giving
+  // half, the dealer's assignment, and the host's mode.
+  givePackDrop: (args: { itemKey: string; amount: number }) =>
+    post<{ ok: true; line: string; loot: LootEntry[]; pack: PackView }>("givePackDrop", args),
+  assignPackDrop: (args: { entryId: number; amount?: number; targetTenderId: number }) =>
+    post<{ ok: true; line: string; loot: LootEntry[]; pack: PackView }>("assignPackDrop", args),
+  setRoomPackMode: (args: { mode: RoomPackMode }) =>
+    post<{ ok: true; mode: RoomPackMode }>("setRoomPackMode", args),
   convertRuneShards: (args: { element: string }) =>
     post<{ ok: true; pack: PackView }>("convertRuneShards", args),
   looseBlade: (args: { wandererId: number }) =>
@@ -1127,6 +1135,17 @@ export interface RoomEnterResult {
 export interface RoomSeatView {
   tenderId: number | null; name: string; watcher: boolean; isHost: boolean;
   tileId: number | null; away: boolean; classKey: string | null; weaponKey: string | null; level: number;
+  /** The seat Tender's own homeland body (THE ROOM'S BODY
+   *  LAW, 2026-10-28): its pool and its blackout, served so
+   *  a fallen guest reads as fallen at the Table. */
+  body: { hp: number; maxHp: number; down: boolean } | null;
+}
+/** THE ROOM'S PACK (Nigel, ruled 2026-10-28 12:54): the
+ *  room pack's dealing law, served to every seat. */
+export type RoomPackMode = "manual" | "roundrobin" | "dealer";
+export interface RoomPackView {
+  mode: RoomPackMode; hostTenderId: number | null; hostName: string;
+  next: { tenderId: number; name: string } | null;
 }
 export interface RoomStateView {
   ok: true; code: string; door: "instance" | "homeland"; hostName: string;
@@ -1134,6 +1153,7 @@ export interface RoomStateView {
   seed: { level: number; stage: string; fedEnergy: number } | null;
   tale: { at: number; kind: string; name?: string; text: string }[];
   landDoor: { privacy: "public" | "password"; hasPassword: boolean };
+  pack: RoomPackView;
 }
 export const roomApi = {
   enter: (args: { door: "homeland" | "starseed" | "room" | "join"; room?: string; password?: string; watch?: boolean; name?: string }) =>

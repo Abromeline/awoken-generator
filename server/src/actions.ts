@@ -26,6 +26,7 @@ import { refreshGrimoire, saveGrimoire, spellByKey, hpForCast, spendAttunement, 
 import { liveNodes, liveEdges, liveById, liveAdj, zodiacGraph, upsertNode, deleteNode, addEdge, deleteEdge, resetGraph, FX_PALETTE, BESPOKE_IDS } from "./zodiacLive.js";
 import { workingEffects, skillAttunementGrants, attuneReachFor, summonersPowerFor, fxSum, companyAcBonusFor, companyAttackBonusFor, curseReliefFor, bindingHealBonusFor, bindingHealRangeFor, witchCastCostFor, witchMiscastRefundFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removePartyMember, isPartyMember } from "./party.js";
+import { registerPlacementDepartureHook } from "./departureHooks.js";
 // HOMELAND CASTING (Nigel, 2026-10-20): the homeland rolls
 // through the Table's OWN casting reckoning — castModFor is
 // imported, never copied, so the two grounds can never drift
@@ -33,8 +34,16 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // imports this module; the binding is only ever called at
 // request time, long after both modules stand.)
 import { castModFor, partyBattleSeatFor } from "./table.js";
+// THE ROOM'S BODY-AND-SEED LAWS (Nigel, 2026-10-28): the
+// room layer's seat ledger is read from here — who stands on
+// a room's land, and where a woken seat's figure lands —
+// imported, never copied, on the same terms as the Table's
+// binding above (rooms.ts already imports this module; the
+// bindings are only ever called at request time, long after
+// both modules stand).
+import { roomSeatsOnLand, moveRoomSeatStand, roomPackForLand, nextRoomPackSeat, roomPackSetMode, noteRoomTale, roomLandLastSeatSeenAt, type RoomPackMode } from "./rooms.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
-import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, inventoryCanHold, recordDropEvent, drainDropEvents, type FellDrop } from "./drops.js";
+import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, takeHomelandPackAmount, takeFromInventory, inventoryCanHold, itemDisplayName, recordDropEvent, drainDropEvents, type FellDrop, type PackEntryView } from "./drops.js";
 import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_EMPOWERMENT_BONUS } from "./reagentSets.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
@@ -571,6 +580,26 @@ export const SHROOM_LIGHT_RADIUS = 0;
 // road the lighthouse's own kills take.
 export const LIGHT_BURN_DIE = 10;
 export const LIGHT_BURN_TICK_S = 1;
+// THE STRIKE'S FLASH (THE MASTER CLOCK, Nigel, 2026-10-28:
+// "Awokin projectiles should start flying and lighting up
+// the dark"): a struck blow lights the hex it lands on —
+// a brief FAINT, reckoned HERE, on the server, in this same
+// reckoning, so the homeland face and the Discord seat (one
+// getTerritory, one light) agree on the flash as they agree
+// on every light. The flash is kept beside the strike
+// witness in memory: it is lit for STRIKE_FLASH_MS from the
+// moment the settle struck the blow (the settle's own real
+// moment — the witness's moment), and a restart forgets it
+// exactly as an unwitnessed blow is lost. FAINT only: the
+// flash bars nothing, burns nothing, holds no spawn back —
+// it is light to see the fight by, and nothing more.
+export const STRIKE_FLASH_MS = 5000;
+const strikeFlashes = new Map<string, Map<string, number>>();
+function flashStruckHex(ownerKey: string, q: number, r: number): void {
+  let m = strikeFlashes.get(ownerKey);
+  if (!m) { m = new Map(); strikeFlashes.set(ownerKey, m); }
+  m.set(`${q},${r}`, Date.now() + STRIKE_FLASH_MS);
+}
 
 /** The canonical edge key of the edge between tile (q, r)
  *  and its neighbour across WALL_DIRS[dir] — the edge lives
@@ -648,11 +677,17 @@ export function computeTileLight(ownerKey: string, tiles: { id: number; q: numbe
   // Beacon-class: seeds grown to the beacon or bastion
   // stage and standing on the land (the cradle protection's
   // own reckoning of a standing seed: fallen, held, first),
-  // and Bastion buildings.
-  for (const s of sqlite.prepare("SELECT tile_id AS tileId, level FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[]) {
+  // and Bastion buildings. THE FIRST SEED IS EXCEPTED (THE
+  // MASTER CLOCK, 2026-10-28): the first seed stands as the
+  // Tender's lighthouse, and ITS light is the beacon
+  // switch's — the block below throws it, by the switch and
+  // by presence, never by its stage.
+  let lighthouseTile: { q: number; r: number } | null = null;
+  for (const s of sqlite.prepare("SELECT tile_id AS tileId, level, state FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[]) {
+    const t = byId.get(Number(s.tileId));
+    if (String(s.state) === "first") { if (t) lighthouseTile = { q: t.q, r: t.r }; continue; }
     const stage = seedStageForLevel(Number(s.level ?? 1));
     if (stage !== "beacon" && stage !== "bastion") continue;
-    const t = byId.get(Number(s.tileId));
     if (t) castLight(t.q, t.r, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS);
   }
   for (const b of sqlite.prepare("SELECT tile_id AS tileId, building_type AS buildingType FROM territory_buildings WHERE owner_key = ?").all(ownerKey) as any[]) {
@@ -670,6 +705,38 @@ export function computeTileLight(ownerKey: string, tiles: { id: number; q: numbe
   for (const w of sqlite.prepare("SELECT tile_id AS tileId, q, r FROM territory_workings WHERE owner_key = ? AND kind IN ('rune', 'ward')").all(ownerKey) as any[]) {
     if (w.q != null && w.r != null) raise(Number(w.q), Number(w.r), LIGHT_FAINT);
     else if (w.tileId != null) { const t = byId.get(Number(w.tileId)); if (t) raise(t.q, t.r, LIGHT_FAINT); }
+  }
+  // THE BEACON'S OWN LIGHT (THE MASTER CLOCK, Nigel,
+  // 2026-10-28: "when a player is offline the beacon is
+  // lit" · "When the beacon is douse drop its light level
+  // to a faint glow"): the lighthouse — the first seed's
+  // hex — throws by the BEACON HELD law (beaconHeld, at
+  // the protection settle): lit by the Tender's hand, or
+  // held lit by the clock while the Tender is away, it
+  // throws FIGHTING at the beacon-class radius; doused
+  // and present, it throws FAINT at the same radius — a
+  // glow on the seat of the light, nothing more. A land
+  // with no first seed standing has no beacon to throw.
+  {
+    const prow = sqlite.prepare("SELECT lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    if (prow && lighthouseTile) {
+      castLight(lighthouseTile.q, lighthouseTile.r, beaconHeld(ownerKey, Date.now()) ? LIGHT_FIGHTING : LIGHT_FAINT, LIGHT_BEACON_RADIUS);
+    }
+  }
+  // THE STRIKES' FLASHES (the strike's flash, above): a hex
+  // a blow landed on in the last STRIKE_FLASH_MS reads
+  // FAINT, struck light over whatever else the hex holds.
+  {
+    const flashes = strikeFlashes.get(ownerKey);
+    if (flashes) {
+      const nowMs = Date.now();
+      for (const [k, until] of flashes) {
+        if (until <= nowMs) { flashes.delete(k); continue; }
+        const [q, r] = k.split(",").map(Number);
+        raise(q, r, LIGHT_FAINT);
+      }
+      if (!flashes.size) strikeFlashes.delete(ownerKey);
+    }
   }
   return light;
 }
@@ -1138,6 +1205,480 @@ async function addAspectPoint(ownerKey: string, element: AspectElement): Promise
   return addAspectPoints(ownerKey, element, 1);
 }
 
+// ════════════════════════════════════════════════════════════
+// FIX THE CLOCKS (Nigel, 2026-10-28: "Fix the clocks —
+// standing pays only for the time actually stood.")
+//
+// The two lazy settles — the aspect accrual and the tile
+// press — used to reckon by the READ: whoever stood at the
+// moment of a read was credited for the whole window since
+// the last one, capped at a day (and a stand that ended
+// before any read was paid nothing at all — the checkpoint
+// simply advanced past it). Each placement now carries its
+// own settle cursors (bind_paid_at / press_paid_at), and a
+// span is reckoned per placement: from the later of its
+// placed_at and its cursor, to its departure or the settle,
+// whichever is earlier. The RATES are untouched — 1 point
+// per hour for a binder at its multipliers; a company's
+// sums over PRESS_DIVISOR per hour for the press. Only the
+// clock changed. The old 24-hour caps are gone with the
+// machinery they belonged to: an honest stand is paid its
+// whole span, however long. Departures settle their spans
+// at the moment of leaving (settlePlacementClocksById,
+// hooked at every road off the field), so a read with
+// nobody standing has nothing left to pay and nothing to
+// burn. Event grants are not clocks and do not pass through
+// here — they keep their own writer (addAspectPoints).
+// ════════════════════════════════════════════════════════════
+
+const CLOCK_HOUR_MS = 3600 * 1000;
+// The press's rate, unchanged from the day-long quest
+// (Nigel, 2026-10-16; quickened 2026-10-17): the land
+// drinks a standing company's sums at sums / PRESS_DIVISOR
+// per hour, so a full company carries a hex through one
+// 10-point stage in about ten hours.
+const PRESS_DIVISOR = 8 * 2 / 3;
+
+/** A binder's standing weight over the four pool elements,
+ *  counted the one way every standing reckoning counts it:
+ *  pieces 1 pt, aspects 1 pt per level, fire aside (Nigel,
+ *  2026-10-12). */
+async function standingCountsOf(compositionJson: string | null | undefined): Promise<Record<string, number>> {
+  const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+  let layers: any[] = [];
+  try { layers = JSON.parse(compositionJson || "[]"); } catch { return counts; }
+  const layerEls = await compositionElements(layers);
+  layers.forEach((l, i) => {
+    const el = layerEls[i] as string;
+    if (el !== "fire" && el in counts) {
+      counts[el] += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
+    }
+  });
+  return counts;
+}
+
+/** The press's count — every element but fire and neutral
+ *  (today the same four; the press's sums have always been
+ *  keyed openly). */
+async function pressCountsOf(compositionJson: string | null | undefined): Promise<Record<string, number>> {
+  let layers: any[] = [];
+  try { layers = JSON.parse(compositionJson || "[]"); } catch { return {}; }
+  const layerEls = await compositionElements(layers);
+  const counts: Record<string, number> = {};
+  layers.forEach((l, i) => {
+    const el = layerEls[i] as string;
+    if (el === "fire" || el === "neutral") return;
+    counts[el] = (counts[el] || 0) + (l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1);
+  });
+  return counts;
+}
+
+/** The accrual's weather at a settle moment: the live sky's
+ *  rate multiplier (Thinning's tooth — the sky at the moment
+ *  of reckoning governs the span being settled, exactly as
+ *  it always did) and the blessing shrines' adjacency — a
+ *  binder on or beside an active attunement shrine in
+ *  blessing mode earns double, as today. A shrine turned to
+ *  the LAND gives no blessing (Nigel, 2026-10-14). */
+async function accrualContextFor(ownerKey: string): Promise<{ skyMult: number; isNearShrine: (tileId: number) => boolean }> {
+  const { mood } = await getWorldMood();
+  const skyMult = moodEffects(mood).attunementRateMult;
+  const shrines = await db.select({ tileId: schema.territoryBuildings.tileId })
+    .from(schema.territoryBuildings)
+    .where(and(
+      eq(schema.territoryBuildings.ownerKey, ownerKey),
+      eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
+      eq(schema.territoryBuildings.status, "active"),
+      eq(schema.territoryBuildings.mode, "blessing")
+    ));
+  const shrineTileIds = new Set(shrines.map(s => s.tileId));
+  const allTiles = await db.select({ id: schema.territoryTiles.id, q: schema.territoryTiles.q, r: schema.territoryTiles.r })
+    .from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const tileById = new Map(allTiles.map(t => [t.id, t]));
+  const hexDist = (a: any, b: any) =>
+    (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+  const isNearShrine = (tileId: number): boolean => {
+    const bTile = tileById.get(tileId);
+    if (!bTile) return false;
+    for (const sid of shrineTileIds) {
+      const sTile = tileById.get(sid);
+      if (sTile && hexDist(bTile, sTile) <= 1) return true;
+    }
+    return false;
+  };
+  return { skyMult, isNearShrine };
+}
+
+const ACCRUAL_THRESHOLD = 10;
+
+/** Pay a reckoned map of standing gains into the pools:
+ *  points in, births at the threshold (points spent only
+ *  when a birth truly happens, the pools' standing law),
+ *  and the lifetime-gains counter the panel's realized rate
+ *  is measured from. */
+async function applyAccrualGains(ownerKey: string, gains: Map<string, number>, nowMs: number): Promise<void> {
+  for (const [el, gain] of gains) {
+    if (!(gain > 0)) continue;
+    const row = await db.select().from(schema.aspectAttunement)
+      .where(and(
+        eq(schema.aspectAttunement.ownerKey, ownerKey),
+        eq(schema.aspectAttunement.element, el as any)
+      )).limit(1);
+    let newPoints = (row[0]?.points ?? 0) + gain;
+    // Spawn an aspect if the threshold is reached. The birth
+    // chooses a piece FILED as this element, and the points
+    // are spent only when a birth truly happens.
+    while (newPoints >= ACCRUAL_THRESHOLD) {
+      const pool = await db.select().from(schema.layerAssets)
+        .where(eq(schema.layerAssets.category, "aspect"));
+      const matches = birthableAspects(pool as any[], el);
+      if (!matches.length) break;
+      newPoints -= ACCRUAL_THRESHOLD;
+      const pick = matches[Math.floor(Math.random() * matches.length)];
+      await db.insert(schema.aspectInventory)
+        .values({ ownerKey, aspectAssetId: pick.id });
+    }
+    if (row[0]) {
+      await db.update(schema.aspectAttunement)
+        .set({
+          points: newPoints,
+          updatedAt: new Date(nowMs),
+          lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + ${gain}`,
+        })
+        .where(and(
+          eq(schema.aspectAttunement.ownerKey, ownerKey),
+          eq(schema.aspectAttunement.element, el as any)
+        ));
+    } else {
+      await db.insert(schema.aspectAttunement)
+        .values({ ownerKey, element: el as any, points: newPoints, updatedAt: new Date(nowMs), lifetimeGains: gain });
+    }
+  }
+}
+
+/** One binder's gain over one span, added into a gains map:
+ *  1 point per hour stood at the span's multiplier, divided
+ *  across its elements IN PROPORTION to its element points —
+ *  the split the accrual has always used (Nigel, 2026-10-12). */
+function binderSpanGains(counts: Record<string, number>, spanHours: number, multiplier: number, gains: Map<string, number>): void {
+  const totalPts = Object.values(counts).reduce((a, x) => a + x, 0);
+  if (totalPts <= 0 || spanHours <= 0) return;
+  const tickTotal = 1 * spanHours * multiplier;
+  for (const [el, pts] of Object.entries(counts)) {
+    if (pts === 0) continue;
+    gains.set(el, (gains.get(el) || 0) + tickTotal * (pts / totalPts));
+  }
+}
+
+/** Settle EVERY binder standing on a land: each is paid for
+ *  its own interval — from the later of its placed_at and
+ *  its bind cursor, to now — and every cursor advances to
+ *  now, paid or not, so no span is reckoned twice and none
+ *  is silently dropped. No binder standing: nothing is
+ *  paid and nothing is burned — there is no shared
+ *  checkpoint left to advance. */
+export async function settleAspectAccrual(ownerKey: string, nowMs: number = Date.now()): Promise<void> {
+  const binders = await db.select({
+    id: schema.fieldPlacements.id,
+    tileId: schema.fieldPlacements.tileId,
+    placedAt: schema.fieldPlacements.placedAt,
+    bindPaidAt: schema.fieldPlacements.bindPaidAt,
+    compositionJson: schema.awakened.compositionJson,
+  }).from(schema.fieldPlacements)
+    .innerJoin(schema.awakened, eq(schema.fieldPlacements.awakenedId, schema.awakened.id))
+    .where(and(
+      eq(schema.fieldPlacements.ownerKey, ownerKey),
+      eq(schema.fieldPlacements.stance, "binding")
+    ));
+  if (!binders.length) return;
+  const acc = await accrualContextFor(ownerKey);
+  const gains = new Map<string, number>();
+  for (const b of binders) {
+    const startMs = Math.max(
+      new Date(b.placedAt).getTime(),
+      b.bindPaidAt ? new Date(b.bindPaidAt).getTime() : 0
+    );
+    const spanHours = Math.max(0, (nowMs - startMs) / CLOCK_HOUR_MS);
+    if (spanHours > 0) {
+      const counts = await standingCountsOf(b.compositionJson);
+      const multiplier = (acc.isNearShrine(b.tileId) ? 2 : 1) * acc.skyMult;
+      binderSpanGains(counts, spanHours, multiplier, gains);
+    }
+    await db.update(schema.fieldPlacements)
+      .set({ bindPaidAt: new Date(nowMs) })
+      .where(eq(schema.fieldPlacements.id, b.id));
+  }
+  if (gains.size) await applyAccrualGains(ownerKey, gains, nowMs);
+}
+
+/** Settle ONE placement's binding interval — at its
+ *  departure, or as it leaves the binding stance. The span
+ *  is paid to the LAND's pools: placement rows are the
+ *  land's rows, the same beneficiary both old roads paid
+ *  (a guest binder standing on a host's land gathers for
+ *  the host's pools, as the per-read channeling did). The
+ *  cursor advances to the settle moment; a caller leaving
+ *  the stance clears it in its own write, a caller deleting
+ *  the row needs nothing more. */
+export async function settleBindingForPlacement(
+  p: { id: number; ownerKey: string; tileId: number; stance: string | null; placedAt: Date; bindPaidAt: Date | null; awakenedId: number },
+  nowMs: number = Date.now()
+): Promise<void> {
+  if (p.stance !== "binding") return;
+  const startMs = Math.max(
+    new Date(p.placedAt).getTime(),
+    p.bindPaidAt ? new Date(p.bindPaidAt).getTime() : 0
+  );
+  const spanHours = Math.max(0, (nowMs - startMs) / CLOCK_HOUR_MS);
+  if (spanHours > 0) {
+    const aw = await db.select({ compositionJson: schema.awakened.compositionJson })
+      .from(schema.awakened).where(eq(schema.awakened.id, p.awakenedId)).limit(1);
+    if (aw.length) {
+      const acc = await accrualContextFor(p.ownerKey);
+      const counts = await standingCountsOf(aw[0].compositionJson);
+      const gains = new Map<string, number>();
+      const multiplier = (acc.isNearShrine(p.tileId) ? 2 : 1) * acc.skyMult;
+      binderSpanGains(counts, spanHours, multiplier, gains);
+      if (gains.size) await applyAccrualGains(p.ownerKey, gains, nowMs);
+    }
+  }
+  await db.update(schema.fieldPlacements)
+    .set({ bindPaidAt: new Date(nowMs) })
+    .where(eq(schema.fieldPlacements.id, p.id));
+}
+
+// THE NET PRESS (Nigel, 2026-10-15; its TERRAIN reign ended
+// 2026-10-25 — the terrain press is additive now, see
+// pressMixIntoTile. This reckoning still serves the BUILDING
+// road, whose construction law was not re-ruled, and the
+// shrine's one voice): no element ever contributes to a
+// MISMATCHED attunement — it ERODES it. The leading element
+// presses at its tally MINUS every mismatched point pooled
+// on the hex: 3 tide + 1 stone + 1 root + 1 sky cancels to
+// nothing; 4 root + 2 tide presses root at 2. Net of zero or
+// less presses NOTHING. (Ties hold by arithmetic: a tied
+// lead always nets to zero or below.) Fire and neutral never
+// enter the sums, so they erode nothing.
+function netPressOf(sums: Record<string, number>): { el: string; pts: number } {
+  let leadEl = "", leadPts = 0, totalPts = 0;
+  for (const el of ["tide", "sky", "stone", "root"]) {
+    const pts = sums[el] || 0;
+    totalPts += pts;
+    if (pts > leadPts) { leadEl = el; leadPts = pts; }
+  }
+  const net = leadPts - (totalPts - leadPts);
+  if (!leadEl || net <= 0) return { el: "", pts: 0 };
+  return { el: leadEl, pts: net };
+}
+
+// Terraforming trays (Nigel, 2026-10-15; the tray body STANDS
+// under mixing, corrected 2026-10-25): a purified hex is a
+// STACK of trays — Z trays, cap 6. One growing tray, born at
+// the BOTTOM of the stack, accrues the standing company's
+// press OF THE ELEMENT THE LAND STANDS AS (its label), point
+// for point; at 30 it SEALS and a new growing tray is born
+// beneath. Presence no longer wears the stack: erosion is
+// retired (mixing law 1). A change of the label no longer
+// resets the stack. Neutral hexes do not grow, and fire land
+// grows no trays. (Lifted to module scope by FIX THE CLOCKS
+// so the departure settle grows trays by the same body.)
+const TRAY_CAP = 6;
+const TRAY_SEAL = 30;
+function trayStackHeight(t: any) {
+  const sealed = t.sealedTrays ?? 0;
+  return sealed >= TRAY_CAP ? TRAY_CAP : sealed + 1;
+}
+async function persistTray(t: any) {
+  const upd = {
+    sealedTrays: t.sealedTrays ?? 0,
+    growPoints: t.growPoints ?? 0,
+    topPoints: t.topPoints ?? null,
+    height: t.cursed ? 0 : trayStackHeight(t),
+  };
+  await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, t.id));
+  Object.assign(t, upd);
+}
+// Growth: pour points into the growing tray, sealing as it
+// fills. A full stack (6 sealed) grows no further.
+async function growStack(ownerKey: string, t: any, pts: number) {
+  if ((t.sealedTrays ?? 0) >= TRAY_CAP) return;
+  // PLANT GROWTH (the zodiac's clause, Recovery #1): "Plants
+  // grow 5% faster" per level, deepened — every growth point
+  // the press lays lands swelled by the holder's sum.
+  const growPts = pts * (1 + fxSum(ownerKey, "plantGrowth") / 100);
+  let grow = (t.growPoints ?? 0) + growPts;
+  let sealed = t.sealedTrays ?? 0;
+  while (grow >= TRAY_SEAL && sealed < TRAY_CAP) { grow -= TRAY_SEAL; sealed += 1; }
+  if (sealed >= TRAY_CAP) grow = 0;
+  t.growPoints = grow;
+  t.sealedTrays = sealed;
+  await persistTray(t);
+}
+
+/** Settle one tile's press by the spans its company actually
+ *  stood (FIX THE CLOCKS): the window since the company's
+ *  cursors is SLICED at every placement and cursor boundary,
+ *  and each slice pours the sums of exactly the company that
+ *  stood through it — sums / PRESS_DIVISOR per hour, the
+ *  rate unchanged from the day-long quest. A member's span
+ *  runs from the later of its placed_at and its press
+ *  cursor; every cursor advances to the settle moment, so
+ *  hours nobody stood pour nothing and stood hours are
+ *  never poured twice. The roads within a slice are the
+ *  roads the whole-hour beats walked: a work rising drinks
+ *  the net press (feedBuild), baked ground grows its own
+ *  stack at double, and open ground takes every element's
+ *  line additively into its ledger while its growing tray
+ *  drinks the line of the element the land stood as when
+ *  the slice began. The old tile anchor (attune_anchor_at)
+ *  is retired: any tile this settle touches has it cleared. */
+export async function settleTilePress(ownerKey: string, tile: any, nowMs: number = Date.now()): Promise<void> {
+  const rows = await db.select({
+    id: schema.fieldPlacements.id,
+    awakenedId: schema.fieldPlacements.awakenedId,
+    placedAt: schema.fieldPlacements.placedAt,
+    pressPaidAt: schema.fieldPlacements.pressPaidAt,
+  }).from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.tileId, tile.id));
+  type PressMember = { id: number; placedMs: number; cursorMs: number; counts: Record<string, number> };
+  const members: PressMember[] = [];
+  for (const r of rows) {
+    const aw = await db.select({ compositionJson: schema.awakened.compositionJson })
+      .from(schema.awakened).where(eq(schema.awakened.id, r.awakenedId)).limit(1);
+    if (!aw.length) continue;
+    const placedMs = new Date(r.placedAt).getTime();
+    const cursorMs = Math.max(placedMs, r.pressPaidAt ? new Date(r.pressPaidAt).getTime() : 0);
+    members.push({ id: r.id, placedMs, cursorMs, counts: await pressCountsOf(aw[0].compositionJson) });
+  }
+  // The served readout (the War-Grounds label, Nigel,
+  // 2026-10-17): the hex's leading element and its standing
+  // rate, from the full company standing NOW, as the map has
+  // always served them.
+  const sumsNow: Record<string, number> = {};
+  for (const m of members) {
+    for (const [el, n] of Object.entries(m.counts)) sumsNow[el] = (sumsNow[el] || 0) + n;
+  }
+  let leadEl: TerrainMixElement = "root";
+  for (const el of TERRAIN_MIX_ELEMENTS) {
+    if ((sumsNow[el] ?? 0) > (sumsNow[leadEl] ?? 0)) leadEl = el;
+  }
+  const leadPts = sumsNow[leadEl] ?? 0;
+  (tile as any).attuneRatePts = leadPts > 0 ? Math.round((leadPts / PRESS_DIVISOR) * 100) / 100 : 0;
+  (tile as any).pressEl = leadPts > 0 ? leadEl : null;
+  (tile as any).pressPts = leadPts;
+  // The retired anchor: this settle is the tile's only clock now.
+  if ((tile as any).attuneAnchorAt) {
+    await db.update(schema.territoryTiles).set({ attuneAnchorAt: null } as any)
+      .where(eq(schema.territoryTiles.id, tile.id));
+    (tile as any).attuneAnchorAt = null;
+  }
+  if (!members.length) return;
+  const earliest = Math.min(...members.map(m => m.cursorMs));
+  if (nowMs > earliest) {
+    const cuts = new Set<number>([earliest, nowMs]);
+    for (const m of members) {
+      if (m.cursorMs > earliest && m.cursorMs < nowMs) cuts.add(m.cursorMs);
+      if (m.placedMs > earliest && m.placedMs < nowMs) cuts.add(m.placedMs);
+    }
+    const bounds = [...cuts].sort((a, b) => a - b);
+    for (let i = 0; i + 1 < bounds.length; i++) {
+      const a = bounds[i];
+      const b = bounds[i + 1];
+      const hours = (b - a) / CLOCK_HOUR_MS;
+      if (hours <= 0) continue;
+      const standing = members.filter(m => m.cursorMs <= a);
+      if (!standing.length) continue;
+      const sums: Record<string, number> = {};
+      for (const m of standing) {
+        for (const [el, n] of Object.entries(m.counts)) sums[el] = (sums[el] || 0) + n;
+      }
+      const dom = netPressOf(sums);
+      // THE BUILDING SYSTEM — THE PRESENCE ROAD (Nigel,
+      // 2026-10-19): a company standing on a work under
+      // construction BUILDS it instead of attuning it, at
+      // the day-long quest's own tempo. The press must
+      // speak the stage's element; at stage 3's fork, tide
+      // or sky crowns the branch by standing there. Fire's
+      // finish by presence is always the BAKE.
+      if (buildUnderway(tile)) {
+        if (dom.el && dom.pts > 0) {
+          if (buildStageOf(tile) === 4 && !tile.buildFinish) tile.buildFinish = "bake";
+          await feedBuild(ownerKey, tile, dom.el, (dom.pts * hours) / PRESS_DIVISOR);
+        }
+        continue;
+      }
+      // SEALED (the Building System, 2026-10-19): baked
+      // ground takes no press into its ledger — its own
+      // element's company grows its stack twice as fast.
+      if ((tile as any).baked) {
+        const perSlice = (dom.pts * hours) / PRESS_DIVISOR;
+        if (dom.el === tile.element && perSlice > 0) await growStack(ownerKey, tile, perSlice * 2);
+        continue;
+      }
+      // A company carrying no elemental weight pours
+      // nothing, but its standing still holds the clock
+      // honest (its cursors advance below).
+      let sliceLead = 0;
+      for (const el of TERRAIN_MIX_ELEMENTS) sliceLead = Math.max(sliceLead, sums[el] ?? 0);
+      if (sliceLead <= 0) continue;
+      // TERRAIN MIXING (Nigel, 2026-10-25): every element
+      // the company carries presses its own line of the
+      // ledger, additively — the sum of their parts.
+      const deltas: Partial<Record<TerrainMixElement, number>> = {};
+      for (const el of TERRAIN_MIX_ELEMENTS) {
+        const pts = ((sums[el] ?? 0) * hours) / PRESS_DIVISOR;
+        if (pts > 0) deltas[el] = pts;
+      }
+      const labelBefore = tile.element as string;
+      await pressMixIntoTile(ownerKey, tile, deltas);
+      // Trays ride the same slice: the growing tray drinks
+      // the press of the element the land stood as when the
+      // slice began — and the slice that changes the label
+      // grows nothing, as the turning beat never did.
+      const labelLaid = deltas[labelBefore as TerrainMixElement] ?? 0;
+      if (labelLaid > 0 && labelBefore !== "neutral" && labelBefore !== "fire" && tile.element === labelBefore) {
+        await growStack(ownerKey, tile, labelLaid);
+      }
+    }
+  }
+  for (const m of members) {
+    await db.update(schema.fieldPlacements)
+      .set({ pressPaidAt: new Date(nowMs) })
+      .where(eq(schema.fieldPlacements.id, m.id));
+  }
+}
+
+/** Settle every clock a placement carries, at its departure
+ *  or its move: its binding interval is paid, and its tile's
+ *  press is poured for the spans the whole company stood,
+ *  this placement among them. Every road off the field calls
+ *  this BEFORE the row is deleted or moved, so standing that
+ *  ends between reads is still paid — the heart of the
+ *  ruling. A clock fault must never break a departure: the
+ *  settle logs its failure and the road proceeds. */
+export async function settlePlacementClocksById(placementId: number, nowMs: number = Date.now()): Promise<void> {
+  try {
+    const rows = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.id, placementId)).limit(1);
+    const p = rows[0];
+    if (!p) return;
+    if (p.stance === "binding") await settleBindingForPlacement(p as any, nowMs);
+    const tRows = await db.select().from(schema.territoryTiles)
+      .where(eq(schema.territoryTiles.id, p.tileId)).limit(1);
+    const tile = tRows[0];
+    if (tile && !tile.cursed) await settleTilePress(p.ownerKey, tile, nowMs);
+  } catch (e) {
+    console.error("[SettleClocks] departure settle failed", e);
+  }
+}
+
+// party.ts lifts a fielded Awoken into the party through
+// this registry (it cannot import actions.ts — the cycle
+// would close the other way).
+registerPlacementDepartureHook(settlePlacementClocksById);
+
+
 /** THE FELL DRIP — the one shape a beaten creature's attunement
  *  drop takes, on BOTH grounds. The measure is the drizzle
  *  Nigel ruled for the First Seed hold (2026-10-19): each fell
@@ -1171,6 +1712,77 @@ export async function payFellDrip(ownerKey: string, groundElement?: string | nul
   await addAspectPoints(ownerKey, element as AttunementElement, 0.1);
 }
 
+/* ── THE ROOM'S PACK — THE DEALING (Nigel, ruled
+ * 2026-10-28 12:54: "the pack should have three modes.
+ * Manual.. as it is with the split function added,
+ * round robin, and dealers choice") ──────────────────
+ * The Pack a fell fills is the LAND's Pack; where a
+ * room stands on the land, the room's dealing law
+ * rides it (rooms.ts holds the mode). In MANUAL and in
+ * DEALER'S CHOICE the take rests in the Pack whole, as
+ * it always has, and hands move it from there. In
+ * ROUND ROBIN each lot is dealt at once to the next
+ * seat in turn — into that seat's own keeping, under
+ * the same caps a claim answers to — and only what
+ * that seat cannot carry rests in the Pack. The
+ * dealing binds the land while the room stands on it,
+ * as the room's body and seed laws do: the settle that
+ * fills the Pack may be any seat's read, or the host's
+ * own read at home with the room standing behind them. */
+
+/** Land one drop with a seat (the round robin's
+ *  dealing): goods into their inventory, energy into
+ *  their purse, attunement into their pools — each
+ *  under its standing cap. Returns the measure that
+ *  could NOT land; it rests in the Pack. */
+async function landDropWithSeat(seatKey: string, drop: FellDrop): Promise<number> {
+  if (drop.kind === "item") {
+    if (!drop.itemKey) return drop.qty;
+    return addToInventory(seatKey, drop.itemKey, drop.qty).left;
+  }
+  if (drop.kind === "energy") {
+    const maxEnergy = await calculateMaxEnergy(seatKey);
+    const current = await getEnergyFor(seatKey);
+    const lands = Math.max(0, Math.min(drop.qty, maxEnergy - current));
+    if (lands > 0) await gainEnergy(seatKey, lands, maxEnergy);
+    return drop.qty - lands;
+  }
+  await addAspectPoints(seatKey, (drop.element ?? "root") as AttunementElement, drop.qty);
+  return 0;
+}
+
+interface DealtShare { seatKey: string; seatName: string; drop: FellDrop }
+
+/** Settle a take into a land's Pack under the room's
+ *  dealing law. The RESTED lots are landed in the Pack
+ *  here; the DEALT shares are spoken by the caller (a
+ *  notice under each dealt seat's own key). With no
+ *  room on the land, or a mode that lets the Pack
+ *  rest, this is landHomelandPack whole, as it always
+ *  was. */
+async function settlePackDrops(ownerKey: string, drops: FellDrop[]): Promise<{ rested: FellDrop[]; dealt: DealtShare[] }> {
+  const info = roomPackForLand(ownerKey);
+  if (!info || info.mode !== "roundrobin") {
+    landHomelandPack(ownerKey, drops);
+    return { rested: drops, dealt: [] };
+  }
+  const rested: FellDrop[] = [];
+  const dealt: DealtShare[] = [];
+  for (const drop of drops) {
+    const seat = nextRoomPackSeat(ownerKey);
+    if (!seat) { landHomelandPack(ownerKey, [drop]); rested.push(drop); continue; }
+    const seatKey = tenderOwnerKey(seat.tenderId);
+    const left = await landDropWithSeat(seatKey, drop);
+    if (left > 0) {
+      const rest = { ...drop, qty: left };
+      landHomelandPack(ownerKey, [rest]);
+      rested.push(rest);
+    }
+    if (left < drop.qty) dealt.push({ seatKey, seatName: seat.name, drop: { ...drop, qty: drop.qty - left } });
+  }
+  return { rested, dealt };
+}
+
 /** THE DRIP AS A DROP (the loot table fix, Nigel, ruled
  *  2026-10-25 18:46): on the homeland's own fell roads
  *  the drizzle no longer settles silently into the
@@ -1187,7 +1799,15 @@ export async function payDripAsDrop(ownerKey: string, groundElement?: string | n
   const element = rollDrip(groundElement);
   if (!element) return;
   const drop: FellDrop = { kind: "attunement", element, qty: 0.1 };
-  landHomelandPack(ownerKey, [drop]);
+  // The drizzle settles through the Pack's dealing law,
+  // like every lot that falls on the land: in a round
+  // robin room it is dealt to the seat whose turn
+  // stands, and that seat is told under their own key.
+  const { dealt } = await settlePackDrops(ownerKey, [drop]);
+  for (const share of dealt) {
+    sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+      .run(share.seatKey, `A drizzle of ${element} attunement settles on you — dealt by the Pack's turn.`, Date.now());
+  }
   if (fx && Number.isFinite(fx.q) && Number.isFinite(fx.r)) {
     recordDropEvent(ownerKey, { at: Date.now(), fromQ: fx.q, fromR: fx.r, drops: [drop] });
   }
@@ -2943,6 +3563,20 @@ async function applySeedStageRise(ownerKey: string, seed: any, fromLevel: number
  *  tile the validated movement road (setTenderTile) last
  *  seated her on, read here exactly as tenderStand reads
  *  it.
+ *  THE ROOM'S SEED LAW (Nigel, 2026-10-28 12:54: "star
+ *  seeds should draw energy from any tender standing on
+ *  them"): where a room stands on the land, every seated
+ *  Tender standing on a seed feeds it too — a guest on a
+ *  hosted homeland's seed, the seats on a fresh table's
+ *  heart seed (whose land has no one Tender at all) — each
+ *  at THEIR OWN rate, out of THEIR OWN purse, over the
+ *  same window and under the same presence law as the
+ *  land's Tender, their fractional pace banked in their
+ *  own ledger row (star_seed_feed_credits) so no feeder's
+ *  fraction is lost. Their stands are the room layer's
+ *  seat stands, read through rooms.ts. The arrival
+ *  purification below stays the land Tender's own office:
+ *  the ruling named the draw, not the turning.
  *  THE GROUND ANSWERS HER ARRIVAL (Nigel, 2026-10-25
  *  11:48: "instant purification on seed hex when a
  *  tender joins so he can feed the seed without dying
@@ -2968,6 +3602,25 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
   // anywhere the read can see — the per-seed test below
   // spends it only on the seed she actually stands on.
   const tenderRate = tenderTile ? tenderStandingFeedRateFor(ownerKey, levelForExp(Number(tenderRow?.totalExp ?? 0)), tenderRow?.classKey) : 0;
+  // THE SEATED FEEDERS (the room's seed law, in the header
+  // above): every other Tender seated on this land, by
+  // their seat stand. The land's own Tender is never among
+  // them — the standing path reckons them, and a host's
+  // seat stand is that same record besides — so the dedup
+  // is by key, and no one feeds twice.
+  const seatFeeders = roomSeatsOnLand(ownerKey)
+    .filter(s => !s.watcher && s.tenderId != null && s.tileId != null)
+    .map(s => ({ key: tenderOwnerKey(s.tenderId as number), tileId: s.tileId as number }))
+    .filter(f => f.key !== ownerKey);
+  const feederProgress = new Map<string, { totalExp: number | null; classKey: string | null }>();
+  const progressOf = (key: string) => {
+    let p = feederProgress.get(key);
+    if (!p) {
+      p = (sqlite.prepare("SELECT total_exp AS totalExp, class_key AS classKey FROM tender_progress WHERE owner_key = ?").get(key) as { totalExp: number | null; classKey: string | null } | undefined) ?? { totalExp: 0, classKey: null };
+      feederProgress.set(key, p);
+    }
+    return p;
+  };
   for (const seed of seeds) {
     const home = byId.get(seed.tile_id);
     const anchor = Number(seed.feed_anchor_at || 0);
@@ -2979,8 +3632,11 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
     // above): the moment her recorded stand IS this
     // living seed's tile, cursed ground under it turns —
     // before any reckoning of the draw, and whether or
-    // not the draw can pay this settle.
-    if (tenderTile != null && tenderTile.id === home.id && home.cursed) {
+    // not the draw can pay this settle. (THE MASTER
+    // CLOCK, 2026-10-28: not under a held beacon — arrival
+    // is ground gained, and no ground is gained while the
+    // beacon burns or the clock holds it lit.)
+    if (tenderTile != null && tenderTile.id === home.id && home.cursed && !beaconHeld(ownerKey, now)) {
       await purifySeedGroundTile(home.id);
       home.cursed = 0; home.element = "root"; home.curseHp = null; home.curseMaxHp = null;
       Object.assign(home, PURIFIED_TILE_FIELDS);
@@ -3011,6 +3667,36 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
       }
       if (credit >= 2) credit = 1.999;
       changed = true;
+    }
+    // THE SEATED FEEDERS' DRAW (the room's seed law): the
+    // same window the land Tender's draw just reckoned —
+    // each feeder standing on THIS seed's tile accrues at
+    // their own rate, banks the fraction in their own
+    // ledger row, and pays whole points out of their own
+    // purse into this seed's one fed ledger.
+    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS) {
+      for (const feeder of seatFeeders) {
+        if (feeder.tileId !== home.id) continue;
+        const fp = progressOf(feeder.key);
+        const rate = tenderStandingFeedRateFor(feeder.key, levelForExp(Number(fp.totalExp ?? 0)), fp.classKey);
+        if (rate <= 0) continue;
+        const crow = sqlite.prepare("SELECT credit FROM star_seed_feed_credits WHERE seed_id = ? AND feeder_key = ?").get(seed.id, feeder.key) as { credit: number } | undefined;
+        let fCredit = Number(crow?.credit ?? 0) + (elapsed / 60000) * rate;
+        const whole = Math.floor(fCredit);
+        if (whole >= 1) {
+          const purse = await getEnergyFor(feeder.key);
+          const take = Math.min(whole, Math.max(0, Math.floor(purse)));
+          if (take > 0) {
+            await spendEnergy(feeder.key, take);
+            fed += take;
+            fCredit -= take;
+          }
+        }
+        if (fCredit >= 2) fCredit = 1.999;
+        sqlite.prepare("INSERT INTO star_seed_feed_credits (seed_id, feeder_key, credit) VALUES (?, ?, ?) ON CONFLICT(seed_id, feeder_key) DO UPDATE SET credit = excluded.credit")
+          .run(seed.id, feeder.key, fCredit);
+        changed = true;
+      }
     }
     const levelBefore = Math.max(1, Number(seed.level || 1));
     const level = Math.max(levelBefore, seedLevelForFed(fed));
@@ -4031,6 +4717,9 @@ async function damagePlacement(
   const currentHp = placement.hp ?? maxHp;
   const newHp = currentHp - damage;
   if (newHp <= 0) {
+    // FIX THE CLOCKS: dissipation is a departure — the
+    // placement's stood spans settle before the row goes.
+    await settlePlacementClocksById(placement.id);
     await db.delete(schema.fieldPlacements)
       .where(eq(schema.fieldPlacements.id, placement.id));
     return { hp: 0, maxHp, dissipated: true };
@@ -4767,6 +5456,14 @@ async function groveBurstHealPlacement(placementId: number, awakenedId: number, 
  *  settles it serves the ground truth. */
 async function grindHomelandCurse(ownerKey: string, tile: any, harm: number, hue: string): Promise<{ ground: number; purified: boolean }> {
   if (!tile || !tile.cursed || harm <= 0) return { ground: 0, purified: false };
+  // NO GROUND IS GAINED UNDER LIGHT (THE MASTER CLOCK,
+  // Nigel, 2026-10-28: "The beacon must be unlit to gain
+  // ground"): while the beacon is held — lit by the
+  // Tender's hand, or held lit by the clock while he is
+  // away — no working's grind wears the curse down and
+  // nothing purifies. The workings still spring against
+  // the dark itself; only the ground is held.
+  if (beaconHeld(ownerKey, Date.now())) return { ground: 0, purified: false };
   const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
   const maxHp = (tile.curseMaxHp as number | null) ?? curseHpFor(ring, (await getWorldMood()).mood);
   const curHp = (tile.curseHp as number | null) ?? maxHp;
@@ -5639,6 +6336,58 @@ export const LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE = LIGHTHOUSE_SHADOW_UPKEEP_PER_
  *  gone), and away hours burn nothing. DERIVED, flagged. */
 export const PROTECTION_ONLINE_GAP_MS = 5 * 60 * 1000;
 
+/** PRESENCE (THE MASTER CLOCK, Nigel, 2026-10-28): the
+ *  house's standing presence record is tender_resources'
+ *  last_seen_at — the stamp getEnergy has always read for
+ *  its own online detection, refreshed by every resolved
+ *  session (tenders.ts) and by the energy read itself. A
+ *  Tender is ONLINE when seen within the house's presence
+ *  gap (PROTECTION_ONLINE_GAP_MS, the protection settle's
+ *  own measure). The clock and the war laws READ presence
+ *  here and nowhere else, and nothing in this build ever
+ *  stamps it from a settle — a settle that stamped
+ *  presence would make absence impossible. */
+export function tenderLastSeenAt(ownerKey: string): number {
+  try {
+    const row = sqlite.prepare("SELECT last_seen_at AS seen FROM tender_resources WHERE owner_key = ?").get(ownerKey) as any;
+    return row?.seen == null ? 0 : Number(row.seen) || 0;
+  } catch { return 0; }
+}
+
+/** Is this land's company present? A room standing on the
+ *  land lends it the seats' presence (the war laws follow
+ *  the seats: any seat's heartbeat within the gap), and a
+ *  solo land reads its own Tender's stamp. A roomland with
+ *  no tender of its own lives by its seats alone. */
+export function landOnline(ownerKey: string, nowMs: number): boolean {
+  const seatSeen = roomLandLastSeatSeenAt(ownerKey);
+  if (seatSeen > 0 && nowMs - seatSeen <= PROTECTION_ONLINE_GAP_MS) return true;
+  const seen = tenderLastSeenAt(ownerKey);
+  return seen > 0 && nowMs - seen <= PROTECTION_ONLINE_GAP_MS;
+}
+
+/** The beacon switch, as the Tender's hand left it. */
+export function beaconSwitchLit(ownerKey: string): boolean {
+  const row = sqlite.prepare("SELECT lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  return !!row && Number(row.lit) === 1;
+}
+
+/** THE BEACON HELD (THE MASTER CLOCK, Nigel, 2026-10-28:
+ *  "when a player is offline the beacon is lit and the
+ *  curses can not spread and they can not effect the curse
+ *  either. The beacon must be unlit to gain ground"): the
+ *  beacon counts as LIT — the curse held, no ground gained
+ *  either way — while the switch is lit, AND while the
+ *  land's company is away. The held light is a state the
+ *  clock grants: it is NOT a draw on the lighthouse bank
+ *  and drinks no shadow upkeep (the protection settle,
+ *  which alone spends the bank, is never walked for an
+ *  away land, and its own gap law already burns nothing
+ *  across a silence). */
+export function beaconHeld(ownerKey: string, nowMs: number): boolean {
+  return beaconSwitchLit(ownerKey) || !landOnline(ownerKey, nowMs);
+}
+
 function axialDist(a: { q: number; r: number }, b: { q: number; r: number }): number {
   return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 }
@@ -5740,10 +6489,22 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
   try {
     const drops = rollFellTake(kind, groundElement);
     if (drops.length) {
-      landHomelandPack(ownerKey, drops);
       const kindName = kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : "dark";
-      sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
-        .run(ownerKey, `The felled ${kindName} leaves behind: ${describeDrops(drops)} — gathered in your Pack.`, Date.now());
+      // The take settles through the Pack's dealing law
+      // (settlePackDrops): what rests is gathered in the
+      // Pack and spoken on the land's ledger, as before;
+      // what the round robin deals is spoken under each
+      // dealt seat's own key, so the seat it fell to
+      // hears of it on their own read.
+      const { rested, dealt } = await settlePackDrops(ownerKey, drops);
+      if (rested.length) {
+        sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+          .run(ownerKey, `The felled ${kindName} leaves behind: ${describeDrops(rested)} — gathered in your Pack.`, Date.now());
+      }
+      for (const share of dealt) {
+        sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+          .run(share.seatKey, `The felled ${kindName} leaves behind: ${describeDrops([share.drop])} — dealt to you by the Pack's turn.`, Date.now());
+      }
       if (fx && Number.isFinite(fx.q) && Number.isFinite(fx.r)) {
         recordDropEvent(ownerKey, { at: Date.now(), fromQ: fx.q, fromR: fx.r, drops });
       }
@@ -5826,8 +6587,28 @@ async function settleProtection(ownerKey: string): Promise<void> {
   } else {
     intensity = 1 + Math.max(0, reigns - mark);
   }
+  // THE SWITCH IS THE TENDER'S HAND (gate fix, 2026-10-28):
+  // this reckoning began from the row read at its head, and
+  // its long counting must never write the switch back from
+  // that stale snapshot — if the hand moved it while the
+  // settle walked (a lighting or a dousing landing between
+  // the read above and this write), the hand's word stands.
+  // The one turn of the switch that is this settle's own to
+  // make is the gutter: a burn that ran its bank or its fuel
+  // dry puts the light OUT, as the protection law has always
+  // ruled. A stale write-back here once reverted a lighting
+  // whole without a sound: the cradle read the land doused
+  // in the very next step and birthed darks down the
+  // ordinary road under a burning beacon — the lit law (no
+  // enemies while the beacon burns, Nigel 2026-10-28)
+  // broken by a bookkeeping overwrite, not by any road's
+  // intent (drive-master-clock §R caught it, twice, on two
+  // worktrees, after passing twice on luck).
+  const guttered = Number(row.lit) === 1 && !lit;
+  const storedLitRow = sqlite.prepare("SELECT lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  const writeLit = guttered ? 0 : (storedLitRow ? Number(storedLitRow.lit) || 0 : (lit ? 1 : 0));
   sqlite.prepare("UPDATE tender_progress SET shadow_matter = ?, protection_bank_ms = ?, lighthouse_lit = ?, lighthouse_settled_at = ?, wave_intensity = ?, intensity_reign_mark = ? WHERE owner_key = ?")
-    .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), lit ? 1 : 0, now, intensity, mark, ownerKey);
+    .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), writeLit, now, intensity, mark, ownerKey);
 }
 
 /** THE STRIKE WITNESS (the Token Strip, Nigel 2026-10-23;
@@ -5879,6 +6660,10 @@ function recordHomelandStrike(ownerKey: string, s: Omit<HomelandStrike, "id">): 
   log.push({ ...s, id: ++homelandStrikeSeq });
   const keep = s.at - 120000;
   homelandStrikeLog.set(ownerKey, log.filter(x => x.at >= keep).slice(-HOMELAND_STRIKE_WITNESS_CAP));
+  // THE STRIKE'S FLASH (THE MASTER CLOCK, 2026-10-28): a
+  // placement's blow lights the hex it lands on — see the
+  // lighting system, where the flash is reckoned.
+  if (s.kind === "placement") flashStruckHex(ownerKey, s.toQ, s.toR);
 }
 /** The strikes the map has yet to witness, newest last. */
 export function recentHomelandStrikes(ownerKey: string): HomelandStrike[] {
@@ -5927,7 +6712,7 @@ const regenBankByPlacement = new Map<number, number>();
  *  watermark's own cap), walked in half-second sub-steps so
  *  movement, strikes and deaths interleave as they would
  *  lived: a figure felled mid-window strikes no more. */
-async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId: number | null, woundTender: (ownerKey: string, damage: number) => Promise<void>): Promise<void> {
+async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId: number | null, woundTender: (ownerKey: string, damage: number) => Promise<void>, guestBodies: { key: string; tileId: number }[] = []): Promise<void> {
   const prow = sqlite.prepare("SELECT battle_watermark AS wm, lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
   if (!prow) return;
   const now = Date.now();
@@ -6827,31 +7612,61 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // Nothing of his in reach: the Tender himself, when he
       // stands within the bite and nothing of his stands —
       // the old border law's own priority.
-      if (standTileId != null) {
-        const stand = byId.get(standTileId);
-        if (stand && axialDist(d, stand) <= ENEMY_BITE_REACH) {
+      // THE ROOM'S BODY LAW (Nigel, 2026-10-28 12:54:
+      // "Guests should take damage"): the bodies the curse
+      // may bite are EVERY seated Tender's figure standing
+      // on the land — the land's own Tender first among
+      // equals, then each guest (guestBodies, settled just
+      // before this pass in getTerritory) — and the bite
+      // falls on the NEAREST body in reach, the wound
+      // landing on THAT Tender's own record. At home the
+      // list holds the one body it always held, and the
+      // reckoning below is the one it always was (his own
+      // zodiac AC read at the settle's head; a guest's body
+      // is read by their own).
+      {
+        const bodies: { key: string; tileId: number }[] = [];
+        if (standTileId != null) bodies.push({ key: ownerKey, tileId: standTileId });
+        for (const b of guestBodies) bodies.push(b);
+        let bitten: { key: string; tile: any } | null = null;
+        let bittenDist = Infinity;
+        for (const b of bodies) {
+          const bt = byId.get(b.tileId);
+          if (!bt) continue;
+          const dist = axialDist(d, bt);
+          if (dist <= ENEMY_BITE_REACH && dist < bittenDist) { bitten = { key: b.key, tile: bt }; bittenDist = dist; }
+        }
+        if (bitten) {
+          const stand = bitten.tile;
           const roll = homelandDN(20);
-          const tAC = 10 + zTenderAc; // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard — plus THE ZODIAC'S TENDER AC (Recovery #1)
+          const tAC = 10 + (bitten.key === ownerKey ? zTenderAc : fxSum(bitten.key, "tenderAc")); // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard — plus THE ZODIAC'S TENDER AC (Recovery #1), each body by its own zodiac
           const tenderHit = roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= tAC);
           let tenderDmg = 0;
           if (tenderHit) {
             let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
             for (let i = 0; i < dice; i++) raw += homelandDN(6);
             tenderDmg = homelandFateMitigate(raw, tAC, d.lvl);
-            await woundTender(ownerKey, Math.max(1, tenderDmg));
+            await woundTender(bitten.key, Math.max(1, tenderDmg));
           }
           // THE DARK'S BLOW AT THE TENDER, WITNESSED (the
           // projectile rendering fix, 2026-10-27): awakenedId
           // 0 names the Tender himself as the bitten one.
-          recordHomelandStrike(ownerKey, { kind: "dark", tileId: standTileId, wandererId: d.id, awakenedId: 0, fromTileId: d.tileId, fromQ: d.q, fromR: d.r, toQ: stand.q, toR: stand.r, at: tNow, hit: tenderHit, dmg: tenderDmg, felled: false, element: "dark" });
+          recordHomelandStrike(ownerKey, { kind: "dark", tileId: stand.id, wandererId: d.id, awakenedId: 0, fromTileId: d.tileId, fromQ: d.q, fromR: d.r, toQ: stand.q, toR: stand.r, at: tNow, hit: tenderHit, dmg: tenderDmg, felled: false, element: "dark" });
           continue;
         }
       }
       // Failing both, it worries the pure ground it stands
       // beside: harm gathers in the tile until the curse's
       // own HP for that ground is met and the tile turns.
+      // THE SPREAD IS HELD UNDER LIGHT (THE MASTER CLOCK,
+      // Nigel, 2026-10-28): while the beacon burns there
+      // are no enemies to chew at all — the cradle is shut
+      // and the pushback has driven the standing dark off —
+      // and this gate stands in the reckoning itself
+      // regardless: no chewing lands while the light burns,
+      // so the curse does not spread under a lit beacon.
       const here = byId.get(d.tileId);
-      if (here) {
+      if (here && !lit) {
         const nbrs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
           .map(([dq, dr]) => byKey.get(`${here.q + dq},${here.r + dr}`)).filter((n: any) => n && !n.cursed) as any[];
         const target = (!here.cursed ? here : undefined) ?? nbrs.find(n => axialDist(d, n) <= ENEMY_BITE_REACH + 0.5);
@@ -7566,6 +8381,209 @@ async function reinforcementDeckFor(ownerKey: string, landKey: string = ownerKey
     });
   }
   return out;
+}
+
+/** THE SPLIT'S MEASURE (THE ROOM'S PACK, Nigel, ruled
+ *  2026-10-28 12:54): a named amount against a standing
+ *  Pack entry — goods and energy in whole measures, the
+ *  drizzle in tenths (its own smallest coin). No name
+ *  reads as the whole entry. Null when the name is no
+ *  measure the entry holds. */
+function packAmountOf(entry: PackEntryView, raw: unknown): number | null {
+  if (raw === undefined || raw === null) return entry.qty;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (entry.kind === "attunement") {
+    const tenths = Math.round(n * 10);
+    if (tenths < 1 || tenths > Math.round(entry.qty * 10)) return null;
+    return tenths / 10;
+  }
+  if (!Number.isInteger(n) || n < 1 || n > entry.qty) return null;
+  return n;
+}
+
+/** PROVE A PACK AMOUNT LANDS with a Tender (the split
+ *  and the dealing share this proof): goods under the
+ *  inventory's caps, energy under the purse's. A named
+ *  amount is EXACT — it must land whole, or the act is
+ *  refused in words and the entry stands. (An unnamed
+ *  whole claim keeps the standing road's own proofs,
+ *  in the claim handler below.) Nothing is landed
+ *  here; the caller takes from the Pack, then lands. */
+async function assertPackAmountLands(targetKey: string, entry: PackEntryView, amount: number, carrier: string): Promise<void> {
+  if (entry.kind === "item") {
+    if (!entry.itemKey || !inventoryCanHold(targetKey, entry.itemKey, amount)) {
+      badRequest(`${carrier} inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in the Pack.`);
+    }
+    return;
+  }
+  if (entry.kind === "energy") {
+    const maxEnergy = await calculateMaxEnergy(targetKey);
+    const current = await getEnergyFor(targetKey);
+    if (current >= maxEnergy) badRequest(`${carrier} energy stands full — spend some, and the orb will wait in the Pack.`);
+    if (current + amount > maxEnergy) {
+      badRequest(`${carrier} purse has room for ${maxEnergy - current} more energy, not ${amount} — name a smaller split, and it lands.`);
+    }
+  }
+}
+
+/** LAND A PROVEN PACK AMOUNT with a Tender: goods
+ *  into the inventory, energy into the purse,
+ *  attunement through the pools' one writer — the
+ *  claim's own landings, aimed at any seat. */
+async function landPackAmount(targetKey: string, entry: PackEntryView, amount: number): Promise<void> {
+  if (entry.kind === "item") {
+    addToInventory(targetKey, entry.itemKey!, amount);
+    return;
+  }
+  if (entry.kind === "energy") {
+    await gainEnergy(targetKey, amount, await calculateMaxEnergy(targetKey));
+    return;
+  }
+  await addAspectPoints(targetKey, (entry.element ?? "root") as AttunementElement, amount);
+}
+
+/** BINDING UPKEEP, settled (extracted whole by THE MASTER CLOCK,
+ *  2026-10-28, so the clock walks the same road the read does):
+ *  3 energy per hour per binder, 1 beside an active Binding
+ *  Circle; a binder whose purse cannot pay drops to defense,
+ *  its stood interval settled as it leaves the stance. The
+ *  backlog is capped at one hour, as it always has been —
+ *  upkeep is ongoing, not a debt collector (Anti-Duolingo). */
+async function settleBindingUpkeep(ownerKey: string, tiles: any[], placements: any[]): Promise<void> {
+// Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
+// Binding Circle (real mechanic): binders on or beside an active circle
+// pay 1/hour instead — "Binding costs 1."
+const now = Date.now();
+const BINDING_PER_HOUR = 3;
+const circleRows = await db.select().from(schema.territoryBuildings)
+  .where(and(
+    eq(schema.territoryBuildings.ownerKey, ownerKey),
+    eq(schema.territoryBuildings.buildingType, "binding-circle"),
+    eq(schema.territoryBuildings.status, "active")
+  ));
+const tileByIdForUpkeep = new Map(tiles.map(t => [t.id, t]));
+const circleTiles = circleRows.map(b => tileByIdForUpkeep.get(b.tileId)).filter(Boolean) as any[];
+const hexDistU = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+const nearCircle = (tileId: number) => {
+  const t = tileByIdForUpkeep.get(tileId);
+  return !!t && circleTiles.some(ct => hexDistU(t, ct) <= 1);
+};
+for (const p of placements) {
+  if (p.stance !== "binding") continue;
+  const lastCharge = p.lastBindingChargeAt ? new Date(p.lastBindingChargeAt).getTime() : new Date(p.placedAt).getTime();
+  const hoursElapsed = (now - lastCharge) / (60 * 60 * 1000);
+  if (hoursElapsed >= 1) {
+    // Cap backlog at 1 hour: upkeep is ongoing, not a debt collector.
+    // Billing the full absence would punish time away (Anti-Duolingo).
+    const hoursToCharge = 1;
+    const cost = hoursToCharge * (nearCircle(p.tileId) ? 1 : BINDING_PER_HOUR);
+    // The binder's own purse pays the upkeep (in a room, a
+    // guest's binding is billed to the guest, never the host).
+    if (await spendEnergy((p as any).actorKey ?? ownerKey, cost)) {
+      await db.update(schema.fieldPlacements)
+        .set({ lastBindingChargeAt: new Date() })
+        .where(eq(schema.fieldPlacements.id, p.id));
+      p.lastBindingChargeAt = new Date() as any;
+    } else {
+      // Can't pay — binding drops. FIX THE CLOCKS: the
+      // interval it stood binding is settled as it
+      // leaves the stance, and its bind cursor clears
+      // with the stance (a later binding starts a fresh
+      // span from its placed_at / next entry).
+      await settleBindingForPlacement(p as any);
+      await db.update(schema.fieldPlacements)
+        .set({ stance: "defense", lastBindingChargeAt: null, bindPaidAt: null })
+        .where(eq(schema.fieldPlacements.id, p.id));
+      p.stance = "defense";
+      (p as any).bindPaidAt = null;
+    }
+  }
+}
+}
+
+/** BUILDING UPKEEP, settled (extracted whole by THE MASTER
+ *  CLOCK, 2026-10-28, so the clock walks the same road the
+ *  buildings read does): a finished building wakes active and
+ *  its builders return to their remembered stances; the
+ *  attunement shrine and the watchtower drink their hourly
+ *  energy or go dormant. Mutates the rows it is handed, as
+ *  the read it came from did. */
+async function settleBuildingUpkeep(ownerKey: string, buildings: any[], gameConfig: any, now: number): Promise<void> {
+const upkeepCost = gameConfig.buildings["watchtower"]?.upkeepPerHour ?? 2;
+const upkeepMs = 60 * 60 * 1000;
+for (const b of buildings) {
+  // Building completed -> active
+  if (b.status === "building" && b.readyAt && new Date(b.readyAt).getTime() <= now) {
+    await db.update(schema.territoryBuildings)
+      .set({ status: "active", lastUpkeepAt: new Date() })
+      .where(eq(schema.territoryBuildings.id, b.id));
+    b.status = "active";
+    b.lastUpkeepAt = new Date();
+    // Builders return to their previous stance
+    if (b.builderStances) {
+      try {
+        const memories = JSON.parse(b.builderStances) as { placementId: number; stance: string }[];
+        for (const m of memories) {
+          // FIX THE CLOCKS: a builder restored to binding
+          // starts a fresh binding span at its return.
+          await db.update(schema.fieldPlacements)
+            .set({ stance: m.stance, ...(m.stance === "binding" ? { bindPaidAt: new Date() } : {}) })
+            .where(eq(schema.fieldPlacements.id, m.placementId));
+        }
+      } catch {}
+    }
+  }
+  // Attunement shrine upkeep: 3 energy/hour or goes dormant (doubling stops)
+  if (b.buildingType === "attunement-shrine" && (b.status === "active" || b.status === "dormant")) {
+    const shrineUpkeep = gameConfig.buildings["attunement-shrine"]?.upkeepPerHour ?? 3;
+    const lastUpkeepS = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
+    if (now - lastUpkeepS >= upkeepMs) {
+      const res = await db.select().from(schema.tenderResources)
+        .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+      const energy = res.length ? res[0].energy : 0;
+      if (energy >= shrineUpkeep) {
+        await db.update(schema.tenderResources)
+          .set({ energy: energy - shrineUpkeep })
+          .where(eq(schema.tenderResources.ownerKey, ownerKey));
+        await db.update(schema.territoryBuildings)
+          .set({ status: "active", lastUpkeepAt: new Date() })
+          .where(eq(schema.territoryBuildings.id, b.id));
+        b.status = "active";
+        b.lastUpkeepAt = new Date();
+      } else if (b.status === "active") {
+        await db.update(schema.territoryBuildings)
+          .set({ status: "dormant" })
+          .where(eq(schema.territoryBuildings.id, b.id));
+        b.status = "dormant";
+      }
+    }
+  }
+  // Watchtower upkeep: 2 energy/hour or goes dormant
+  if (b.buildingType === "watchtower" && (b.status === "active" || b.status === "dormant")) {
+    const lastUpkeep = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
+    if (now - lastUpkeep >= upkeepMs) {
+      const res = await db.select().from(schema.tenderResources)
+        .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+      const energy = res.length ? res[0].energy : 0;
+      if (energy >= upkeepCost) {
+        await db.update(schema.tenderResources)
+          .set({ energy: energy - upkeepCost })
+          .where(eq(schema.tenderResources.ownerKey, ownerKey));
+        await db.update(schema.territoryBuildings)
+          .set({ status: "active", lastUpkeepAt: new Date() })
+          .where(eq(schema.territoryBuildings.id, b.id));
+        b.status = "active";
+        b.lastUpkeepAt = new Date();
+      } else if (b.status === "active") {
+        await db.update(schema.territoryBuildings)
+          .set({ status: "dormant" })
+          .where(eq(schema.territoryBuildings.id, b.id));
+        b.status = "dormant";
+      }
+    }
+  }
+}
 }
 
 export const handlers = {
@@ -9313,27 +10331,15 @@ export const handlers = {
   async getAspectAttunement(_args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const now = Date.now();
-    const THRESHOLD = 10;
-    const POINTS_PER_HOUR = 1;
-    // Thinning's tooth (Weather, 2026-10-15): attunement completes
-    // twice as fast under a thinning sky. The live sky applies — the
-    // rate of the sky at the moment this accrual is reckoned governs
-    // the window being settled, exactly as a storm governs the battle
-    // being resolved when it breaks.
-    const { mood: attuneSky } = await getWorldMood();
-    const attunementRateMult = moodEffects(attuneSky).attunementRateMult;
 
-    // Get all Binding Awoken with their compositions
-    const binders = await db.select({
-      awakenedId: schema.fieldPlacements.awakenedId,
-      tileId: schema.fieldPlacements.tileId,
-      compositionJson: schema.awakened.compositionJson,
-    }).from(schema.fieldPlacements)
-      .innerJoin(schema.awakened, eq(schema.fieldPlacements.awakenedId, schema.awakened.id))
-      .where(and(
-        eq(schema.fieldPlacements.ownerKey, ownerKey),
-        eq(schema.fieldPlacements.stance, "binding")
-      ));
+    // FIX THE CLOCKS (Nigel, 2026-10-28): the accrual settles
+    // per binder, by the span each one actually stood — see
+    // settleAspectAccrual. This read settles first, then reads
+    // the pools back for the panel. A read with nobody
+    // standing pays nothing and burns nothing: departed spans
+    // were settled at their departures, and there is no
+    // shared checkpoint left to advance.
+    await settleAspectAccrual(ownerKey, now);
 
     // Load current attunement
     const rows = await db.select().from(schema.aspectAttunement)
@@ -9349,137 +10355,6 @@ export const handlers = {
         await db.insert(schema.aspectAttunement)
           .values({ ownerKey, element: el as any, points: 0, updatedAt: new Date(now) })
           .onConflictDoNothing();
-      }
-    }
-
-    // Calculate elapsed time and accumulate points
-    // Use the oldest updatedAt as the checkpoint (conservative)
-    let oldestUpdate = now;
-    for (const [, v] of attunement) {
-      const t = v.updatedAt.getTime();
-      if (t < oldestUpdate) oldestUpdate = t;
-    }
-    const hoursElapsed = Math.max(0, (now - oldestUpdate) / (1000 * 60 * 60));
-    // Cap at 24h to prevent huge jumps after long absence
-    const cappedHours = Math.min(hoursElapsed, 24);
-
-    // Always advance the checkpoint (no retroactive attunement)
-    // If no binders, just update timestamps without adding points
-    if (binders.length === 0) {
-      for (const [el] of attunement) {
-        await db.update(schema.aspectAttunement)
-          .set({ updatedAt: new Date(now) })
-          .where(and(
-            eq(schema.aspectAttunement.ownerKey, ownerKey),
-            eq(schema.aspectAttunement.element, el as any)
-          ));
-      }
-    }
-
-    if (cappedHours > 0 && binders.length > 0) {
-      // Find active attunement shrines and their tile positions
-      const shrines = await db.select({
-        tileId: schema.territoryBuildings.tileId,
-      }).from(schema.territoryBuildings)
-        .where(and(
-          eq(schema.territoryBuildings.ownerKey, ownerKey),
-          eq(schema.territoryBuildings.buildingType, "attunement-shrine"),
-          eq(schema.territoryBuildings.status, "active"),
-          // A shrine turned to the LAND gives no blessing (Nigel,
-          // 2026-10-14): the doubling sleeps while it attunes.
-          eq(schema.territoryBuildings.mode, "blessing")
-        ));
-      const shrineTileIds = new Set(shrines.map(s => s.tileId));
-      // Get tile coordinates for adjacency check
-      const allTiles = await db.select({
-        id: schema.territoryTiles.id,
-        q: schema.territoryTiles.q,
-        r: schema.territoryTiles.r,
-      }).from(schema.territoryTiles)
-        .where(eq(schema.territoryTiles.ownerKey, ownerKey));
-      const tileById = new Map(allTiles.map(t => [t.id, t]));
-      const hexDist = (a: any, b: any) =>
-        (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-      const isNearShrine = (binderTileId: number): boolean => {
-        const bTile = tileById.get(binderTileId);
-        if (!bTile) return false;
-        for (const sid of shrineTileIds) {
-          const sTile = tileById.get(sid);
-          if (sTile && hexDist(bTile, sTile) <= 1) return true;
-        }
-        return false;
-      };
-
-      // For each binder, its 1 point/hour is divided across its elements
-      // IN PROPORTION to its element points (pieces = 1 pt, aspects = 1 pt
-      // per level) — the same rule the map tick uses, so the split is one
-      // rule everywhere (Nigel, 2026-10-12). Total stays 1 pt/hour per
-      // binder (doubled adjacent to an attunement shrine).
-      const gains = new Map<string, number>();
-      for (const b of binders) {
-        let layers: any[];
-        try { layers = JSON.parse(b.compositionJson || "[]"); }
-        catch { continue; }
-        const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-        const layerEls = await compositionElements(layers);
-        layers.forEach((l, i) => {
-          const el = layerEls[i];
-          if (el !== "fire" && el in counts) {
-            counts[el] += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
-          }
-        });
-        const totalPts = Object.values(counts).reduce((a, x) => a + x, 0);
-        if (totalPts === 0) continue;
-        const multiplier = (isNearShrine(b.tileId) ? 2 : 1) * attunementRateMult;
-        const tickTotal = POINTS_PER_HOUR * cappedHours * multiplier;
-        for (const [el, pts] of Object.entries(counts)) {
-          if (pts === 0) continue;
-          gains.set(el, (gains.get(el) || 0) + tickTotal * (pts / totalPts));
-        }
-      }
-      // Apply gains and check for threshold
-      for (const [el, gain] of gains) {
-        const current = attunement.get(el)!;
-        let newPoints = current.points + gain;
-        // Spawn aspect if threshold reached. The birth chooses a
-        // piece FILED as this element (never a name pattern), and
-        // the points are spent only when a birth truly happens —
-        // until today this loop spent them even when its name-match
-        // found nothing and no aspect was born.
-        while (newPoints >= THRESHOLD) {
-          const pool = await db.select().from(schema.layerAssets)
-            .where(eq(schema.layerAssets.category, "aspect"));
-          const matches = birthableAspects(pool as any[], el);
-          if (!matches.length) break;
-          newPoints -= THRESHOLD;
-          const pick = matches[Math.floor(Math.random() * matches.length)];
-          await db.insert(schema.aspectInventory)
-            .values({ ownerKey, aspectAssetId: pick.id });
-        }
-        attunement.set(el, { points: newPoints, updatedAt: new Date(now) });
-        await db.update(schema.aspectAttunement)
-          .set({ points: newPoints, updatedAt: new Date(now) })
-          .where(and(
-            eq(schema.aspectAttunement.ownerKey, ownerKey),
-            eq(schema.aspectAttunement.element, el as any)
-          ));
-        await db.update(schema.aspectAttunement)
-          .set({ lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + ${gain}` })
-          .where(and(
-            eq(schema.aspectAttunement.ownerKey, ownerKey),
-            eq(schema.aspectAttunement.element, el as any)
-          ));
-      }
-      // Update timestamps for elements with no gains
-      for (const [el, v] of attunement) {
-        if (!gains.has(el)) {
-          await db.update(schema.aspectAttunement)
-            .set({ updatedAt: new Date(now) })
-            .where(and(
-              eq(schema.aspectAttunement.ownerKey, ownerKey),
-              eq(schema.aspectAttunement.element, el as any)
-            ));
-        }
       }
     }
 
@@ -10008,8 +10883,20 @@ export const handlers = {
    *  he wakes half-healed at the respawn's reading of ground —
    *  his standing bastion, or, with no bastion, his safe hex
    *  (THE SAFE HEX'S OFFICE, Nigel, 2026-10-23 23:26; the
-   *  reading itself is bastionAnchorTileId's). */
-  async settleTenderBody(ownerKey: string, tiles: any[], standTileId: number): Promise<number> {
+   *  reading itself is bastionAnchorTileId's).
+   *  THE ROOM'S BODY LAW (Nigel, 2026-10-28 12:54: "Guests
+   *  should take damage"): a seated guest's body settles by
+   *  this same law on the room's land — the body record is
+   *  the GUEST's own (ownerKey), the anchor chain is read on
+   *  the LAND's ground (opts.landKey: the bastion and the
+   *  safe hex standing on the room's land are the land's),
+   *  and the wake moves the guest's SEAT stand (opts.
+   *  onWakeStand) rather than their tender_progress stand,
+   *  which is their own homeland's business and is never
+   *  written with another land's tile. At home landKey ==
+   *  ownerKey and no sink is passed: the settle is exactly
+   *  the one it always was. */
+  async settleTenderBody(ownerKey: string, tiles: any[], standTileId: number, opts?: { landKey?: string; onWakeStand?: (tileId: number) => void }): Promise<number> {
     const TENDER_BLACKOUT_MS = 15000;
     const now = Date.now();
     const progress = await getTenderProgress(ownerKey);
@@ -10024,7 +10911,11 @@ export const handlers = {
       .run(hp, wm, downUntil, ownerKey);
     // THE WAKE: the blackout has run out.
     if (downUntil != null && now >= downUntil) {
-      let anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+      // The respawn's ground is the LAND's (the room's body
+      // law, above): at home the land is his own and the two
+      // keys are one.
+      const anchorKey = opts?.landKey ?? ownerKey;
+      let anchor = await this.bastionAnchorTileId(anchorKey, tiles);
       if (anchor == null) {
         // THE SAFE HEX'S OFFICE, KEPT AT THE WAKE ITSELF
         // (Nigel, 2026-10-23 23:26): no bastion stands and
@@ -10038,15 +10929,20 @@ export const handlers = {
         // say: ensure the safe hex (ensureOneSafeSquare,
         // piece 7 — it mutates `tiles` in place), then read
         // the anchor again off the ground it restored.
-        await ensureOneSafeSquare(ownerKey, tiles);
-        anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+        await ensureOneSafeSquare(anchorKey, tiles);
+        anchor = await this.bastionAnchorTileId(anchorKey, tiles);
       }
       downUntil = null;
       hp = maxHp / 2;
       wm = null;
       save();
       if (anchor != null) {
-        sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(anchor, ownerKey);
+        // The wake places the figure: at home, on his own
+        // progress record; in a room, on the seat (the room's
+        // body law) — the sink is the only difference, and a
+        // guest's progress stand is never written here.
+        if (opts?.onWakeStand) opts.onWakeStand(anchor);
+        else sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(anchor, ownerKey);
         return anchor;
       }
       return standTileId;
@@ -10090,7 +10986,7 @@ export const handlers = {
     const TENDER_BLACKOUT_MS = 15000;
     const now = Date.now();
     const row = sqlite.prepare("SELECT hp, down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
-    if (!row || (row.downUntil != null && Number(row.downUntil) > now)) return; // already down: the fallen are not bitten twice
+    if (!row || row.downUntil != null) return; // in the fall's passage — woken only by the body settle, and never bitten inside it (the read path settles the body before the battle, so this bites nothing that stands)
     const progress = await getTenderProgress(ownerKey);
     const hp = (row.hp == null ? progress.maxTenderHp : Number(row.hp)) - damage;
     if (hp <= 0) {
@@ -10387,6 +11283,10 @@ export const handlers = {
         // flies each one the referee struck, pierce
         // included.
         recordHomelandWeaponStrike(ownerKey, { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled });
+        // THE STRIKE'S FLASH (THE MASTER CLOCK, 2026-10-28):
+        // the Tender's own shot lights its hex as a
+        // placement's does — one reckoning, in the lighting.
+        if (foe.tile) flashStruckHex(ownerKey, foe.tile.q, foe.tile.r);
         return { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled };
       };
       record = blow(foes[0]);
@@ -10527,6 +11427,34 @@ export const handlers = {
     let wandererViews: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[] = [];
     let weaponStrikeView: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null = null;
     let tenderView: any = tenderStand;
+    // THE ROOM'S BODIES (Nigel, 2026-10-28 12:54: "Guests
+    // should take damage"): every OTHER Tender seated on
+    // this land has a body standing on it, and it settles
+    // by the homeland's own body law on this same read —
+    // the curse withers it on cursed ground, clean ground
+    // mends it, a fall blacks it out, and the wake stands
+    // its SEAT at the land's bastion or safe hex — the
+    // wound and the fall landing on the guest's own record,
+    // never the host's, and their own homeland stand never
+    // written. Settled before the living battle below, so
+    // the fight reckons with the bodies as they now stand
+    // (and a body the curse just felled is not bitten
+    // again). The bodies ride into the battle as its bite
+    // targets beside the land's own Tender. On a land with
+    // no room standing on it the seat list is empty and
+    // this pass is nothing at all.
+    const guestBodies: { key: string; tileId: number }[] = [];
+    for (const seat of roomSeatsOnLand(ownerKey)) {
+      if (seat.watcher || seat.tenderId == null || seat.tileId == null) continue;
+      const bodyKey = tenderOwnerKey(seat.tenderId);
+      if (bodyKey === ownerKey) continue; // the land's own Tender: their body settles as it always has, below
+      const seatTenderId = seat.tenderId;
+      const stood = await this.settleTenderBody(bodyKey, tiles as any[], seat.tileId, {
+        landKey: ownerKey,
+        onWakeStand: (tileId) => { moveRoomSeatStand(ownerKey, seatTenderId, tileId); },
+      });
+      guestBodies.push({ key: bodyKey, tileId: stood });
+    }
     if (tenderStand) {
       const stoodTileId = await this.settleTenderBody(ownerKey, tiles as any[], tenderStand.tileId);
       tenderStand.tileId = stoodTileId;
@@ -10540,7 +11468,7 @@ export const handlers = {
       await settleProtection(ownerKey);
       const wres = await this.settleWanderers(ownerKey, tiles as any[], tenderStand.tileId);
       wandererViews = wres.views;
-      await settleHomelandBattle(ownerKey, tiles as any[], tenderStand.tileId, this.woundTender.bind(this));
+      await settleHomelandBattle(ownerKey, tiles as any[], tenderStand.tileId, this.woundTender.bind(this), guestBodies);
       // HOMELAND CASTING (Nigel, 2026-10-20): the written
       // ground answers the dark now standing on it — blades
       // spring, lattices pin, coils throw back — before the
@@ -10588,50 +11516,8 @@ export const handlers = {
     }
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
 
-    // Binding upkeep: 3 energy per hour per binder. Unpaid binding drops to defense.
-    // Binding Circle (real mechanic): binders on or beside an active circle
-    // pay 1/hour instead — "Binding costs 1."
-    const now = Date.now();
-    const BINDING_PER_HOUR = 3;
-    const circleRows = await db.select().from(schema.territoryBuildings)
-      .where(and(
-        eq(schema.territoryBuildings.ownerKey, ownerKey),
-        eq(schema.territoryBuildings.buildingType, "binding-circle"),
-        eq(schema.territoryBuildings.status, "active")
-      ));
-    const tileByIdForUpkeep = new Map(tiles.map(t => [t.id, t]));
-    const circleTiles = circleRows.map(b => tileByIdForUpkeep.get(b.tileId)).filter(Boolean) as any[];
-    const hexDistU = (a: any, b: any) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
-    const nearCircle = (tileId: number) => {
-      const t = tileByIdForUpkeep.get(tileId);
-      return !!t && circleTiles.some(ct => hexDistU(t, ct) <= 1);
-    };
-    for (const p of placements) {
-      if (p.stance !== "binding") continue;
-      const lastCharge = p.lastBindingChargeAt ? new Date(p.lastBindingChargeAt).getTime() : new Date(p.placedAt).getTime();
-      const hoursElapsed = (now - lastCharge) / (60 * 60 * 1000);
-      if (hoursElapsed >= 1) {
-        // Cap backlog at 1 hour: upkeep is ongoing, not a debt collector.
-        // Billing the full absence would punish time away (Anti-Duolingo).
-        const hoursToCharge = 1;
-        const cost = hoursToCharge * (nearCircle(p.tileId) ? 1 : BINDING_PER_HOUR);
-        // The binder's own purse pays the upkeep (in a room, a
-        // guest's binding is billed to the guest, never the host).
-        if (await spendEnergy((p as any).actorKey ?? ownerKey, cost)) {
-          await db.update(schema.fieldPlacements)
-            .set({ lastBindingChargeAt: new Date() })
-            .where(eq(schema.fieldPlacements.id, p.id));
-          p.lastBindingChargeAt = new Date() as any;
-        } else {
-          // Can't pay — binding drops
-          await db.update(schema.fieldPlacements)
-            .set({ stance: "defense", lastBindingChargeAt: null })
-            .where(eq(schema.fieldPlacements.id, p.id));
-          p.stance = "defense";
-        }
-      }
-    }
-    
+    await settleBindingUpkeep(ownerKey, tiles as any[], placements as any[]);
+
     // Terrain attunement — TERRAIN MIXING (Nigel, 2026-10-25).
     // The Awoken on a hex pour the full combined weight of their
     // elements into that hex alone — point for point, exactly as
@@ -10653,102 +11539,17 @@ export const handlers = {
     // THE DAY-LONG QUEST at the company loop below).
     try {
       const tileById = new Map(tiles.map(t => [t.id, t]));
-      const elementPointsOf = async (aw: any): Promise<Record<string, number>> => {
-        let layers: any[] = [];
-        try { layers = JSON.parse(aw.compositionJson || "[]"); } catch { return {}; }
-        const layerEls = await compositionElements(layers);
-        const counts: Record<string, number> = {};
-        layers.forEach((l, i) => {
-          const el = layerEls[i] as string;
-          if (el === "fire" || el === "neutral") return;
-          counts[el] = (counts[el] || 0) + (l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1);
-        });
-        return counts;
-      };
-      const netPressOf = (sums: Record<string, number>): { el: string; pts: number } => {
-        // THE NET PRESS (Nigel, 2026-10-15; its TERRAIN reign
-        // ended 2026-10-25 — the terrain press is additive now,
-        // see pressMixIntoTile. This reckoning still serves the
-        // BUILDING road below, whose construction law was not
-        // re-ruled, and the shrine's one voice. What follows is
-        // its original law text. — superseding the plain
-        // pooled-dominant read an hour after it was ruled): no element
-        // ever contributes to a MISMATCHED attunement — it ERODES it.
-        // The leading element presses at its tally MINUS every
-        // mismatched point pooled on the hex: 3 tide + 1 stone + 1
-        // root + 1 sky cancels to nothing; 4 root + 2 tide presses
-        // root at 2. The dominant neither cancels the weaker elements
-        // nor takes their power — they spend it wearing its press
-        // down. Net of zero or less presses NOTHING: the company
-        // stands on the hex inert this beat — no bank movement, no
-        // tray growth, no erosion. (Ties hold, as before, but now by
-        // arithmetic rather than by rule: a tied lead always nets to
-        // zero or below.) The parts still pool across the whole
-        // company on the hex; only the press that leaves the pool
-        // changed. Fire and neutral never enter the sums (see
-        // elementPointsOf), so they erode nothing.
-        let leadEl = "", leadPts = 0, totalPts = 0;
-        for (const el of ["tide", "sky", "stone", "root"]) {
-          const pts = sums[el] || 0;
-          totalPts += pts;
-          if (pts > leadPts) { leadEl = el; leadPts = pts; }
-        }
-        const net = leadPts - (totalPts - leadPts);
-        if (!leadEl || net <= 0) return { el: "", pts: 0 };
-        return { el: leadEl, pts: net };
-      };
+      // The standing counts and the net press live at module
+      // scope now (FIX THE CLOCKS): the departure settle pours
+      // by the same bodies this settle does.
+      const elementPointsOf = async (aw: any): Promise<Record<string, number>> => pressCountsOf(aw?.compositionJson);
       // The ledger reckoning is pressMixIntoTile (module
       // scope) — the one funnel the standing press, the shrine,
       // and the Tender's Attune act all pour through.
-      // Terraforming trays (Nigel, 2026-10-15; the tray body
-      // STANDS under mixing, corrected 2026-10-25): a purified
-      // hex is a STACK of trays — Z trays, cap 6. One growing
-      // tray, born at the BOTTOM of the stack, accrues the
-      // standing company's press OF THE ELEMENT THE LAND STANDS
-      // AS (its label), point for point; at 30 it SEALS and a
-      // new growing tray is born beneath. Presence no longer
-      // wears the stack: erosion is retired (mixing law 1), so
-      // the damage road below (damageTopTray/revertToCurse)
-      // stands uncalled by presence — it remains the tile-fall
-      // machinery the open tile-HP pencil will reckon with.
-      // A change of the label no longer resets the stack: the
-      // land holds every element at once, and its trays are its
-      // form, not one element's claim. Neutral hexes do not grow
-      // (their trays wait for an element), and fire land grows
-      // no trays (fire is map-exclusive, never a stack).
-      const TRAY_CAP = 6;
-      const TRAY_SEAL = 30;
-      const stackHeight = (t: any) => {
-        const sealed = t.sealedTrays ?? 0;
-        return sealed >= TRAY_CAP ? TRAY_CAP : sealed + 1;
-      };
-      const persistTray = async (t: any) => {
-        const upd = {
-          sealedTrays: t.sealedTrays ?? 0,
-          growPoints: t.growPoints ?? 0,
-          topPoints: t.topPoints ?? null,
-          height: t.cursed ? 0 : stackHeight(t),
-        };
-        await db.update(schema.territoryTiles).set(upd as any).where(eq(schema.territoryTiles.id, t.id));
-        Object.assign(t, upd);
-      };
-      // Growth: pour points into the growing tray, sealing as it
-      // fills. A full stack (6 sealed) grows no further.
-      const growStack = async (t: any, pts: number) => {
-        if ((t.sealedTrays ?? 0) >= TRAY_CAP) return;
-        // PLANT GROWTH (the zodiac's clause, Recovery #1):
-        // "Plants grow 5% faster" per level, deepened —
-        // every growth point the press lays lands swelled
-        // by the holder's plant-growth sum.
-        const growPts = pts * (1 + fxSum(ownerKey, "plantGrowth") / 100);
-        let grow = (t.growPoints ?? 0) + growPts;
-        let sealed = t.sealedTrays ?? 0;
-        while (grow >= TRAY_SEAL && sealed < TRAY_CAP) { grow -= TRAY_SEAL; sealed += 1; }
-        if (sealed >= TRAY_CAP) grow = 0;
-        t.growPoints = grow;
-        t.sealedTrays = sealed;
-        await persistTray(t);
-      };
+      // The tray machinery (TRAY_CAP / TRAY_SEAL / persistTray /
+      // growStack) stands at module scope with it (FIX THE
+      // CLOCKS) — the departure settle grows trays by the same
+      // bodies. The tray law itself is written there.
       // The purification defeated: the tile reverts to cursed with
       // its curse HP restored by the ring law (4 + ring x 6). The
       // Awoken standing on it disperse exactly as a wave-fallen
@@ -10768,6 +11569,12 @@ export const handlers = {
         // but no re-coalescence is written on them.
         let returnSaves = fxSum(ownerKey, "returnHome");
         for (const v of victims) {
+          // FIX THE CLOCKS: the falling tile's company is
+          // paid its stood spans before it disperses — the
+          // press it poured into this tile is wiped with the
+          // tile by the same event, but a binder's interval
+          // belongs to the pools and is settled whole.
+          await settlePlacementClocksById(v.id);
           if (returnSaves > 0) returnSaves--;
           else await db.update(schema.awakened).set({ dispersedUntil }).where(eq(schema.awakened.id, v.awakenedId));
           await db.delete(schema.fieldPlacements).where(eq(schema.fieldPlacements.awakenedId, v.awakenedId));
@@ -10837,133 +11644,31 @@ export const handlers = {
         }
         return sums;
       };
-      // THE DAY-LONG QUEST (Nigel, 2026-10-16): the company's press
-      // is no longer poured whole at every reading of the map — that
-      // made attunement a matter of glances, with trays sealing
-      // between one look and the next. The press is now a RATE,
-      // settled by the clock the way the shrine's pour already was:
-      // while a company stands on a hex, the land drinks its net
-      // press at one-eighth strength per hour, so a full company
-      // (net ~8) carries a hex through one 10-point stage in about
-      // ten hours and turns it fully in about a day, and a 30-point
-      // tray seals after about a day and a quarter of standing.
-      // Each settled hour is one beat, so the witness rule keeps its
-      // meaning — no stage completes in the beat its bank starts.
-      // Catch-up settles at most a day per reading (the backlog then
-      // drains a day at a time, as the shrine's does), and an empty
-      // hex keeps no clock: its anchor clears when the company
-      // leaves, and a returning company starts its own day.
-      // Attunement quickened (Nigel, 2026-10-17): the time a
-      // hex takes to attune is reduced by a third — the land
-      // drinks the press at two-thirds the old divisor (8 -> 16/3),
-      // so every stage lands in two-thirds the hours. The bank,
-      // the trays, and the served rate all ride this one number.
-      const PRESS_DIVISOR = 8 * 2 / 3;
-      const QUEST_STEP_MS = 3600 * 1000;
-      const QUEST_MAX_STEPS = 24;
-      for (const [tileId, company] of byTile) {
+      // THE DAY-LONG QUEST (Nigel, 2026-10-16), re-clocked
+      // (FIX THE CLOCKS, Nigel, 2026-10-28): the press is a
+      // RATE, settled by the clock — while a company stands
+      // on a hex, the land drinks its sums at sums /
+      // PRESS_DIVISOR per hour (one-eighth strength per hour,
+      // quickened by a third on 2026-10-17: divisor 8 ->
+      // 16/3), so a full company carries a hex through one
+      // 10-point stage in about ten hours and turns it fully
+      // in about a day. The RATE is unchanged; what the
+      // ruling changed is the clock: settleTilePress slices
+      // the window at every placement and cursor boundary
+      // and pours each slice for exactly the company that
+      // stood through it — a departed company's stood hours
+      // are poured (settled at its departure), and hours
+      // nobody stood pour nothing. No anchor, no whole-hour
+      // beats, no day cap.
+      for (const tileId of byTile.keys()) {
         const tile = tileById.get(tileId);
         if (!tile || tile.cursed) continue;
-        const sums = await companySums(company);
-        // The BUILDING road below still drinks by the net press
-        // (construction law was not re-ruled); the terrain press
-        // reads the raw sums, element by element.
-        const dom = netPressOf(sums);
-        // The leading line of the sums — the fullest element the
-        // company carries onto this hex right now.
-        let leadEl: TerrainMixElement = "root";
-        for (const el of TERRAIN_MIX_ELEMENTS) {
-          if ((sums[el] ?? 0) > (sums[leadEl] ?? 0)) leadEl = el;
-        }
-        const leadPts = sums[leadEl] ?? 0;
-        (tile as any).attuneRatePts = leadPts > 0 ? Math.round((leadPts / PRESS_DIVISOR) * 100) / 100 : 0;
-        // The War-Grounds readout (Nigel, 2026-10-17): the hex's
-        // dominant element and the points of it influencing the
-        // hex's attunement right now — under mixing, the leading
-        // line of the same additive sums the settle pours by,
-        // served on the tile for the label.
-        (tile as any).pressEl = leadPts > 0 ? leadEl : null;
-        (tile as any).pressPts = leadPts;
-        const nowMs = Date.now();
-        let anchor = tile.attuneAnchorAt ? new Date(tile.attuneAnchorAt as any).getTime() : 0;
-        if (!anchor) {
-          // The company has just taken its stand: the clock starts
-          // now, and nothing pours yet.
-          await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(nowMs) } as any)
-            .where(eq(schema.territoryTiles.id, tile.id));
-          tile.attuneAnchorAt = new Date(nowMs) as any;
-          continue;
-        }
-        // THE BUILDING SYSTEM — THE PRESENCE ROAD (Nigel,
-        // 2026-10-19): a company standing on a work under
-        // construction BUILDS it instead of attuning it — free,
-        // and slow, at the day-long quest's own tempo. The press
-        // must speak the stage's element; at stage 3's fork, tide
-        // or sky crowns the branch by standing there. Fire's
-        // finish by presence is always the BAKE — lowering is
-        // the Tender's deliberate act, by his own pours only.
-        if (buildUnderway(tile)) {
-          let stepsB = Math.floor((nowMs - anchor) / QUEST_STEP_MS);
-          if (stepsB <= 0) continue;
-          stepsB = Math.min(stepsB, QUEST_MAX_STEPS);
-          const perStepB = dom.pts / PRESS_DIVISOR;
-          for (let s = 0; s < stepsB; s++) {
-            anchor += QUEST_STEP_MS;
-            if (!dom.el || perStepB <= 0) continue;
-            if (buildStageOf(tile) === 4 && !tile.buildFinish) tile.buildFinish = "bake";
-            await feedBuild(ownerKey, tile, dom.el, perStepB);
-          }
-          await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(anchor) } as any)
-            .where(eq(schema.territoryTiles.id, tile.id));
-          tile.attuneAnchorAt = new Date(anchor) as any;
-          continue;
-        }
-        let steps = Math.floor((nowMs - anchor) / QUEST_STEP_MS);
-        if (steps <= 0) continue;
-        steps = Math.min(steps, QUEST_MAX_STEPS);
-        const perStep = dom.pts / PRESS_DIVISOR;
-        for (let s = 0; s < steps; s++) {
-          anchor += QUEST_STEP_MS;
-          // A company carrying no elemental weight pours
-          // nothing, but its standing still holds the clock
-          // honest.
-          if (leadPts <= 0) continue;
-          if ((tile as any).baked) {
-            // SEALED (the Building System, 2026-10-19): the
-            // baked cell takes no press into its ledger — its
-            // element cannot turn, its trays cannot erode — and
-            // the charge it holds radiates into its own stack:
-            // its own element's company grows it twice as fast.
-            if (dom.el === tile.element) await growStack(tile, perStep * 2);
-            continue;
-          }
-          // TERRAIN MIXING (Nigel, 2026-10-25): every element
-          // the company carries presses its own line of the
-          // ledger, additively — the sum of their parts, nothing
-          // netted, nothing eroded.
-          const deltas: Partial<Record<TerrainMixElement, number>> = {};
-          for (const el of TERRAIN_MIX_ELEMENTS) {
-            const pts = (sums[el] ?? 0) / PRESS_DIVISOR;
-            if (pts > 0) deltas[el] = pts;
-          }
-          const labelBefore = tile.element as string;
-          await pressMixIntoTile(ownerKey, tile, deltas);
-          // Trays ride the same beat: the growing tray drinks
-          // the press of the element the land stood as when the
-          // beat began — the stack grows by presence, and is
-          // never worn by it (erosion is retired; a label change
-          // resets nothing, and the beat that changes the label
-          // grows nothing, as the turning beat never did).
-          const labelLaid = deltas[labelBefore as TerrainMixElement] ?? 0;
-          if (labelLaid > 0 && labelBefore !== "neutral" && labelBefore !== "fire" && tile.element === labelBefore) {
-            await growStack(tile, labelLaid);
-          }
-        }
-        await db.update(schema.territoryTiles).set({ attuneAnchorAt: new Date(anchor) } as any)
-          .where(eq(schema.territoryTiles.id, tile.id));
-        tile.attuneAnchorAt = new Date(anchor) as any;
+        await settleTilePress(ownerKey, tile, Date.now());
       }
-      // Empty hexes keep no clock (see the quest note above).
+      // Empty hexes keep no clock: a tile whose company has
+      // gone had its spans settled at their departures; all
+      // that remains is retiring the old anchor the
+      // pre-ruling clock kept on it.
       for (const t of tiles as any[]) {
         if (t.cursed || byTile.has(t.id) || !t.attuneAnchorAt) continue;
         await db.update(schema.territoryTiles).set({ attuneAnchorAt: null } as any)
@@ -11027,7 +11732,7 @@ export const handlers = {
             // now stands as the poured element, ten points
             // settle into its growing tray.
             if (!target.cursed && target.element === voice.el) {
-              await growStack(target, 10);
+              await growStack(ownerKey, target, 10);
             }
             steps--;
             anchor += 5 * 3600 * 1000;
@@ -11045,75 +11750,22 @@ export const handlers = {
       console.error("[TerrainAttune] failed", e);
     }
 
-    // Aspect attunement: binding Awoken channel elements into the pool.
-    // 10 points of an element → an aspect of that element is born.
-    const ASPECT_THRESHOLD = 10;
-    const binders = placements.filter(p => p.stance === "binding");
-    if (binders.length) {
-      const awakenedIds = [...new Set(binders.map(p => p.awakenedId))];
-      const aws = await db.select().from(schema.awakened)
-        .where(inArray(schema.awakened.id, awakenedIds));
-      const awMap = new Map(aws.map(a => [a.id, a]));
-      for (const p of binders) {
-        const aw = awMap.get(p.awakenedId);
-        if (!aw) continue;
-        try {
-          const comp = JSON.parse(aw.compositionJson || "[]");
-          // Elemental points: pieces = 1 pt, aspects = 1 pt per level.
-          // The binder's 1 channeled point per tick is DIVIDED across all
-          // its elements in proportion to those points (Nigel, 2026-10-12) —
-          // the stronger element receives the larger share.
-          const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-          const compEls = await compositionElements(comp);
-          comp.forEach((layer: any, i: number) => {
-            const el = compEls[i];
-            if (el !== "fire" && el in counts) {
-              counts[el] += layer.category === "aspect" ? ((layer as any).aspectLevel ?? 1) : 1;
-            }
-          });
-          const totalPts = Object.values(counts).reduce((a, b) => a + b, 0);
-          if (totalPts === 0) continue;
-          for (const [el, pts] of Object.entries(counts)) {
-            if (pts === 0) continue;
-            const share = pts / totalPts; // fraction of the 1 channeled point
-            const existing = await db.select().from(schema.aspectAttunement)
-              .where(and(
-                eq(schema.aspectAttunement.ownerKey, ownerKey),
-                eq(schema.aspectAttunement.element, el as any)
-              )).limit(1);
-            const newPoints = (existing[0]?.points ?? 0) + share;
-            if (existing.length) {
-              await db.update(schema.aspectAttunement)
-                .set({ points: newPoints, lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + ${share}` })
-                .where(and(
-                  eq(schema.aspectAttunement.ownerKey, ownerKey),
-                  eq(schema.aspectAttunement.element, el as any)
-                ));
-            } else {
-              await db.insert(schema.aspectAttunement)
-                .values({ ownerKey, element: el as any, points: share, lifetimeGains: share });
-            }
-            // Threshold reached → birth an aspect (overflow is kept)
-            if (newPoints >= ASPECT_THRESHOLD) {
-              const pool = await db.select().from(schema.layerAssets)
-                .where(eq(schema.layerAssets.category, "aspect"));
-              const matches = el === "fire" ? [] : birthableAspects(pool as any[], el);
-              if (matches.length) {
-                const pick = matches[Math.floor(Math.random() * matches.length)];
-                await db.insert(schema.aspectInventory)
-                  .values({ ownerKey, aspectAssetId: pick.id, createdAt: new Date() });
-                await db.update(schema.aspectAttunement)
-                  .set({ points: newPoints - ASPECT_THRESHOLD })
-                  .where(and(
-                    eq(schema.aspectAttunement.ownerKey, ownerKey),
-                    eq(schema.aspectAttunement.element, el as any)
-                  ));
-              }
-            }
-          }
-        } catch { /* skip malformed composition */ }
-      }
-    }
+    // FIX THE CLOCKS — THE MAP-OPEN CHANNELING, FOLDED
+    // (Nigel, 2026-10-28: "standing pays only for the time
+    // actually stood"): this settle used to pay every
+    // standing binder one full point per map READ, split by
+    // its composition — a point for the reading itself, not
+    // for any time stood. Under the ruling the channeling
+    // folds into the same time law as the accrual: a map
+    // read still SETTLES the standing intervals (as every
+    // settle does), but it pays for the standing, never for
+    // the read. A binder's map-side gathering is now exactly
+    // its interval, reckoned by settleAspectAccrual — the
+    // same reckoning the attunement tab's read performs.
+    // (This reading of his sentence is the Keeper's, flagged
+    // in the build report; it stands in its own commit so it
+    // can be struck cleanly if he rules otherwise.)
+    await settleAspectAccrual(ownerKey, Date.now());
 
     const buildings = await db.select().from(schema.territoryBuildings).where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const mood = await getWorldMood();
@@ -11880,6 +12532,11 @@ export const handlers = {
       const cost = 1 + Math.floor((power - 1) / 3);
       if (!(await spendEnergy(actorKeyFor(ctx), cost))) badRequest("Not enough energy.");
     }
+    // FIX THE CLOCKS: the step leaves the old tile — its
+    // press span settles with this placement in the company
+    // before the move; the cursors stand at the settle
+    // moment, so the new tile's span runs from here.
+    await settlePlacementClocksById(placement[0].id);
     await db.update(schema.fieldPlacements)
       .set({ tileId: tile[0].id, lastMovedAt: new Date(), posQ: tile[0].q, posR: tile[0].r, marchPosQ: null, marchPosR: null })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
@@ -13040,6 +13697,9 @@ export const handlers = {
       if (dest !== null && row.march_goal === "bastion") {
         const bastion = bastionRowFor(ownerKey);
         if (bastion && bastion.tileId === dest) {
+          // FIX THE CLOCKS: stepping off the field into the
+          // bastion's ranks is a departure — settle first.
+          await settlePlacementClocksById(row.id, now);
           sqlite.prepare("DELETE FROM field_placements WHERE id = ?").run(row.id);
           sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, ?)")
             .run(row.actorKey ?? ownerKey, row.awakened_id, row.march_ends, row.follow === 1 ? "field" : "march");
@@ -13047,6 +13707,12 @@ export const handlers = {
         }
       }
       if (dest !== null) {
+        // FIX THE CLOCKS: the landing moves the placement to
+        // new ground — its origin tile's press span (and any
+        // binding interval reckoning) settles at the landing
+        // first; its cursors stand at the settle moment, so
+        // the destination span runs from here.
+        await settlePlacementClocksById(row.id, now);
         // The landing: the placement takes the destination
         // tile, and its standing point becomes the free
         // point the march carried — or, for a march that
@@ -13186,7 +13852,11 @@ export const handlers = {
           // THE SANCTUARY (2026-10-24 18:18): a fallen seed
           // purifies the tile it lands on — the standard
           // purification shape, as the bank writes it.
-          if ((spot as any).cursed) {
+          // (THE MASTER CLOCK, 2026-10-28: the star still
+          // falls under a lit beacon, but its sanctuary
+          // purifies nothing while the beacon is held —
+          // no ground is gained under light.)
+          if ((spot as any).cursed && !beaconHeld(ownerKey, now)) {
             await db.update(schema.territoryTiles)
               .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
               .where(eq(schema.territoryTiles.id, spot.id));
@@ -13383,6 +14053,13 @@ export const handlers = {
    *  allows) re-thickens by the difference. Tiles the calm
    *  has never touched are left exactly as they were. */
   async settleSeedCalm(ownerKey: string) {
+    // THE CALM WAITS FOR DARK (THE MASTER CLOCK, Nigel,
+    // 2026-10-28): the calm thins the curse — the player's
+    // side gaining ground by inches — and under a held
+    // beacon no ground is gained, in either direction:
+    // the curse's state stands exactly as it stands until
+    // the beacon is doused and the Tender present.
+    if (beaconHeld(ownerKey, Date.now())) return;
     const seedHexes = await livingSeedHexes(ownerKey);
     const mood = (await getWorldMood()).mood;
     const tiles = await db.select().from(schema.territoryTiles)
@@ -13994,6 +14671,8 @@ export const handlers = {
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     if (placement.tile_id === bastion.tileId) {
       // Already home: it simply steps into the ranks.
+      // FIX THE CLOCKS: a departure — settle its spans first.
+      await settlePlacementClocksById(placement.id);
       sqlite.prepare("DELETE FROM field_placements WHERE id = ?").run(placement.id);
       sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'field')").run(actorKeyFor(ctx), awakenedId, Date.now());
       return { ok: true, arrived: true };
@@ -14585,78 +15264,7 @@ export const handlers = {
       .where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const now = Date.now();
     const gameConfig = await loadGameConfig();
-    const upkeepCost = gameConfig.buildings["watchtower"]?.upkeepPerHour ?? 2;
-    const upkeepMs = 60 * 60 * 1000;
-    for (const b of buildings) {
-      // Building completed -> active
-      if (b.status === "building" && b.readyAt && new Date(b.readyAt).getTime() <= now) {
-        await db.update(schema.territoryBuildings)
-          .set({ status: "active", lastUpkeepAt: new Date() })
-          .where(eq(schema.territoryBuildings.id, b.id));
-        b.status = "active";
-        b.lastUpkeepAt = new Date();
-        // Builders return to their previous stance
-        if (b.builderStances) {
-          try {
-            const memories = JSON.parse(b.builderStances) as { placementId: number; stance: string }[];
-            for (const m of memories) {
-              await db.update(schema.fieldPlacements)
-                .set({ stance: m.stance })
-                .where(eq(schema.fieldPlacements.id, m.placementId));
-            }
-          } catch {}
-        }
-      }
-      // Attunement shrine upkeep: 3 energy/hour or goes dormant (doubling stops)
-      if (b.buildingType === "attunement-shrine" && (b.status === "active" || b.status === "dormant")) {
-        const shrineUpkeep = gameConfig.buildings["attunement-shrine"]?.upkeepPerHour ?? 3;
-        const lastUpkeepS = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
-        if (now - lastUpkeepS >= upkeepMs) {
-          const res = await db.select().from(schema.tenderResources)
-            .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
-          const energy = res.length ? res[0].energy : 0;
-          if (energy >= shrineUpkeep) {
-            await db.update(schema.tenderResources)
-              .set({ energy: energy - shrineUpkeep })
-              .where(eq(schema.tenderResources.ownerKey, ownerKey));
-            await db.update(schema.territoryBuildings)
-              .set({ status: "active", lastUpkeepAt: new Date() })
-              .where(eq(schema.territoryBuildings.id, b.id));
-            b.status = "active";
-            b.lastUpkeepAt = new Date();
-          } else if (b.status === "active") {
-            await db.update(schema.territoryBuildings)
-              .set({ status: "dormant" })
-              .where(eq(schema.territoryBuildings.id, b.id));
-            b.status = "dormant";
-          }
-        }
-      }
-      // Watchtower upkeep: 2 energy/hour or goes dormant
-      if (b.buildingType === "watchtower" && (b.status === "active" || b.status === "dormant")) {
-        const lastUpkeep = b.lastUpkeepAt ? new Date(b.lastUpkeepAt).getTime() : now;
-        if (now - lastUpkeep >= upkeepMs) {
-          const res = await db.select().from(schema.tenderResources)
-            .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
-          const energy = res.length ? res[0].energy : 0;
-          if (energy >= upkeepCost) {
-            await db.update(schema.tenderResources)
-              .set({ energy: energy - upkeepCost })
-              .where(eq(schema.tenderResources.ownerKey, ownerKey));
-            await db.update(schema.territoryBuildings)
-              .set({ status: "active", lastUpkeepAt: new Date() })
-              .where(eq(schema.territoryBuildings.id, b.id));
-            b.status = "active";
-            b.lastUpkeepAt = new Date();
-          } else if (b.status === "active") {
-            await db.update(schema.territoryBuildings)
-              .set({ status: "dormant" })
-              .where(eq(schema.territoryBuildings.id, b.id));
-            b.status = "dormant";
-          }
-        }
-      }
-    }
+    await settleBuildingUpkeep(ownerKey, buildings as any[], gameConfig, now);
     // Attach harvest parameters so the client knows per-type grow times
     const withDefs = buildings.map(b => {
       const def = gameConfig.buildings[b.buildingType] || {};
@@ -14827,8 +15435,12 @@ export const handlers = {
     const stanceMemory: { placementId: number; stance: string }[] = [];
     for (const h of validHelpers) {
       stanceMemory.push({ placementId: h.id, stance: h.stance });
+      // FIX THE CLOCKS: a helper leaving the binding stance
+      // for the build settles its binding interval first,
+      // and its bind cursor clears while it builds.
+      if (h.stance === "binding") await settleBindingForPlacement(h as any);
       await db.update(schema.fieldPlacements)
-        .set({ stance: "building" })
+        .set({ stance: "building", ...(h.stance === "binding" ? { bindPaidAt: null } : {}) })
         .where(eq(schema.fieldPlacements.id, h.id));
     }
     const [building] = await db.insert(schema.territoryBuildings).values({
@@ -15102,7 +15714,7 @@ export const handlers = {
     if (!parsed.success) badRequest("Name the Awokin to add to your party.");
     const ownerKey = ownerKeyFor(ctx);
     const progress = await getTenderProgress(ownerKey);
-    const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
+    const r = await tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
     return partyViewFor(ownerKey);
   },
@@ -15138,7 +15750,7 @@ export const handlers = {
       badRequest(`${row.name} cannot be called in — it already stands somewhere the call cannot reach past (on your field, staged at the bastion, housed in your court, or still re-coalescing).`);
     }
     const progress = await getTenderProgress(ownerKey);
-    const r = tryAddPartyMember(ownerKey, awakenedId, progress.level);
+    const r = await tryAddPartyMember(ownerKey, awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
     return { ...(await partyViewFor(ownerKey)), reinforcement: { awakenedId, name: row.name, instant: true as const } };
   },
@@ -15191,7 +15803,7 @@ export const handlers = {
     const placement = rows[0] as any;
     if (!placement) badRequest("That Awokin does not stand on your field.");
     const progress = await getTenderProgress(ownerKey);
-    const r = tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
+    const r = await tryAddPartyMember(ownerKey, parsed.data.awakenedId, progress.level);
     if (!r.ok) badRequest(r.reason);
     return { ...(await partyViewFor(ownerKey)), cameOffField: r.cameOffField };
   },
@@ -15974,7 +16586,7 @@ export const handlers = {
       const border = purified.filter(t => !(t.q === 0 && t.r === 0));
       if (border.length) {
         const victim = border[Math.floor(Math.random() * border.length)];
-        const victims = await db.select({ awakenedId: schema.fieldPlacements.awakenedId })
+        const victims = await db.select({ id: schema.fieldPlacements.id, awakenedId: schema.fieldPlacements.awakenedId })
           .from(schema.fieldPlacements)
           .where(eq(schema.fieldPlacements.tileId, victim.id));
         const dispersedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000);
@@ -15983,6 +16595,9 @@ export const handlers = {
         // victims return home whole — no timer written.
         let returnSaves = fxSum(ownerKey, "returnHome");
         for (const v of victims) {
+          // FIX THE CLOCKS: as at the tile-fall above, the
+          // victims' stood spans settle before they disperse.
+          await settlePlacementClocksById(v.id);
           if (returnSaves > 0) returnSaves--;
           else await db.update(schema.awakened)
             .set({ dispersedUntil })
@@ -16056,32 +16671,185 @@ export const handlers = {
    *  inventory or purse cannot hold is refused in words
    *  and the entry stands in the Pack. */
   async claimPackDrop(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ entryId: z.number().int().positive() }).safeParse(args);
+    const actorKey = ownerKeyFor(ctx);
+    // THE ROOM'S PACK (2026-10-28): in a room, the Pack
+    // a seat takes from is the LAND's Pack — the shared
+    // pile every seat reads in the territory serve —
+    // while the taking lands with the ACTOR, as it
+    // always has. (Push 48 served the land's pile to
+    // every seat, but this road still read the claimer's
+    // own Pack: a guest could see the pile and not take
+    // from it.) At home the two keys are one, and every
+    // road below is the standing road.
+    const packKey = ctx?.room ? landKeyFor(ctx) : actorKey;
+    const parsed = z.object({ entryId: z.number().int().positive(), amount: z.number().positive().optional() }).safeParse(args);
     if (!parsed.success) badRequest("Name the drop you would claim.");
-    const entry = peekHomelandPackEntry(ownerKey, parsed.data.entryId);
+    // DEALER'S CHOICE (Nigel, 2026-10-28): the host
+    // deals this Pack — another seat's hand takes
+    // nothing from it. Giving still stands open to
+    // every seat (givePackDrop).
+    if (ctx?.room) {
+      const info = roomPackForLand(packKey);
+      if (info?.mode === "dealer" && (!ctx.tender || info.hostTenderId !== ctx.tender.id)) {
+        badRequest("Dealer's choice — the host deals this Pack, and the loot waits for the host's hand. You may still give to it.");
+      }
+    }
+    const entry = peekHomelandPackEntry(packKey, parsed.data.entryId);
     if (!entry) badRequest("That drop is no longer in your Pack — it may already have been claimed.");
+    const named = parsed.data.amount !== undefined;
+    if (!named) {
+      // THE STANDING ROAD, WHOLE (the loot table fix,
+      // 2026-10-25): one standing entry, clicked, lands
+      // where it belongs, the landing proven BEFORE the
+      // entry is spent — word for word as it stood, with
+      // the room's two keys (the land's pile, the actor's
+      // keeping) where the one key stood at home.
+      let line = "";
+      if (entry.kind === "item") {
+        if (!entry.itemKey || !inventoryCanHold(actorKey, entry.itemKey, entry.qty)) {
+          badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in your Pack.`);
+        }
+        if (!takeHomelandPackEntry(packKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+        addToInventory(actorKey, entry.itemKey!, entry.qty);
+        line = `The ${entry.name} is yours — it rests in your inventory.`;
+      } else if (entry.kind === "energy") {
+        const maxEnergy = await calculateMaxEnergy(actorKey);
+        const current = await getEnergyFor(actorKey);
+        if (current >= maxEnergy) badRequest("Your energy stands full — spend some, and the orb will wait in your Pack.");
+        if (!takeHomelandPackEntry(packKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+        await gainEnergy(actorKey, entry.qty, maxEnergy);
+        line = `The orb breaks — ${entry.qty} energy is yours.`;
+      } else {
+        if (!takeHomelandPackEntry(packKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+        await addAspectPoints(actorKey, (entry.element ?? "root") as AttunementElement, entry.qty);
+        line = `The drizzle settles — ${Math.round(entry.qty * 10) / 10} points of ${entry.element} attunement join your pools.`;
+      }
+      return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+    }
+    // THE SPLIT (Nigel, ruled 2026-10-28 12:54): a named
+    // amount, exact — it must land whole or the act is
+    // refused in words; what is not taken never leaves
+    // the Pack.
+    const amount = packAmountOf(entry, parsed.data.amount);
+    if (amount == null) badRequest(`Name a measure the ${entry.name} holds — a part of it, or its whole.`);
+    await assertPackAmountLands(actorKey, entry, amount!, "Your");
+    if (!takeHomelandPackAmount(packKey, entry.id, amount!)) badRequest("That drop is no longer in your Pack.");
+    await landPackAmount(actorKey, entry, amount!);
     let line = "";
     if (entry.kind === "item") {
-      if (!entry.itemKey || !inventoryCanHold(ownerKey, entry.itemKey, entry.qty)) {
-        badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in your Pack.`);
-      }
-      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
-      addToInventory(ownerKey, entry.itemKey!, entry.qty);
-      line = `The ${entry.name} is yours — it rests in your inventory.`;
+      line = amount! >= entry.qty
+        ? `The ${entry.name} is yours — it rests in your inventory.`
+        : `You take ${amount} of the ${entry.name} — it rests in your inventory, and the rest waits in the Pack.`;
     } else if (entry.kind === "energy") {
-      const maxEnergy = await calculateMaxEnergy(ownerKey);
-      const current = await getEnergyFor(ownerKey);
-      if (current >= maxEnergy) badRequest("Your energy stands full — spend some, and the orb will wait in your Pack.");
-      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
-      await gainEnergy(ownerKey, entry.qty, maxEnergy);
-      line = `The orb breaks — ${entry.qty} energy is yours.`;
+      line = amount! >= entry.qty
+        ? `The orb breaks — ${amount} energy is yours.`
+        : `The orb breaks — ${amount} energy is yours, and the rest waits in the Pack.`;
     } else {
-      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
-      await addAspectPoints(ownerKey, (entry.element ?? "root") as AttunementElement, entry.qty);
-      line = `The drizzle settles — ${Math.round(entry.qty * 10) / 10} points of ${entry.element} attunement join your pools.`;
+      line = `The drizzle settles — ${Math.round(amount! * 10) / 10} points of ${entry.element} attunement join your pools.`;
     }
-    return { ok: true as const, line, loot: homelandPackView(ownerKey), pack: inventoryView(ownerKey) };
+    return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+  },
+
+  /** GIVE TO THE ROOM'S PACK (THE ROOM'S PACK — THE
+   *  SPLIT, Nigel, ruled 2026-10-28 12:54): a seat puts
+   *  a chosen amount of a carried stack into the land's
+   *  Pack — the giving half of the split. A room's
+   *  road: at home the Pack and the bag are one Tender's
+   *  keeping, and there is nothing to give across.
+   *  While the wheel turns (round robin), a gift is
+   *  dealt at once to the seat whose turn stands, like
+   *  anything that falls here; what that seat cannot
+   *  carry rests in the Pack. In dealer's choice a gift
+   *  simply rests, for the host to deal. */
+  async givePackDrop(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.room) badRequest("Giving to the Pack is a room's road — at home, your Pack and your bag are one Tender's keeping.");
+    const actorKey = ownerKeyFor(ctx);
+    const packKey = landKeyFor(ctx);
+    const parsed = z.object({ itemKey: z.string().min(1), amount: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the good, and how much of it you give.");
+    const { itemKey, amount } = parsed.data;
+    const name = itemDisplayName(itemKey);
+    const held = inventoryView(actorKey).stacks.find(s => s.key === itemKey);
+    if (!held || held.qty < amount) {
+      badRequest(`Your bag holds ${held ? held.qty : 0} of the ${name} — name a gift it can make.`);
+    }
+    if (!takeFromInventory(actorKey, itemKey, amount)) badRequest("Your bag would not give it up.");
+    const drop: FellDrop = { kind: "item", itemKey, qty: amount };
+    const { dealt } = await settlePackDrops(packKey, [drop]);
+    const dealtQty = dealt.reduce((a, d) => a + d.drop.qty, 0);
+    const line = dealtQty >= amount
+      ? `Your gift of ${name} ×${amount} is dealt at once — the wheel turns, and it rests with ${dealt[0].seatName}.`
+      : dealtQty > 0
+        ? `Your gift of ${name} ×${amount} is dealt to ${dealt[0].seatName} as far as their keeping holds — the rest rests in the Pack.`
+        : `Your gift of ${name} ×${amount} rests in the Pack.`;
+    noteRoomTale(ctx.room.code, `gives ${name} ×${amount} to the Pack.`, ctx.tender?.tenderName ?? undefined);
+    return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+  },
+
+  /** THE HOST DEALS (THE ROOM'S PACK — DEALER'S CHOICE,
+   *  Nigel, ruled 2026-10-28 12:54: "dealers choice -
+   *  host decides loot only"): in a dealer's-choice
+   *  room the host alone takes from the Pack — or
+   *  ASSIGNS a chosen amount of a standing entry to a
+   *  chosen seat, landed with that seat under the same
+   *  caps a claim answers to. An assignment never
+   *  burns: what the seat cannot carry is refused in
+   *  words and the entry stands, for a smaller split
+   *  to be named. */
+  async assignPackDrop(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.room) badRequest("Dealing the Pack is the host's road in a room — at home the Pack is yours alone.");
+    const actorKey = ownerKeyFor(ctx);
+    const packKey = landKeyFor(ctx);
+    const info = roomPackForLand(packKey);
+    if (!info || info.mode !== "dealer") {
+      badRequest("The Pack is not dealt by a host's hand here — Dealer's choice is not its mode. The host may set the mode at the Pack.");
+    }
+    if (!ctx.tender || info.hostTenderId !== ctx.tender.id) badRequest("Only the host deals this Pack.");
+    const parsed = z.object({
+      entryId: z.number().int().positive(),
+      amount: z.number().positive().optional(),
+      targetTenderId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name the drop, the seat it goes to, and the measure you deal.");
+    const target = roomSeatsOnLand(packKey).find(s => !s.watcher && s.tenderId === parsed.data.targetTenderId);
+    if (!target) badRequest("That seat does not stand at this Table.");
+    const targetRow = sqlite.prepare("SELECT tender_name AS name FROM tenders WHERE id = ?").get(parsed.data.targetTenderId) as { name: string | null } | undefined;
+    const targetName = targetRow?.name ?? "That seat";
+    const targetKey = tenderOwnerKey(parsed.data.targetTenderId);
+    const entry = peekHomelandPackEntry(packKey, parsed.data.entryId);
+    if (!entry) badRequest("That drop is no longer in the Pack — it may already have been dealt.");
+    const amount = packAmountOf(entry, parsed.data.amount);
+    if (amount == null) badRequest(`Name a measure the ${entry!.name} holds — a part of it, or its whole.`);
+    await assertPackAmountLands(targetKey, entry, amount!, `${targetName}'s`);
+    if (!takeHomelandPackAmount(packKey, entry.id, amount!)) badRequest("That drop is no longer in the Pack.");
+    await landPackAmount(targetKey, entry, amount!);
+    const line = entry.kind === "energy"
+      ? `Dealt — ${targetName}'s purse takes ${amount} energy from the Pack.`
+      : entry.kind === "attunement"
+        ? `Dealt — ${Math.round(amount! * 10) / 10} points of ${entry.element} attunement settle on ${targetName}.`
+        : `Dealt — ${amount} of the ${entry.name} rests with ${targetName}.`;
+    noteRoomTale(ctx.room.code, `deals ${entry.name} to ${targetName}.`, ctx.tender.tenderName ?? "The host");
+    return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+  },
+
+  /** SET THE ROOM'S PACK MODE (THE ROOM'S PACK, Nigel,
+   *  ruled 2026-10-28 12:54): the host's hand alone —
+   *  Manual, Round robin, or Dealer's choice. The
+   *  switch binds lots landing after it; what already
+   *  rests in the Pack is not dealt backwards. */
+  async setRoomPackMode(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.room) badRequest("The Pack's modes belong to a room — at home the Pack is dealt by your own hand, as it stands.");
+    const parsed = z.object({ mode: z.enum(["manual", "roundrobin", "dealer"]) }).safeParse(args);
+    if (!parsed.success) badRequest("Name the mode: Manual, Round robin, or Dealer's choice.");
+    const refusal = roomPackSetMode(ctx.room.code, parsed.data.mode as RoomPackMode, ctx.tender?.id ?? null);
+    if (refusal) badRequest(refusal);
+    const words: Record<RoomPackMode, string> = {
+      manual: "dealt by hand — seats take and give as they choose",
+      roundrobin: "dealt in turn around the seats",
+      dealer: "the host's to deal — Dealer's choice",
+    };
+    noteRoomTale(ctx.room.code, `sets the Pack ${words[parsed.data.mode as RoomPackMode]}.`, ctx.tender?.tenderName ?? "The host");
+    return { ok: true as const, mode: parsed.data.mode as RoomPackMode };
   },
 
   /** Twenty rune shards turn into ONE attunement point,
@@ -16119,11 +16887,21 @@ export const handlers = {
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
     if (!placement.length) badRequest("That Awokin is not on your field.");
+    // FIX THE CLOCKS: leaving the binding stance settles the
+    // interval stood binding; entering it starts a fresh
+    // span at this moment. (Re-ordering binding while already
+    // binding keeps the standing span running.)
+    if (placement[0].stance === "binding" && parsed.data.stance !== "binding") {
+      await settleBindingForPlacement(placement[0] as any);
+    }
     await db.update(schema.fieldPlacements)
       .set({
         stance: parsed.data.stance,
         stanceOrdered: 1, // an ORDERED stance (Nigel, 2026-10-23): unordered Awokin default to attack in the living battle
         lastBindingChargeAt: parsed.data.stance === "binding" ? new Date() : null,
+        bindPaidAt: parsed.data.stance === "binding"
+          ? (placement[0].stance === "binding" ? (placement[0] as any).bindPaidAt ?? null : new Date())
+          : null,
       })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
@@ -16136,6 +16914,14 @@ export const handlers = {
       tileId: z.number().int().positive(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid attack.");
+    // NO GROUND IS GAINED UNDER LIGHT (THE MASTER CLOCK,
+    // Nigel, 2026-10-28: "The beacon must be unlit to gain
+    // ground"): a direct strike at the curse is ground
+    // gained by the blow — while the beacon burns, the
+    // light holds the curse where it stands and the blow
+    // is refused whole, before any price is taken. Douse
+    // the beacon, and strike.
+    if (beaconSwitchLit(ownerKey)) badRequest("The beacon burns, and its light holds the curse where it stands — no ground is gained under it. Douse the beacon to strike the curse.");
     if (!(await spendEnergy(actorKeyFor(ctx), 1))) {
       badRequest("Not enough energy (need 1).");
     }
@@ -16259,6 +17045,9 @@ export const handlers = {
         // The attacker advances onto the broken land. (Under
         // the old thorns this was gated on surviving the
         // curse's answer; there is no answer now.)
+        // FIX THE CLOCKS: the advance leaves the old tile —
+        // its press span settles before the move.
+        await settlePlacementClocksById(placement[0].id);
         await db.update(schema.fieldPlacements)
           .set({ tileId: tile[0].id })
           .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
@@ -17064,3 +17853,348 @@ function canTouchAwoken(awoken: typeof schema.awakened.$inferSelect, ownerKey: s
 
 export type ActionName = keyof typeof handlers;
 export { assetShape, awakenedShape };
+
+// ── THE MASTER CLOCK (Nigel, 2026-10-28 15:10: "Build the
+// master clock to effect everything... The homeland should
+// have a master clock that keeps everything happening in
+// the right order") ───────────────────────────────────────
+// Until this build the homeland kept no timer at all: every
+// time-based system carried a watermark and reckoned its
+// elapsed span when the land was READ, in whatever order
+// the read happened to walk. The clock is the homeland's
+// first standing timer: every MASTER_CLOCK_TICK_MS it walks
+// every land that has anything standing and settles its
+// systems IN THE RIGHT ORDER — (1) sky and starfall,
+// (2) curse state, (3) battle, (4) the Tender body,
+// (5) seed feeding, (6) tile press and aspect accrual,
+// (7) upkeep, (8) stone rises — calling the very settles
+// the read path calls, never a second reckoning. The clock
+// changes WHEN a span settles, never WHAT it pays: every
+// settle below is watermark- or cursor-based and pays each
+// span exactly once, so a tick and a read can follow one
+// another in any order and settle nothing twice (the
+// battle advances its watermark before it reckons; the
+// spawn roads spend each beat from one shared ledger; the
+// clocks' cursors advance as they pay).
+// THE WAR LAWS ride on presence (beaconHeld / landOnline,
+// at the protection settle): a land whose company is away
+// is HELD — its beacon counts as lit, the curse neither
+// spreads nor is effected, no battle walks, no body
+// withers or mends — while its peaceful clocks (press,
+// accrual, upkeep, rises) run on. A present land's war
+// walks whole, under its switch: lit, there are NO
+// enemies — no dark is born anywhere on the land and
+// the standing dark is driven off (Nigel, 2026-10-28
+// 17:10: "if he beacon is on there are no enemies if
+// its of they can attakc thats it") — and no ground is
+// gained; doused, they can attack again and ground can
+// be gained. One land's fault
+// never stops the tick or another land: every step is
+// wrapped, named, and logged where it fell.
+export const MASTER_CLOCK_TICK_MS = (() => {
+  const v = Number(process.env.MASTER_CLOCK_TICK_MS);
+  return Number.isFinite(v) && v >= 250 ? Math.floor(v) : 60_000;
+})();
+
+// THE TWO GEARS (Nigel, 2026-10-28 16:29, correcting the
+// build above in his own words): "i want attacks ands and
+// movement to be reconcileed life [live]. not counted
+// every 60 seconds. attunement was the only thing i wanted
+// tracked at 60 seconds .. i want the world clock to be a
+// realtime clock lick [like] realtime strategy."
+// So the clock turns on TWO gears. THE SLOW GEAR is the
+// tick above (runMasterClockTick, 60 s): the whole order
+// as built — and attunement (step 6, press + accrual) is
+// the system he named for that cadence; seed feeding,
+// upkeep and stone rises ride it as built, being already
+// minute- and hour-paced in their own laws. THE REALTIME
+// GEAR (runMasterClockRealtime, below) reconciles attacks
+// and movement LIVE: a standing hand at the battle
+// engine's own sub-step grain (500 ms — the STEP_MS the
+// living battle walks in; the Table's 250 ms round timer
+// is that seat's machinery, not this engine's) walks the
+// WAR of every land whose war is live — a present Tender
+// with darks standing or marching, a march on the road, or
+// a lit beacon (its pushback reconciles on this gear —
+// while the beacon burns, no enemy stands) — and idles over
+// quiet lands. The gears share every ledger the first
+// build named (the battle's watermark is claimed at its
+// settle's head, the spawn beats spend from one anchor,
+// the clocks' cursors advance as they pay), so a realtime
+// settle, a tick settle and a read settle partition the
+// timeline between them and no span is ever settled
+// twice: the realtime gear only ever makes the war's
+// spans settle SOONER, in the engine's own half-second
+// slices, never differently. Sky and starfall keep the
+// slow gear (starfall is hourly by law — its cadence was
+// never the war's); the curse STATE rides the slow gear
+// too, as built: the seed calm is a derivation from the
+// seeds' standings and the sky's mood, not a rate, so no
+// cadence can change what it pays — while the curse's
+// SPREAD, which is war, rides the realtime gear inside
+// the battle it feeds.
+export const MASTER_CLOCK_REALTIME_MS = (() => {
+  const v = Number(process.env.MASTER_CLOCK_REALTIME_MS);
+  return Number.isFinite(v) && v >= 100 ? Math.floor(v) : 500;
+})();
+
+async function clockStep(land: string, name: string, fn: () => Promise<unknown>): Promise<void> {
+  try { await fn(); } catch (e) { console.error(`[master-clock] ${name} failed for ${land}:`, e); }
+}
+
+/** Settle ONE land by the clock, in the right order. */
+export async function settleLandByClock(ownerKey: string, now: number): Promise<void> {
+  const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  if (!tiles.length) return;
+  const tileRows = tiles as any[];
+  const online = landOnline(ownerKey, now);
+  const held = beaconHeld(ownerKey, now);
+
+  // The roads first, as the read walks them: marches land.
+  // A march is the player's own movement, not war — it
+  // lands on every land, present or held.
+  await clockStep(ownerKey, "marches", () => handlers.settleMarches(ownerKey));
+
+  // (1) SKY + STARFALL. The sky itself turns once for the
+  // whole world at the tick's head (runMasterClockTick).
+  // The starfall road (settleIncursions) is ONLINE ONLY by
+  // its own law — its seen-stamp is a presence record, and
+  // the clock must never walk it for an absent Tender, or
+  // absence would read as presence and stars would bank up
+  // offline. The columns ride the same road: a landing is
+  // war, and war is held while the company is away.
+  if (online) await clockStep(ownerKey, "incursions", () => handlers.settleIncursions(ownerKey));
+
+  // (2) CURSE STATE. The first seed's judgement is the
+  // war's edge (online only). The seed calm thins the
+  // curse — ground gained by inches — and is held whole
+  // while the beacon is held (it also refuses itself, at
+  // its own head, on every road).
+  if (online) await clockStep(ownerKey, "first-seed", () => settleFirstSeedEvent(ownerKey));
+  if (!held) await clockStep(ownerKey, "seed-calm", () => handlers.settleSeedCalm(ownerKey));
+
+  // (3) BATTLE — present lands only; an away land's war is
+  // frozen whole (no pushback either: driven-off dark
+  // would be the player's side effecting the curse). The
+  // sub-order is the read path's own: the lighthouse and
+  // its bank first (settleProtection — the bank of step 7
+  // settles here, where it has always settled; for an away
+  // land it is deliberately never walked, because the
+  // offline light is the clock's grant, not a draw on the
+  // bank), then the cradle, then the
+  // living battle, the written ground, the weapon, the
+  // groves, and the first seed's rising at the end.
+  let standTileId: number | null = null;
+  if (online) {
+    const tenderStand = await handlers.tenderStand(ownerKey, tileRows).catch(() => null);
+    standTileId = tenderStand?.tileId ?? null;
+    if (tenderStand) {
+      await clockStep(ownerKey, "first-three", () => fieldFirstThreeParty(ownerKey, tileRows, tenderStand.tileId));
+      await clockStep(ownerKey, "muster", () => handlers.settleTenderMuster(ownerKey, tileRows, tenderStand.tileId));
+      const guestBodies = roomSeatsOnLand(ownerKey)
+        .filter(s => !s.watcher && s.tenderId != null && s.tileId != null && tenderOwnerKey(s.tenderId) !== ownerKey)
+        .map(s => ({ key: tenderOwnerKey(s.tenderId as number), tileId: s.tileId as number }));
+      await clockStep(ownerKey, "protection", () => settleProtection(ownerKey));
+      await clockStep(ownerKey, "wanderers", () => handlers.settleWanderers(ownerKey, tileRows, tenderStand.tileId));
+      await clockStep(ownerKey, "battle", () => settleHomelandBattle(ownerKey, tileRows, tenderStand.tileId, (k, d) => handlers.woundTender(k, d), guestBodies));
+      await clockStep(ownerKey, "workings", () => settleHomelandWorkings(ownerKey, tileRows));
+      await clockStep(ownerKey, "transient-workings", () => settleTransientWorkings(ownerKey, tileRows));
+      await clockStep(ownerKey, "working-attrition", () => settleHomelandWorkingAttrition(ownerKey, tileRows));
+      await clockStep(ownerKey, "engines", () => settleHomelandEngines(ownerKey));
+      await clockStep(ownerKey, "weapon", () => handlers.settleHomelandWeapon(ownerKey, tileRows, tenderStand.tileId));
+      await clockStep(ownerKey, "groves", () => settleHomelandGroves(ownerKey, tileRows));
+      await clockStep(ownerKey, "rising", () => spawnFirstSeedRising(ownerKey, tileRows));
+    }
+  }
+
+  // (4) THE TENDER BODY — present lands only. Away, the
+  // body is frozen with the war: no wither, no mend, no
+  // wake. The room's bodies settle by the room's body law,
+  // as the read settles them; the land's own body last, on
+  // the stand the battle reckoned from.
+  if (online) {
+    for (const seat of roomSeatsOnLand(ownerKey)) {
+      if (seat.watcher || seat.tenderId == null || seat.tileId == null) continue;
+      const bodyKey = tenderOwnerKey(seat.tenderId);
+      if (bodyKey === ownerKey) continue;
+      const seatTenderId = seat.tenderId;
+      await clockStep(ownerKey, "guest-body", () => handlers.settleTenderBody(bodyKey, tileRows, seat.tileId as number, {
+        landKey: ownerKey,
+        onWakeStand: (tileId) => { moveRoomSeatStand(ownerKey, seatTenderId, tileId); },
+      }));
+    }
+    if (standTileId != null) {
+      await clockStep(ownerKey, "body", () => handlers.settleTenderBody(ownerKey, tileRows, standTileId as number));
+    }
+  }
+
+  // (5) SEED FEEDING — present lands only: the draw's own
+  // law reckons only across spans the Tender was present
+  // for, and its anchor is a presence record the clock
+  // must not walk for the absent.
+  if (online) await clockStep(ownerKey, "feeding", () => settleSeedFeeding(ownerKey));
+
+  // (6) TILE PRESS + ASPECT ACCRUAL — every land, present
+  // or held: standing pays for the time actually stood
+  // (FIX THE CLOCKS), by those builds' own settles, called
+  // and never re-implemented.
+  await clockStep(ownerKey, "press", async () => {
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const byTile = new Map<number, any[]>();
+    for (const p of placements as any[]) {
+      const arr = byTile.get(p.tileId) ?? [];
+      arr.push(p);
+      byTile.set(p.tileId, arr);
+    }
+    const tileById = new Map(tileRows.map(t => [t.id, t]));
+    for (const tileId of byTile.keys()) {
+      const tile = tileById.get(tileId);
+      if (!tile || tile.cursed) continue;
+      await settleTilePress(ownerKey, tile, now);
+    }
+    for (const t of tileRows) {
+      if (t.cursed || byTile.has(t.id) || !t.attuneAnchorAt) continue;
+      await db.update(schema.territoryTiles).set({ attuneAnchorAt: null } as any)
+        .where(eq(schema.territoryTiles.id, t.id));
+      t.attuneAnchorAt = null;
+    }
+  });
+  await clockStep(ownerKey, "accrual", () => settleAspectAccrual(ownerKey, now));
+
+  // (7) UPKEEP — the buildings' and the bindings', on
+  // every land. (The lighthouse bank settles at the
+  // battle step's head, above; the hourly binding heal
+  // stays on the read path, where it has always lived.)
+  await clockStep(ownerKey, "building-upkeep", async () => {
+    await settleHallFor(ownerKey);
+    const buildings = await db.select().from(schema.territoryBuildings).where(eq(schema.territoryBuildings.ownerKey, ownerKey));
+    if (buildings.length) await settleBuildingUpkeep(ownerKey, buildings as any[], await loadGameConfig(), now);
+  });
+  await clockStep(ownerKey, "binding-upkeep", async () => {
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    if (placements.length) await settleBindingUpkeep(ownerKey, tileRows, placements as any[]);
+  });
+
+  // (8) STONE RISES — every land: a rise is downtime play,
+  // and the rock keeps rising while the Tender is away,
+  // at its crew's pace and its purse's price, as the read
+  // would reckon it.
+  await clockStep(ownerKey, "rises", () => settleBuildRises(ownerKey));
+}
+
+/** Settle ONE land's WAR by the realtime gear, in the
+ *  order the tick's own war steps walk (the master clock
+ *  block, steps (2)–(4)): marches land as they come due,
+ *  the first seed's judgement, then the living battle's
+ *  whole train — the lighthouse and its bank, the cradle,
+ *  the battle, the written ground,
+ *  the weapon, the groves, the rising — and the Tender
+ *  bodies last. Every call is a standing settle the read
+ *  path and the slow tick also call; this walk only calls
+ *  them SOONER, at the engine's own grain, while the war
+ *  is live. An away land is never walked here at all: its
+ *  war is frozen under the held light, exactly as the
+ *  slow gear leaves it. */
+export async function settleLandWar(ownerKey: string, now: number): Promise<void> {
+  const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  if (!tiles.length) return;
+  const tileRows = tiles as any[];
+
+  // The roads first, as the read walks them: marches land.
+  // A march is the player's own movement, not war — but it
+  // is MOVEMENT, and the ruling names movement for the
+  // realtime gear: a march comes due and lands at the
+  // gear's grain, not the slow tick's.
+  await clockStep(ownerKey, "marches", () => handlers.settleMarches(ownerKey));
+
+  if (!landOnline(ownerKey, now)) return;
+
+  // The first seed's judgement is the war's edge (the
+  // curse state's war half — the calm, its peaceful half,
+  // stays on the slow gear where it was built).
+  await clockStep(ownerKey, "first-seed", () => settleFirstSeedEvent(ownerKey));
+
+  const tenderStand = await handlers.tenderStand(ownerKey, tileRows).catch(() => null);
+  const standTileId = tenderStand?.tileId ?? null;
+  if (tenderStand) {
+    await clockStep(ownerKey, "first-three", () => fieldFirstThreeParty(ownerKey, tileRows, tenderStand.tileId));
+    await clockStep(ownerKey, "muster", () => handlers.settleTenderMuster(ownerKey, tileRows, tenderStand.tileId));
+    const guestBodies = roomSeatsOnLand(ownerKey)
+      .filter(s => !s.watcher && s.tenderId != null && s.tileId != null && tenderOwnerKey(s.tenderId) !== ownerKey)
+      .map(s => ({ key: tenderOwnerKey(s.tenderId as number), tileId: s.tileId as number }));
+    await clockStep(ownerKey, "protection", () => settleProtection(ownerKey));
+    await clockStep(ownerKey, "wanderers", () => handlers.settleWanderers(ownerKey, tileRows, tenderStand.tileId));
+    await clockStep(ownerKey, "battle", () => settleHomelandBattle(ownerKey, tileRows, tenderStand.tileId, (k, d) => handlers.woundTender(k, d), guestBodies));
+    await clockStep(ownerKey, "workings", () => settleHomelandWorkings(ownerKey, tileRows));
+    await clockStep(ownerKey, "transient-workings", () => settleTransientWorkings(ownerKey, tileRows));
+    await clockStep(ownerKey, "working-attrition", () => settleHomelandWorkingAttrition(ownerKey, tileRows));
+    await clockStep(ownerKey, "engines", () => settleHomelandEngines(ownerKey));
+    await clockStep(ownerKey, "weapon", () => handlers.settleHomelandWeapon(ownerKey, tileRows, tenderStand.tileId));
+    await clockStep(ownerKey, "groves", () => settleHomelandGroves(ownerKey, tileRows));
+    await clockStep(ownerKey, "rising", () => spawnFirstSeedRising(ownerKey, tileRows));
+  }
+
+  // The Tender bodies — the room's seats by the room's
+  // body law, the land's own body last, exactly as the
+  // tick settles them (a guest's body stands on its own
+  // seat's stand, whether or not the land's Tender does).
+  for (const seat of roomSeatsOnLand(ownerKey)) {
+    if (seat.watcher || seat.tenderId == null || seat.tileId == null) continue;
+    const bodyKey = tenderOwnerKey(seat.tenderId);
+    if (bodyKey === ownerKey) continue;
+    const seatTenderId = seat.tenderId;
+    await clockStep(ownerKey, "guest-body", () => handlers.settleTenderBody(bodyKey, tileRows, seat.tileId as number, {
+      landKey: ownerKey,
+      onWakeStand: (tileId) => { moveRoomSeatStand(ownerKey, seatTenderId, tileId); },
+    }));
+  }
+  if (standTileId != null) {
+    await clockStep(ownerKey, "body", () => handlers.settleTenderBody(ownerKey, tileRows, standTileId));
+  }
+}
+
+/** Lands whose war this gear is already reconciling —
+ *  a land's war never overlaps itself on this hand. (The
+ *  slow tick and the reads may still follow: the ledgers
+ *  partition the spans, as they always have.) */
+const realtimeWarLands = new Set<string>();
+
+/** One beat of the REALTIME gear: find the lands whose
+ *  war is live — a lit beacon (its pushback walks this
+ *  gear, so a burning beacon's land is swept clear at the
+ *  war's own grain), darks standing, a march on the road
+ *  — keep only the
+ *  present ones, and reconcile each one's war at the
+ *  engine's grain. Quiet lands and away lands are never
+ *  touched: no busy loop over a sleeping world. */
+export async function runMasterClockRealtime(now: number = Date.now()): Promise<void> {
+  const rows = sqlite.prepare(`
+    SELECT owner_key AS k FROM tender_progress WHERE lighthouse_lit = 1
+    UNION SELECT DISTINCT owner_key AS k FROM homeland_wanderers
+    UNION SELECT DISTINCT owner_key AS k FROM field_placements WHERE march_path IS NOT NULL
+  `).all() as { k: string }[];
+  const jobs: Promise<void>[] = [];
+  for (const { k } of rows) {
+    if (realtimeWarLands.has(k)) continue;
+    if (!landOnline(k, now)) continue;
+    realtimeWarLands.add(k);
+    jobs.push((async () => {
+      try { await settleLandWar(k, now); }
+      catch (e) { console.error(`[master-clock] realtime war failed for ${k}:`, e); }
+      finally { realtimeWarLands.delete(k); }
+    })());
+  }
+  await Promise.all(jobs);
+}
+
+/** One tick of the master clock: the sky turns first,
+ *  then every land that has anything standing settles in
+ *  the right order. */
+export async function runMasterClockTick(now: number = Date.now()): Promise<void> {
+  await getWorldMood().catch(e => console.error("[master-clock] the sky failed to turn:", e));
+  const lands = sqlite.prepare("SELECT DISTINCT owner_key AS k FROM territory_tiles").all() as { k: string }[];
+  for (const { k } of lands) {
+    try { await settleLandByClock(k, now); }
+    catch (e) { console.error(`[master-clock] land ${k} failed:`, e); }
+  }
+}

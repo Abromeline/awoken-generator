@@ -1747,6 +1747,16 @@ body.defeat-flash {
 .pack-forge-btns{display:flex;flex-wrap:wrap;gap:4px}
 .pack-el{text-transform:capitalize}
 
+/* THE ROOM'S PACK (2026-10-28): the room's dealing law
+   spoken at the Pack's head, and the split's own marks —
+   a measure named beside its Claim, Deal or Give. The
+   panel wraps its rows a little wider in a room so the
+   measure and the act sit on one line. */
+.pack-mode-line{border-bottom:1px solid rgba(138,111,53,0.5);padding-bottom:5px;color:#b8a06a;font-style:italic}
+.pack-amt{width:52px;background:rgba(0,0,0,0.35);border:1px solid #8a6f35;border-radius:4px;color:#ffe9c9;font-size:11.5px;padding:2px 4px}
+.pack-seat-pick{background:rgba(0,0,0,0.35);border:1px solid #8a6f35;border-radius:4px;color:#ffe9c9;font-size:11.5px;padding:2px 4px;max-width:96px}
+.loot-row .pack-amt,.loot-row .pack-seat-pick{flex:none}
+
 .friends-btn{
   position:absolute;top:52px;right:12px;z-index:20;
   background:rgba(20,16,32,0.9);border:1px solid #6a5a8a;border-radius:6px;

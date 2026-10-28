@@ -14,6 +14,7 @@ import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
 import { registerTableRoutes, registerTableSocket, tableDoorMode } from "./table.js";
 import { registerRoomRoutes, resolveRoomSeat } from "./rooms.js";
+import { startMasterClock } from "./masterClock.js";
 import { registerExportDoor } from "./exportDoor.js";
 
 const app = express();
@@ -382,3 +383,8 @@ const server = app.listen(port, () => {
 // THE TABLE (Discord Activity): the room socket rides the same server
 // — same roof, same database (design §6).
 registerTableSocket(server);
+
+// THE MASTER CLOCK (Nigel, 2026-10-28): the homeland's
+// standing timer starts with the server — every land
+// settles in the right order, read or no read.
+startMasterClock();

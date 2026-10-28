@@ -32,6 +32,23 @@
 //   §11 SOLO SPOT-CHECKS: without a seat, the homeland is
 //      exactly itself (host summons at home; guest reads
 //      their own land, not the host's).
+//   §12 GUESTS TAKE DAMAGE (THE ROOM'S BODY LAW, Nigel
+//      2026-10-28 12:54: "Guests should take damage"): a
+//      seated guest's figure is bitten by the curse's dark
+//      (the wound on the GUEST's own record, the host's body
+//      untouched), withers on cursed ground by the homeland's
+//      attrition, falls (blackout on their own ledger, their
+//      homeland stand never written), may not walk while
+//      fallen, and wakes half-healed with their SEAT standing
+//      at the host land's safe hex.
+//   §13 STAR SEEDS DRAW FROM ANY TENDER STANDING ON THEM
+//      (THE ROOM'S SEED LAW, Nigel 2026-10-28 12:54): a guest
+//      standing on the host's seed feeds it at the guest's
+//      own rate out of the guest's own purse (the host's
+//      purse untouched); two seats standing on a fresh
+//      table's heart seed feed it together, each from their
+//      own purse; and a seat's body settles on an instance
+//      land too (attrition under a guest's feet there).
 // Run AFTER `npm run build`: node scripts/drive-room-seat.mjs
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -314,6 +331,184 @@ ok("§11 the guest's solo read is their own land, not the host's room land",
   !(guestSoloRead.placements ?? []).some(p => p.awakenedId === guestStone)
   && (guestSoloRead.tiles ?? []).length !== 127 || (guestSoloRead.placements ?? []).length === 0,
   `${(guestSoloRead.tiles ?? []).length} tiles, ${(guestSoloRead.placements ?? []).length} placements`);
+
+console.log("§12 guests take damage");
+const { tenderStandingFeedRateFor } = await import("../server/dist/actions.js");
+const { levelForExp } = await import("../server/dist/tenderExp.js");
+const guestProg = () => db.prepare(`SELECT * FROM tender_progress WHERE owner_key = ?`).get(G.ownerKey);
+const hostProg = () => db.prepare(`SELECT * FROM tender_progress WHERE owner_key = ?`).get(H.ownerKey);
+const purseOf = (k) => db.prepare(`SELECT energy FROM tender_resources WHERE owner_key = ?`).get(k).energy;
+const state12 = await room("state", undefined, G.token, guestSeat);
+const guestSeatView = (state12.body.seats || []).find(s => s.tenderId === G.tenderId);
+ok("§12 the party panel serves each seat's own body (guest standing, pool open)",
+  !!guestSeatView && guestSeatView.body && guestSeatView.body.maxHp > 0 && guestSeatView.body.hp > 0 && guestSeatView.body.down === false,
+  JSON.stringify(guestSeatView?.body));
+// The arena: a cursed z=0 tile at ring 5 of the host's
+// land, far from every fighter (the §3/§11 companies stand
+// at the heart) and from the host's own figure.
+const arena = db.prepare(`SELECT id, q, r FROM territory_tiles
+  WHERE owner_key = ? AND cursed = 1 AND COALESCE(z,0) = 0 AND MAX(ABS(q), ABS(r), ABS(q + r)) = 5
+  ORDER BY id ASC LIMIT 1`).get(H.ownerKey);
+ok("§12 a cursed arena tile stands at ring 5 of the host's land", !!arena, arena && `${arena.q},${arena.r}`);
+const nbrTiles = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+  .map(([dq, dr]) => db.prepare(`SELECT id, q, r FROM territory_tiles WHERE owner_key = ? AND q = ? AND r = ? AND COALESCE(z,0) = 0`).get(H.ownerKey, arena.q + dq, arena.r + dr))
+  .filter(Boolean);
+ok("§12 the arena's six neighbouring tiles stand", nbrTiles.length === 6, String(nbrTiles.length));
+const standArena = await room("stand", { tileId: arena.id }, G.token, guestSeat);
+ok("§12 the guest takes their stand on cursed ground in the host's room",
+  standArena.status === 200, `${standArena.status} ${JSON.stringify(standArena.body).slice(0, 120)}`);
+
+// — the curse's blow at the guest's body: four Frays ring
+// the guest (one on their own tile), the body watermark
+// fresh (no attrition in this window), the battle
+// watermark 1.2 s stale: the only wound this read can
+// deal the guest is a bite, and the host's figure — five
+// hexes away at the heart — is out of every dark's reach.
+const guestStandBefore = guestProg().tender_tile_id;
+const hostHpBeforeBite = hostProg().hp;
+const guestHpBeforeBite = guestProg().hp;
+db.prepare(`UPDATE tender_progress SET curse_watermark = ? WHERE owner_key = ?`).run(Date.now(), G.ownerKey);
+const insFray = db.prepare(`INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, last_strike_at)
+  VALUES (?, ?, 'fray', ?, 30, ?, ?, 3, 1, ?)`);
+insFray.run(H.ownerKey, arena.id, Date.now(), arena.q, arena.r, Date.now() - 10000);
+for (const t of nbrTiles.slice(0, 3)) insFray.run(H.ownerKey, t.id, Date.now(), t.q, t.r, Date.now() - 10000);
+db.prepare(`UPDATE tender_progress SET battle_watermark = ? WHERE owner_key = ?`).run(Date.now() - 1200, H.ownerKey);
+const biteRead = await call("getTerritory", {}, G.token, guestSeat);
+ok("§12 the guest's room read settles", biteRead.status === 200, `${biteRead.status}`);
+const guestHpAfterBite = guestProg().hp;
+ok("§12 THE CURSE BIT THE GUEST'S FIGURE — the wound is on the guest's own record",
+  guestHpAfterBite < guestHpBeforeBite - 0.001, `guest hp ${guestHpBeforeBite} → ${guestHpAfterBite}`);
+ok("§12 the host's body took nothing from the arena (out of reach, the bite was the guest's)",
+  Math.abs(hostProg().hp - hostHpBeforeBite) < 0.001, `host hp ${hostHpBeforeBite} → ${hostProg().hp}`);
+ok("§12 the guest did not fall to the bites (wounds, not a fall)",
+  guestProg().fell_count === 0 && guestProg().hp > 0, `hp ${guestProg().hp} fell ${guestProg().fell_count}`);
+
+// — the attrition: five stale seconds on cursed ground at
+// ring 5 wither the guest by the homeland's own measure.
+const guestHpBeforeRot = guestProg().hp;
+db.prepare(`UPDATE tender_progress SET curse_watermark = ? WHERE owner_key = ?`).run(Date.now() - 5000, G.ownerKey);
+await callOk("getTerritory", {}, G.token, guestSeat);
+const guestHpAfterRot = guestProg().hp;
+ok("§12 cursed ground WITHERS the guest's figure (attrition on their own ledger)",
+  guestHpAfterRot < guestHpBeforeRot - 0.5 && guestHpAfterRot > 0, `guest hp ${guestHpBeforeRot} → ${guestHpAfterRot}`);
+
+// — the fall: one hit point left and a stale minute of
+// curse — the guest falls on THEIR record; their own
+// homeland stand is never written with the host's ground.
+db.prepare(`UPDATE tender_progress SET hp = 1, curse_watermark = ? WHERE owner_key = ?`).run(Date.now() - 60000, G.ownerKey);
+await callOk("getTerritory", {}, G.token, guestSeat);
+const fell = guestProg();
+ok("§12 THE GUEST FALLS — blackout and fell-count on the guest's own record",
+  fell.fell_count === 1 && fell.hp === 0 && Number(fell.down_until) > Date.now(),
+  `fell ${fell.fell_count} hp ${fell.hp} down_until ${fell.down_until}`);
+ok("§12 the fallen guest's homeland stand record was never written with host ground",
+  fell.tender_tile_id === guestStandBefore, `stand ${fell.tender_tile_id} (was ${guestStandBefore})`);
+const standWhileDown = await room("stand", { tileId: arena.id }, G.token, guestSeat);
+ok("§12 a fallen guest may not walk the room (the homeland's own words refuse)",
+  standWhileDown.status === 400 && /fallen/.test(JSON.stringify(standWhileDown.body)),
+  `${standWhileDown.status} ${JSON.stringify(standWhileDown.body).slice(0, 120)}`);
+
+// — the wake: blackout spent, the guest wakes half-healed
+// and their SEAT stands at the host land's safe hex (the
+// bastion anchor: the purified heart here) — their
+// homeland record still untouched.
+const anchorRow = db.prepare(`SELECT id FROM territory_tiles WHERE owner_key = ? AND q = 0 AND r = 0 AND cursed = 0 ORDER BY id ASC LIMIT 1`).get(H.ownerKey);
+db.prepare(`UPDATE tender_progress SET down_until = ? WHERE owner_key = ?`).run(Date.now() - 1000, G.ownerKey);
+await callOk("getTerritory", {}, G.token, guestSeat);
+const woken = guestProg();
+const maxHpGuest = guestSeatView.body.maxHp;
+ok("§12 THE GUEST WAKES half-healed on their own record, blackout lifted",
+  Math.abs(woken.hp - maxHpGuest / 2) < 0.01 && !woken.down_until,
+  `hp ${woken.hp} of max ${maxHpGuest}, down_until ${woken.down_until}`);
+ok("§12 the wake wrote nothing to the guest's homeland stand record",
+  woken.tender_tile_id === guestStandBefore, `stand ${woken.tender_tile_id}`);
+const stateAfterWake = await room("state", undefined, G.token, guestSeat);
+const guestSeatWoken = (stateAfterWake.body.seats || []).find(s => s.tenderId === G.tenderId);
+ok("§12 the woken guest's SEAT stands at the host land's safe hex",
+  guestSeatWoken && guestSeatWoken.tileId === anchorRow.id, `seat tile ${guestSeatWoken?.tileId} anchor ${anchorRow.id}`);
+
+console.log("§13 star seeds draw from any tender standing on them");
+const guestRate = tenderStandingFeedRateFor(G.ownerKey, levelForExp(3800), "warden");
+ok("§13 the guest's standing feed rate is reckoned from their own key", guestRate > 5, `rate ${guestRate}`);
+// — the hosted homeland's seed: the host steps OFF it,
+// the guest stands ON it, one stale minute settles.
+const hostSeed = db.prepare(`SELECT id, tile_id, fed_energy FROM star_seeds WHERE owner_key = ? ORDER BY id ASC LIMIT 1`).get(H.ownerKey);
+const awayTile = db.prepare(`SELECT id FROM territory_tiles WHERE owner_key = ? AND cursed = 1 AND COALESCE(z,0) = 0 AND id != ? ORDER BY id ASC LIMIT 1`).get(H.ownerKey, hostSeed.tile_id);
+const hostStepsOff = await room("stand", { tileId: awayTile.id }, H.token, hostSeat);
+ok("§13 the host steps off their own seed", hostStepsOff.status === 200, `${hostStepsOff.status}`);
+// Every OTHER seat stands at the heart too (the opening
+// stand is the seed's hex) — the law feeds from any of
+// them, so the measure seats them away first: §6's third
+// Tender and §10's Discord arrival step off beside the
+// host, leaving the guest the seed's only stander.
+const t3StepsOff = await room("stand", { tileId: awayTile.id }, T3.token, rightWord.body.seatToken);
+ok("§13 the third Tender steps off the host's seed", t3StepsOff.status === 200, `${t3StepsOff.status}`);
+const dStepsOff = await room("stand", { tileId: awayTile.id }, D.token, dEnter.body.seatToken);
+ok("§13 the Discord arrival steps off the host's seed", dStepsOff.status === 200, `${dStepsOff.status}`);
+const guestOnSeed = await room("stand", { tileId: hostSeed.tile_id }, G.token, guestSeat);
+ok("§13 the guest stands on the host's seed", guestOnSeed.status === 200, `${guestOnSeed.status}`);
+db.prepare(`UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?`).run(Date.now() - 60000, hostSeed.id);
+const fedBefore = db.prepare(`SELECT fed_energy FROM star_seeds WHERE id = ?`).get(hostSeed.id).fed_energy;
+const guestPurseBefore = purseOf(G.ownerKey);
+const hostPurseBefore = purseOf(H.ownerKey);
+await callOk("getTerritory", {}, G.token, guestSeat);
+const fedAfter = db.prepare(`SELECT fed_energy FROM star_seeds WHERE id = ?`).get(hostSeed.id).fed_energy;
+const guestPurseAfter = purseOf(G.ownerKey);
+const hostPurseAfter = purseOf(H.ownerKey);
+const fedDelta = fedAfter - fedBefore;
+ok("§13 THE HOST'S SEED DRANK FROM THE GUEST standing on it (a stale minute at the guest's own rate)",
+  fedDelta >= Math.floor(guestRate) && fedDelta <= Math.ceil(guestRate) + 1,
+  `fed ${fedBefore} → ${fedAfter} (guest rate ${guestRate}/min)`);
+ok("§13 the draught came out of the GUEST's purse, point for point",
+  guestPurseBefore - guestPurseAfter === fedDelta, `guest purse ${guestPurseBefore} → ${guestPurseAfter}, fed delta ${fedDelta}`);
+ok("§13 the host's purse was not touched by the guest's feeding",
+  hostPurseAfter === hostPurseBefore, `host purse ${hostPurseBefore} → ${hostPurseAfter}`);
+const creditRow = db.prepare(`SELECT credit FROM star_seed_feed_credits WHERE seed_id = ? AND feeder_key = ?`).get(hostSeed.id, G.ownerKey);
+ok("§13 the guest's fractional pace is banked on the seed's own ledger row", !!creditRow, JSON.stringify(creditRow));
+
+// — the fresh table's heart seed: TWO seats stand on it
+// (the stand machinery seats several figures on one hex)
+// and it drinks from both at once. (D is §10's Discord
+// arrival; joining this room leaves their host-room seat,
+// which no later section needs.)
+const seedEnterD = await room("enter", { door: "join", room: seedEnter.body.code }, D.token);
+ok("§13 a second Tender takes a seat at the instance table", seedEnterD.status === 200, `${seedEnterD.status} ${JSON.stringify(seedEnterD.body).slice(0, 140)}`);
+const instSeatD = seedEnterD.body.seatToken;
+const instSeed = db.prepare(`SELECT id, tile_id, fed_energy FROM star_seeds WHERE owner_key = ? ORDER BY id ASC LIMIT 1`).get(seedLandKey);
+const stateInst = await room("state", undefined, G.token, seedEnter.body.seatToken);
+const gInstSeat = (stateInst.body.seats || []).find(s => s.tenderId === G.tenderId);
+const dInstSeat = (stateInst.body.seats || []).find(s => s.tenderId === D.tenderId);
+ok("§13 both instance seats stand on the heart seed's hex (several standers, one hex)",
+  gInstSeat && dInstSeat && gInstSeat.tileId === instSeed.tile_id && dInstSeat.tileId === instSeed.tile_id,
+  `G ${gInstSeat?.tileId} D ${dInstSeat?.tileId} seed tile ${instSeed.tile_id}`);
+const dRate = tenderStandingFeedRateFor(D.ownerKey, levelForExp(3800), "warden");
+db.prepare(`UPDATE star_seeds SET feed_anchor_at = ? WHERE id = ?`).run(Date.now() - 60000, instSeed.id);
+const instFedBefore = db.prepare(`SELECT fed_energy FROM star_seeds WHERE id = ?`).get(instSeed.id).fed_energy;
+const gPurseI0 = purseOf(G.ownerKey);
+const dPurseI0 = purseOf(D.ownerKey);
+const instRead = await call("getTerritory", {}, D.token, instSeatD);
+ok("§13 the instance land reads for its second seat", instRead.status === 200, `${instRead.status}`);
+const instFedAfter = db.prepare(`SELECT fed_energy FROM star_seeds WHERE id = ?`).get(instSeed.id).fed_energy;
+const gPurseI1 = purseOf(G.ownerKey);
+const dPurseI1 = purseOf(D.ownerKey);
+const instFedDelta = instFedAfter - instFedBefore;
+ok("§13 THE TABLE'S HEART SEED DRANK FROM BOTH SEATS standing on it",
+  instFedDelta >= Math.floor(guestRate) + Math.floor(dRate) && instFedDelta <= Math.ceil(guestRate) + Math.ceil(dRate) + 2,
+  `fed ${instFedBefore} → ${instFedAfter} (rates G ${guestRate} + D ${dRate} per minute)`);
+ok("§13 each seat's purse paid its own draught (the two deltas sum to the seed's gain)",
+  (gPurseI0 - gPurseI1) + (dPurseI0 - dPurseI1) === instFedDelta && (gPurseI0 - gPurseI1) >= Math.floor(guestRate) && (dPurseI0 - dPurseI1) >= Math.floor(dRate),
+  `G paid ${gPurseI0 - gPurseI1}, D paid ${dPurseI0 - dPurseI1}, seed gained ${instFedDelta}`);
+
+// — a seat's body settles on an instance land too: the
+// guest steps onto instance curse and withers there.
+const instCursed = db.prepare(`SELECT id FROM territory_tiles WHERE owner_key = ? AND cursed = 1 ORDER BY id ASC LIMIT 1`).get(seedLandKey);
+const gOnCursed = await room("stand", { tileId: instCursed.id }, G.token, seedEnter.body.seatToken);
+ok("§13 the guest steps onto the instance land's curse", gOnCursed.status === 200, `${gOnCursed.status}`);
+const gHpI0 = guestProg().hp;
+db.prepare(`UPDATE tender_progress SET curse_watermark = ? WHERE owner_key = ?`).run(Date.now() - 30000, G.ownerKey);
+await callOk("getTerritory", {}, D.token, instSeatD);
+ok("§13 the guest's figure WITHERS on instance curse under another seat's read (bodies settle on instance lands)",
+  guestProg().hp < gHpI0 - 0.5, `guest hp ${gHpI0} → ${guestProg().hp}`);
 
 console.log(`\nROOM SEAT DRIVE: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

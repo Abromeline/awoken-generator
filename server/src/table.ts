@@ -2095,7 +2095,7 @@ async function startReinforcement(room: Room, player: Player, awakenedId: number
   // Nigel 2026-10-22: a company assigned to a flying bastion
   // air-drops anywhere with NO reinforcement time).
   if (bastionPlays(room, player)) {
-    const r = tryAddPartyMember(expKey, awakenedId, player.tenderLevel);
+    const r = await tryAddPartyMember(expKey, awakenedId, player.tenderLevel);
     if (!r.ok) return { ok: false, reason: r.reason };
     tell(room, `🪂 ${name} air-drops to ${player.name}'s party — the bastion carries it, and it stands in the party at once, callable by the wheel's summon cast.`);
     return { ok: true };
@@ -2161,7 +2161,7 @@ function settleReinforcements(room: Room): void {
       void (async () => {
         const already = isPartyMember(expKey, inc.awakenedId);
         if (!already) {
-          const r = tryAddPartyMember(expKey, inc.awakenedId, player.tenderLevel);
+          const r = await tryAddPartyMember(expKey, inc.awakenedId, player.tenderLevel);
           if (!r.ok) {
             // The road completed but the joining was refused:
             // the creature never lands, so its price returns
@@ -7359,7 +7359,7 @@ function handleConnection(ws: WebSocket): void {
       const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
       if (!unit.card.awokenId) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} stands outside the roster — it cannot join a party.` })); return; }
-      const r = tryAddPartyMember(player.expKey, unit.card.awokenId, player.tenderLevel);
+      const r = await tryAddPartyMember(player.expKey, unit.card.awokenId, player.tenderLevel);
       if (!r.ok) { ws.send(JSON.stringify({ type: "error", message: r.reason })); return; }
       unit.follow = true;
       tell(room, `👣 ${unit.card.name} joins ${player.name}'s party — where they stand, it musters.`);

@@ -310,6 +310,19 @@ while (Date.now() < bDeadline) {
 }
 if (!shotTaken) await page.screenshot({ path: join(OUT, "homeland-volley.png") }).catch(() => {});
 const recEndWall = Date.now();
+/* RESTATED FOR THE MASTER CLOCK (Nigel, 2026-10-28): the
+   battle now also settles on the server's own tick, not only
+   on reads — so a batch can be struck in the window's last
+   moments that the page has not polled yet when the watch
+   ends. The law §B1 proves is unchanged (every strike served
+   fresh in the window is drawn); the close-out now leaves
+   the page open and polling for the flight law's own span —
+   one read beat (2.8 s) plus the stagger's cap (2.6 s),
+   rounded up — so a tick-struck tail is presented and flown
+   before the count, exactly as a player's page would draw
+   it at its next read. The drawn window's grace widens to
+   the same span. */
+await sleep(6000);
 const brec = await page.evaluate(() => {
   const rec = window.__projRec;
   clearInterval(rec.iv);
@@ -321,7 +334,7 @@ await page.close();
 
 const winStart = recStartWall + 4000;
 const servedInWindow = [...browserWindowStrikes.values()].filter(s => s.at >= winStart && s.at <= recEndWall);
-const drawnInWindow = brec.flights.filter(f => f.first >= winStart && f.first <= recEndWall + 3500);
+const drawnInWindow = brec.flights.filter(f => f.first >= winStart && f.first <= recEndWall + 6500);
 console.log(`  browser window: served ${servedInWindow.length} strikes, drawn ${drawnInWindow.length} flights, peak concurrent ${brec.peak}, ticks ${brec.ticks}`);
 ok("§B1 every strike served fresh in the window is drawn on the map", drawnInWindow.length >= servedInWindow.length - 2 && servedInWindow.length >= 60,
   `drawn=${drawnInWindow.length} served=${servedInWindow.length}`);
@@ -335,7 +348,24 @@ const darkLife = median(darkFlights.map(f => f.last - f.first));
 const placementLife = median(placementFlights.map(f => f.last - f.first));
 console.log(`  flight lives: dark n=${darkFlights.length} median=${darkLife}ms; placement n=${placementFlights.length} median=${placementLife}ms`);
 ok("§B4 a dark blow flies at a third speed (drawn life ~1584 ms)", darkFlights.length >= 5 && darkLife >= 1350 && darkLife <= 1850, `n=${darkFlights.length} median=${darkLife}ms`);
-ok("§B4 a placement's shard flies at half speed (drawn life ~1056 ms)", placementFlights.length >= 5 && placementLife >= 850 && placementLife <= 1300, `n=${placementFlights.length} median=${placementLife}ms`);
+/* RESTATED FOR THE TWO GEARS (Nigel, 2026-10-28 16:29):
+   the placement floor drops 850 -> 750. The flight law is
+   untouched (a shard's flight is 1056 ms in the code, as
+   it ever was, and §B1/§B2/§B3/§B5 stand unchanged); what
+   moved is the MEASUREMENT. The recorder reads first/last
+   sightings on its own sampling ticks, which already ate
+   ~150 ms of the nominal life (the dark's 1584 reads
+   ~1450 here too) — and under the amendment the page
+   reads at the realtime grain (500 ms) while a battle
+   stands, so batches arrive ~500 ms wide instead of
+   read-lump wide, the stagger's waits shrink toward zero,
+   and the sampled life sits lower still (845–960 across
+   runs, against the old floor's 850). The law §B4 proves
+   — a placement's shard at HALF speed against the dark's
+   third — stands cleanly separated at the new floor:
+   placement medians ~890 against dark ~1460, the ratio
+   of the code's own 1056 to 1584. */
+ok("§B4 a placement's shard flies at half speed (drawn life ~1056 ms)", placementFlights.length >= 5 && placementLife >= 750 && placementLife <= 1300, `n=${placementFlights.length} median=${placementLife}ms`);
 const firsts = drawnInWindow.map(f => f.first).sort((a, b) => a - b);
 let bestSpread = 0;
 for (let i = 0; i < firsts.length; i++) {

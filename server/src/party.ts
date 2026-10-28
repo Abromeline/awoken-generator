@@ -1,5 +1,6 @@
 import { sqlite } from "./store.js";
 import { fxSum, heldSkills } from "./skills.js";
+import { settlePlacementDeparture } from "./departureHooks.js";
 import { liveById } from "./zodiacLive.js";
 
 /**
@@ -118,7 +119,7 @@ export type PartyAddResult = { ok: true; cameOffField: boolean } | { ok: false; 
  * court-housed and dispersed creatures are untouched:
  * the ruling names the field only.
  */
-export function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLevel?: number | null): PartyAddResult {
+export async function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLevel?: number | null): Promise<PartyAddResult> {
   const aw = sqlite.prepare("SELECT name, owner_key FROM awakened WHERE id = ?")
     .get(awakenedId) as { name: string; owner_key: string | null } | undefined;
   if (!aw || aw.owner_key !== ownerKey) {
@@ -136,6 +137,13 @@ export function tryAddPartyMember(ownerKey: string, awakenedId: number, tenderLe
   }
   sqlite.prepare("INSERT INTO tender_party (owner_key, awakened_id, added_at) VALUES (?, ?, ?)")
     .run(ownerKey, awakenedId, Date.now());
+  // FIX THE CLOCKS (Nigel, 2026-10-28): the lift off the
+  // field is a departure — the placement's stood spans
+  // settle (through the registry in departureHooks.ts;
+  // actions.ts owns the clocks) before the row goes.
+  const standingRow = sqlite.prepare("SELECT id FROM field_placements WHERE owner_key = ? AND awakened_id = ?")
+    .get(ownerKey, awakenedId) as { id: number } | undefined;
+  if (standingRow) await settlePlacementDeparture(standingRow.id);
   const lifted = sqlite.prepare("DELETE FROM field_placements WHERE owner_key = ? AND awakened_id = ?")
     .run(ownerKey, awakenedId);
   return { ok: true, cameOffField: lifted.changes > 0 };
