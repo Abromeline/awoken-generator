@@ -17942,6 +17942,47 @@ export const MASTER_CLOCK_TICK_MS = (() => {
   return Number.isFinite(v) && v >= 250 ? Math.floor(v) : 60_000;
 })();
 
+// THE TWO GEARS (Nigel, 2026-10-28 16:29, correcting the
+// build above in his own words): "i want attacks ands and
+// movement to be reconcileed life [live]. not counted
+// every 60 seconds. attunement was the only thing i wanted
+// tracked at 60 seconds .. i want the world clock to be a
+// realtime clock lick [like] realtime strategy."
+// So the clock turns on TWO gears. THE SLOW GEAR is the
+// tick above (runMasterClockTick, 60 s): the whole order
+// as built — and attunement (step 6, press + accrual) is
+// the system he named for that cadence; seed feeding,
+// upkeep and stone rises ride it as built, being already
+// minute- and hour-paced in their own laws. THE REALTIME
+// GEAR (runMasterClockRealtime, below) reconciles attacks
+// and movement LIVE: a standing hand at the battle
+// engine's own sub-step grain (500 ms — the STEP_MS the
+// living battle walks in; the Table's 250 ms round timer
+// is that seat's machinery, not this engine's) walks the
+// WAR of every land whose war is live — a present Tender
+// with darks standing or marching, a march on the road, or
+// a lit beacon (the retaliation pending) — and idles over
+// quiet lands. The gears share every ledger the first
+// build named (the battle's watermark is claimed at its
+// settle's head, the spawn beats spend from one anchor,
+// the clocks' cursors advance as they pay), so a realtime
+// settle, a tick settle and a read settle partition the
+// timeline between them and no span is ever settled
+// twice: the realtime gear only ever makes the war's
+// spans settle SOONER, in the engine's own half-second
+// slices, never differently. Sky and starfall keep the
+// slow gear (starfall is hourly by law — its cadence was
+// never the war's); the curse STATE rides the slow gear
+// too, as built: the seed calm is a derivation from the
+// seeds' standings and the sky's mood, not a rate, so no
+// cadence can change what it pays — while the curse's
+// SPREAD, which is war, rides the realtime gear inside
+// the battle it feeds.
+export const MASTER_CLOCK_REALTIME_MS = (() => {
+  const v = Number(process.env.MASTER_CLOCK_REALTIME_MS);
+  return Number.isFinite(v) && v >= 100 ? Math.floor(v) : 500;
+})();
+
 async function clockStep(land: string, name: string, fn: () => Promise<unknown>): Promise<void> {
   try { await fn(); } catch (e) { console.error(`[master-clock] ${name} failed for ${land}:`, e); }
 }
@@ -18084,6 +18125,109 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // at its crew's pace and its purse's price, as the read
   // would reckon it.
   await clockStep(ownerKey, "rises", () => settleBuildRises(ownerKey));
+}
+
+/** Settle ONE land's WAR by the realtime gear, in the
+ *  order the tick's own war steps walk (the master clock
+ *  block, steps (2)–(4)): marches land as they come due,
+ *  the first seed's judgement, then the living battle's
+ *  whole train — the lighthouse and its bank, the cradle
+ *  and the retaliation, the battle, the written ground,
+ *  the weapon, the groves, the rising — and the Tender
+ *  bodies last. Every call is a standing settle the read
+ *  path and the slow tick also call; this walk only calls
+ *  them SOONER, at the engine's own grain, while the war
+ *  is live. An away land is never walked here at all: its
+ *  war is frozen under the held light, exactly as the
+ *  slow gear leaves it. */
+export async function settleLandWar(ownerKey: string, now: number): Promise<void> {
+  const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  if (!tiles.length) return;
+  const tileRows = tiles as any[];
+
+  // The roads first, as the read walks them: marches land.
+  // A march is the player's own movement, not war — but it
+  // is MOVEMENT, and the ruling names movement for the
+  // realtime gear: a march comes due and lands at the
+  // gear's grain, not the slow tick's.
+  await clockStep(ownerKey, "marches", () => handlers.settleMarches(ownerKey));
+
+  if (!landOnline(ownerKey, now)) return;
+
+  // The first seed's judgement is the war's edge (the
+  // curse state's war half — the calm, its peaceful half,
+  // stays on the slow gear where it was built).
+  await clockStep(ownerKey, "first-seed", () => settleFirstSeedEvent(ownerKey));
+
+  const tenderStand = await handlers.tenderStand(ownerKey, tileRows).catch(() => null);
+  const standTileId = tenderStand?.tileId ?? null;
+  if (tenderStand) {
+    await clockStep(ownerKey, "first-three", () => fieldFirstThreeParty(ownerKey, tileRows, tenderStand.tileId));
+    await clockStep(ownerKey, "muster", () => handlers.settleTenderMuster(ownerKey, tileRows, tenderStand.tileId));
+    const guestBodies = roomSeatsOnLand(ownerKey)
+      .filter(s => !s.watcher && s.tenderId != null && s.tileId != null && tenderOwnerKey(s.tenderId) !== ownerKey)
+      .map(s => ({ key: tenderOwnerKey(s.tenderId as number), tileId: s.tileId as number }));
+    await clockStep(ownerKey, "protection", () => settleProtection(ownerKey));
+    await clockStep(ownerKey, "wanderers", () => handlers.settleWanderers(ownerKey, tileRows, tenderStand.tileId));
+    await clockStep(ownerKey, "battle", () => settleHomelandBattle(ownerKey, tileRows, tenderStand.tileId, (k, d) => handlers.woundTender(k, d), guestBodies));
+    await clockStep(ownerKey, "workings", () => settleHomelandWorkings(ownerKey, tileRows));
+    await clockStep(ownerKey, "transient-workings", () => settleTransientWorkings(ownerKey, tileRows));
+    await clockStep(ownerKey, "working-attrition", () => settleHomelandWorkingAttrition(ownerKey, tileRows));
+    await clockStep(ownerKey, "engines", () => settleHomelandEngines(ownerKey));
+    await clockStep(ownerKey, "weapon", () => handlers.settleHomelandWeapon(ownerKey, tileRows, tenderStand.tileId));
+    await clockStep(ownerKey, "groves", () => settleHomelandGroves(ownerKey, tileRows));
+    await clockStep(ownerKey, "rising", () => spawnFirstSeedRising(ownerKey, tileRows));
+  }
+
+  // The Tender bodies — the room's seats by the room's
+  // body law, the land's own body last, exactly as the
+  // tick settles them (a guest's body stands on its own
+  // seat's stand, whether or not the land's Tender does).
+  for (const seat of roomSeatsOnLand(ownerKey)) {
+    if (seat.watcher || seat.tenderId == null || seat.tileId == null) continue;
+    const bodyKey = tenderOwnerKey(seat.tenderId);
+    if (bodyKey === ownerKey) continue;
+    const seatTenderId = seat.tenderId;
+    await clockStep(ownerKey, "guest-body", () => handlers.settleTenderBody(bodyKey, tileRows, seat.tileId as number, {
+      landKey: ownerKey,
+      onWakeStand: (tileId) => { moveRoomSeatStand(ownerKey, seatTenderId, tileId); },
+    }));
+  }
+  if (standTileId != null) {
+    await clockStep(ownerKey, "body", () => handlers.settleTenderBody(ownerKey, tileRows, standTileId));
+  }
+}
+
+/** Lands whose war this gear is already reconciling —
+ *  a land's war never overlaps itself on this hand. (The
+ *  slow tick and the reads may still follow: the ledgers
+ *  partition the spans, as they always have.) */
+const realtimeWarLands = new Set<string>();
+
+/** One beat of the REALTIME gear: find the lands whose
+ *  war is live — a lit beacon (the retaliation pending),
+ *  darks standing, a march on the road — keep only the
+ *  present ones, and reconcile each one's war at the
+ *  engine's grain. Quiet lands and away lands are never
+ *  touched: no busy loop over a sleeping world. */
+export async function runMasterClockRealtime(now: number = Date.now()): Promise<void> {
+  const rows = sqlite.prepare(`
+    SELECT owner_key AS k FROM tender_progress WHERE lighthouse_lit = 1
+    UNION SELECT DISTINCT owner_key AS k FROM homeland_wanderers
+    UNION SELECT DISTINCT owner_key AS k FROM field_placements WHERE march_path IS NOT NULL
+  `).all() as { k: string }[];
+  const jobs: Promise<void>[] = [];
+  for (const { k } of rows) {
+    if (realtimeWarLands.has(k)) continue;
+    if (!landOnline(k, now)) continue;
+    realtimeWarLands.add(k);
+    jobs.push((async () => {
+      try { await settleLandWar(k, now); }
+      catch (e) { console.error(`[master-clock] realtime war failed for ${k}:`, e); }
+      finally { realtimeWarLands.delete(k); }
+    })());
+  }
+  await Promise.all(jobs);
 }
 
 /** One tick of the master clock: the sky turns first,

@@ -1928,6 +1928,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const readLoopBusyRef = useRef(false);
   const readLoopSeqRef = useRef(0);
   const readLoopSinceRef = useRef(0);
+  // Whether a battle stands on the land as the latest read
+  // served it (darks standing) — the read loop below reads
+  // at the realtime grain while one does, and relaxes to
+  // the battle beat when none does (THE TWO GEARS'
+  // amendment, 2026-10-28).
+  const battleLiveRef = useRef(false);
   // ── THE LAND SPEAKS ITS LOSSES (the summon cluster
   // repair, 2026-10-24) ─────────────────────────────────
   // A follower bitten down in the fight goes home to the
@@ -2041,6 +2047,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTenderStand(roomSelfStandRef.current ?? refreshed.tender ?? null);
     setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
+    battleLiveRef.current = (refreshed.wanderers ?? []).length > 0;
     noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
     noteWeaponStrikes(refreshed.weaponStrikes, refreshed.weaponStrike);
@@ -2086,6 +2093,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // makes, and what it carries back (wanderers, wounds,
   // strike witnesses) is the one real fight, witnessed.
   const HOMELAND_BATTLE_BEAT_MS = 2800;
+  // THE TWO GEARS' AMENDMENT (Nigel, 2026-10-28 16:29:
+  // attacks and movement reconciled LIVE, like a realtime
+  // strategy game — attunement was the only thing he
+  // wanted tracked at 60 seconds). The server now settles
+  // the war itself on its realtime gear (500 ms, the
+  // battle engine's own sub-step grain); a map that only
+  // read every 2.8 s would still SHOW the fight in lumps.
+  // So while a battle stands on the land — darks standing
+  // in the latest read — this loop reads at the realtime
+  // grain, and figures move and shots land as they
+  // happen; when no battle stands it relaxes to the
+  // battle beat, as it always has. The loop still starts
+  // no fight and simulates none: it only reads sooner.
+  const HOMELAND_REALTIME_READ_MS = 500;
   // A read is given twenty seconds — far beyond any healthy
   // read — before the loop calls it lost. The fetch beneath
   // carries no timeout of its own, so a request that hangs
@@ -2100,7 +2121,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // it cannot clear a newer read's turn.
   const READ_LOOP_LOST_MS = 20000;
   useEffect(() => {
-    const iv = window.setInterval(() => {
+    let stopped = false;
+    let timer: number | undefined;
+    const beat = () => {
+      if (stopped) return;
+      // The next beat is laid down FIRST, at the cadence
+      // the land's state now calls for (the realtime grain
+      // while a battle stands, the battle beat when none
+      // does) — so a read that hangs can never stop the
+      // loop: the lost-read escape below rides on the
+      // beats continuing without it.
+      timer = window.setTimeout(beat, battleLiveRef.current ? HOMELAND_REALTIME_READ_MS : HOMELAND_BATTLE_BEAT_MS);
       if (readLoopBusyRef.current && Date.now() - readLoopSinceRef.current < READ_LOOP_LOST_MS) return;
       const seq = ++readLoopSeqRef.current;
       readLoopBusyRef.current = true;
@@ -2108,8 +2139,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       refreshTerritory(seq)
         .catch(() => {})
         .finally(() => { if (readLoopSeqRef.current === seq) readLoopBusyRef.current = false; });
-    }, HOMELAND_BATTLE_BEAT_MS);
-    return () => window.clearInterval(iv);
+    };
+    timer = window.setTimeout(beat, HOMELAND_BATTLE_BEAT_MS);
+    return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer); };
     // refreshTerritory is the component's standing read; the
     // loop binds the one from the first render, whose state
     // setters and refs are the component's own throughout.

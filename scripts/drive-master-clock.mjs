@@ -35,9 +35,34 @@
    upkeep and the rise all advance — or hold — as the order and
    the laws demand) and that a read after ticks does not
    double-settle.
+
+   THE TWO GEARS (Nigel, 2026-10-28 16:29, correcting the
+   build above): "i want attacks ands and movement to be
+   reconcileed life [live]. not counted every 60 seconds.
+   attunement was the only thing i wanted tracked at 60
+   seconds .. i want the world clock to be a realtime clock
+   lick [like] realtime strategy." The clock now turns on
+   two gears: the SLOW gear (the tick, 60 s — his number
+   for attunement; feeding, upkeep and rises ride it) and
+   the REALTIME gear (500 ms, the battle engine's own
+   sub-step grain — turned to 200 ms in this drive), which
+   reconciles attacks and movement live for every land
+   whose war is live, and idles over quiet and away lands.
+   §R below proves the gears apart: a SECOND server whose
+   slow hand is set an hour wide (it never turns inside
+   the drive) fights a whole battle on the realtime gear
+   alone — the watermark advancing in small live steps,
+   never one lump — while its attunement cursor does not
+   move at all (attunement is the slow gear's alone), the
+   retaliation is born on the realtime gear under a lit
+   beacon, and a read in the middle of it settles nothing
+   twice. The face reads at the same grain: while a battle
+   stands, the homeland map's read loop polls at 500 ms
+   and relaxes to the 2.8 s battle beat when none does
+   (Territory.tsx, HOMELAND_REALTIME_READ_MS).
    ════════════════════════════════════════════════════════════════ */
-import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 
@@ -54,6 +79,7 @@ mkdirSync(dataDir, { recursive: true });
 process.env.DATA_DIR = dataDir;
 process.env.PORT = "39951";
 process.env.MASTER_CLOCK_TICK_MS = "700"; // the shipped default is 60_000 — the drive turns the same clock fast
+process.env.MASTER_CLOCK_REALTIME_MS = "200"; // the shipped default is 500 — the realtime gear, turned fast to match
 await import("../server/dist/index.js"); // boots the real server (and winds the clock) on import
 await new Promise(r => setTimeout(r, 400));
 console.log("master clock proof — server up on", process.env.PORT, "data:", dataDir);
@@ -268,10 +294,13 @@ console.log("§L online + lit — held, and the curse answers at the edge");
 }
 
 /* ── §D ONLINE + DOUSED = FAINT, AND GROUND CAN BE GAINED ────
-   First a silent window — no reads — proving the tick walks
+   First a silent window — no reads — proving the clock walks
    the whole order on its own (sky/starfall → curse → battle →
-   body → feeding → press/accrual → upkeep → rises); then the
-   doused light reads FAINT and a strike lands. */
+   body → feeding → press/accrual → upkeep → rises; since the
+   two-gears amendment the battle walks on the realtime gear
+   and the rest on the slow tick — the order's proofs below
+   read the same stamps either way); then the doused light
+   reads FAINT and a strike lands. */
 console.log("§D doused — the whole order walks alone; the light falls to a faint glow");
 {
   const nowD = Date.now();
@@ -322,6 +351,197 @@ console.log("§D doused — the whole order walks alone; the light falls to a fa
     Math.abs(pool("root") - poolA) < 0.01, `delta ${pool("root") - poolA}`);
 }
 
+/* ── §R THE TWO GEARS — the war reconciled LIVE ──────────────
+   A second server, booted as a child: its SLOW hand is set
+   an hour wide, so inside this section it never turns at
+   all; its realtime hand turns at 200 ms, as server A's
+   does. One land, online and doused: a dark stands against
+   a fighter, the battle watermark pinned three seconds
+   back, and a binder two hours into its span. No reads
+   happen inside the proof windows — whatever the war does,
+   the realtime gear did it; whatever attunement does not
+   do proves the gears apart. */
+console.log("§R the two gears — attacks and movement live; attunement keeps the slow gear");
+let child = null, dbB = null;
+{
+  const dirB = join(ROOT, `run-b-${stamp}`);
+  mkdirSync(dirB, { recursive: true });
+  const BASE_B = "http://127.0.0.1:39952";
+  const logFd = openSync(join(ROOT, "server-b.log"), "a");
+  child = spawn(process.execPath, [new URL("../server/dist/index.js", import.meta.url).pathname], {
+    env: { ...process.env, DATA_DIR: dirB, PORT: "39952", MASTER_CLOCK_TICK_MS: "3600000", MASTER_CLOCK_REALTIME_MS: "200" },
+    stdio: ["ignore", logFd, logFd],
+  });
+  // However this drive ends — a thrown fixture, a failed
+  // boot — the child never outlives it: an orphaned server
+  // on this port would hold the next run's name and land.
+  const childPid = child.pid;
+  process.once("exit", () => { try { process.kill(childPid, "SIGKILL"); } catch { /* already gone */ } });
+  let up = false;
+  for (let i = 0; i < 60 && !up; i++) {
+    try { const r = await fetch(`${BASE_B}/api/getTerritory`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); if (r.status) up = true; }
+    catch { await sleep(250); }
+  }
+  ok("the second server stands (its slow hand an hour wide — it never turns in this section)", up);
+  const callB = async (action, args = {}, tok) => {
+    const res = await fetch(`${BASE_B}/api/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(tok ? { "x-tender-token": tok } : {}) },
+      body: JSON.stringify(args),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, body: data?.data ?? data, raw: data };
+  };
+  const callOkB = async (action, args, tok) => {
+    const r = await callB(action, args, tok);
+    if (r.status !== 200) throw new Error(`B ${action} -> ${r.status}: ${JSON.stringify(r.raw).slice(0, 240)}`);
+    return r.body;
+  };
+  dbB = new Database(join(dirB, "app.db"));
+  try { dbB.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* fresh-DB stand-up */ }
+  const claimB = await callOkB("claimTender", { password: PW, tenderName: "Realtime Tender" });
+  const tenderIdB = dbB.prepare("SELECT id FROM tenders WHERE code = ?").get(claimB.tender.code).id;
+  const keyB = `tender:${tenderIdB}`;
+  const tokenB = claimB.token;
+  const insAssetB = dbB.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, ?, ?, 'image/png', ?)");
+  const TB = Date.now();
+  const makeAwB = (name, parts) => {
+    const comp = parts.map(([n, c, p, t, el]) => {
+      const id = Number(insAssetB.run(n, c, p, t, el, `rt/${n}.png`, TB).lastInsertRowid);
+      return { source_id: `db:${id}`, name: n, category: c, rarity: "common", power: p, toughness: t, element: el };
+    });
+    return Number(dbB.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', 'Realtime Tender', ?, ?)")
+      .run(name, name, `rt/${name}.png`, JSON.stringify(comp), keyB, TB).lastInsertRowid);
+  };
+  makeAwB("Realtime Wake One", [["R1 Body", "body", 3, 3, "root"], ["R1 Arms", "arms", 3, 3, "root"], ["R1 Crown", "head", 3, 3, "neutral"]]);
+  makeAwB("Realtime Wake Two", [["R2 Body", "body", 3, 3, "tide"], ["R2 Arms", "arms", 3, 3, "tide"], ["R2 Crown", "head", 3, 3, "neutral"]]);
+  makeAwB("Realtime Wake Three", [["R3 Body", "body", 3, 3, "stone"], ["R3 Arms", "arms", 3, 3, "stone"], ["R3 Crown", "head", 3, 3, "neutral"]]);
+  await callOkB("chooseClass", { classKey: "warden" }, tokenB);
+  // The land: a shaped disc first (rings 0–2 purified,
+  // ring 3 cursed — the fixture's own ground), then ONE
+  // read, taken while no placement or dark exists for a
+  // settle to reckon with: the frontier buffer law mints
+  // its cursed buffer five rings beyond the purified rim
+  // on reads, so after that read the land stands at its
+  // true standing shape — its edge ring 7 — and does not
+  // grow again inside this section (nothing here purifies
+  // new ground). (Server A's §L never needed this: its
+  // retaliation birthed while its land was still the
+  // shaped disc, so its border was ring 3. This section
+  // proves the gear on the land's true edge.)
+  const bornB = Date.now();
+  dbB.prepare("INSERT INTO tender_attention (owner_key, starfall_anchor_at, starfall_seen_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_key) DO NOTHING")
+    .run(keyB, bornB, bornB, bornB);
+  dbB.prepare("INSERT INTO tender_resources (owner_key, energy, last_seen_at, updated_at) VALUES (?, 100000, ?, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 100000, last_seen_at = excluded.last_seen_at")
+    .run(keyB, bornB, bornB);
+  const insTileB = dbB.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, curse_hp, curse_max_hp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  for (const h of hexes) {
+    const ring = ringOf(h.q, h.r);
+    const cursed = ring === 3 ? 1 : 0;
+    insTileB.run(keyB, h.q, h.r, "root", cursed, cursed ? 22 : 0, cursed ? 22 : 0, TB);
+  }
+  await callOkB("getTerritory", {}, tokenB); // the buffer grows; nothing else stands to settle
+  const tileIdB = new Map();
+  for (const t of dbB.prepare("SELECT id, q, r FROM territory_tiles WHERE owner_key = ?").all(keyB)) tileIdB.set(`${t.q},${t.r}`, t.id);
+  const TBq = (q, r) => tileIdB.get(`${q},${r}`);
+  const mapRingB = Math.max(...[...tileIdB.keys()].map(k => { const [q, r] = k.split(",").map(Number); return ringOf(q, r); }));
+  ok("the second land stands complete: frontier buffer grown, its edge is ring 7",
+    mapRingB === 7 && tileIdB.size >= 169, `ring ${mapRingB}, tiles ${tileIdB.size}`);
+  const insPlaceB = dbB.prepare(`INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, stance, hp, pos_q, pos_r, bind_paid_at, press_paid_at, battle_next_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 1)`);
+  const binderB = makeAwB("Realtime Rootbinder", [["RRB Body", "body", 3, 3, "root"], ["RRB Arms", "arms", 3, 3, "root"], ["RRB Crown", "head", 3, 3, "root"]]);
+  insPlaceB.run(keyB, binderB, TBq(1, 0), TB - 2 * 3600_000, TB - 2 * 3600_000, "binding", 60, 1, 0);
+  const fighterB = makeAwB("Realtime Fighter", [["RF Body", "body", 10, 60, "root"], ["RF Arms", "arms", 10, 60, "root"], ["RF Crown", "head", 10, 60, "root"]]);
+  insPlaceB.run(keyB, fighterB, TBq(2, 0), TB, TB, "attack", 60, 2, 0);
+  const darkB = Number(dbB.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at, retaliation) VALUES (?, 'fray', ?, 3, 3, 0, 0, 1, ?, 0)")
+    .run(keyB, TBq(3, 0), TB).lastInsertRowid);
+  // A second, long fight across the land — a dark too
+  // deep to fell inside this section, against its own
+  // fighter — so the war is still live while the
+  // watermark is sampled and the reads are taken: the
+  // gear must keep reconciling, not finish and idle.
+  const fighterB2 = makeAwB("Realtime Long Fighter", [["RLF Body", "body", 10, 60, "root"], ["RLF Arms", "arms", 10, 60, "root"], ["RLF Crown", "head", 10, 60, "root"]]);
+  insPlaceB.run(keyB, fighterB2, TBq(-2, 0), TB, TB, "attack", 60, -2, 0);
+  const darkFatB = Number(dbB.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at, retaliation) VALUES (?, 'fray', ?, 100000, -3, 0, 0, 1, ?, 0)")
+    .run(keyB, TBq(-3, 0), TB).lastInsertRowid);
+  void darkFatB;
+  // The pins land LAST, in one breath: presence fresh, the
+  // beacon doused, the watermark three seconds behind the
+  // world, the cradle's anchor fresh (no births owed).
+  const pinB = Date.now();
+  dbB.prepare(`INSERT INTO tender_progress (owner_key, tender_tile_id, hp, curse_watermark, lighthouse_lit, shadow_matter, protection_bank_ms, lighthouse_settled_at, battle_watermark, wanderer_anchor_at, wanderer_settled_beats, wave_intensity, updated_at)
+    VALUES (?, ?, 100, ?, 0, 500, 3600000, ?, ?, ?, 0, 1, ?)
+    ON CONFLICT(owner_key) DO UPDATE SET tender_tile_id = excluded.tender_tile_id, hp = 100, curse_watermark = excluded.curse_watermark, lighthouse_lit = 0, battle_watermark = excluded.battle_watermark, wanderer_anchor_at = excluded.wanderer_anchor_at, wanderer_settled_beats = 0, wave_intensity = 1`)
+    .run(keyB, TBq(0, 0), pinB, pinB, pinB - 3000, pinB, pinB);
+  dbB.prepare("INSERT INTO tender_resources (owner_key, energy, last_seen_at, updated_at) VALUES (?, 100000, ?, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 100000, last_seen_at = excluded.last_seen_at")
+    .run(keyB, pinB, pinB);
+  const progB = () => dbB.prepare("SELECT * FROM tender_progress WHERE owner_key = ?").get(keyB);
+  const binderRowB = () => dbB.prepare("SELECT * FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(keyB, binderB);
+  const poolB = el => dbB.prepare("SELECT points FROM aspect_attunement WHERE owner_key = ? AND element = ?").get(keyB, el)?.points ?? 0;
+
+  // R1 — the watermark advances in small live steps, never
+  // one 60-second lump (and the slow hand cannot have moved
+  // it: its interval is an hour). The long fight across the
+  // land keeps the war live through the whole sampling.
+  const marks = [];
+  for (let i = 0; i < 5; i++) { marks.push(Number(progB().battle_watermark)); await sleep(300); }
+  const distinct = new Set(marks).size;
+  ok("the battle watermark advances LIVE — several small steps across 1.5 s, none a lump, none past the moment",
+    distinct >= 3 && marks.every((m, i) => i === 0 || m >= marks[i - 1]) && marks[marks.length - 1] <= Date.now() + 50,
+    JSON.stringify(marks));
+
+  // R2 — the thin dark is fought and felled by the gear
+  // alone (its deep fellow across the land fights on).
+  let felled = false;
+  for (let i = 0; i < 28 && !felled; i++) {
+    felled = dbB.prepare("SELECT COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ? AND id = ?").get(keyB, darkB).n === 0;
+    if (!felled) await sleep(250);
+  }
+  ok("the standing dark was felled with no read ever made — the realtime gear fought the whole fight", felled);
+
+  // R3 — the gears stay apart: two hours of binding stand
+  // UNSETTLED by the war's gear; attunement is the slow
+  // gear's alone, and the slow hand never turned.
+  ok("attunement was NOT settled by the realtime gear: the binder's cursor never moved and its pool stands empty",
+    binderRowB().bind_paid_at === null && poolB("root") === 0,
+    `cursor ${binderRowB().bind_paid_at}, pool ${poolB("root")}`);
+
+  // R4 — the first read now only WITNESSES what the gear
+  // already settled; a second read settles nothing again.
+  // The long fight still stands, so the gear may strike
+  // live between the two reads — any such strike is struck
+  // AFTER the first read began (its own moment proves it
+  // was not a re-walked span), and the pool moves ~nothing.
+  const readStartB = Date.now();
+  const landB1 = await callOkB("getTerritory", {}, tokenB);
+  const fellWitness = (landB1.strikes ?? []).find(s => s.kind === "placement" && Number(s.wandererId) === darkB);
+  ok("the first read witnesses the fell the gear already made: a placement strike on the dark, struck home",
+    !!fellWitness && fellWitness.hit === true, JSON.stringify((landB1.strikes ?? []).slice(0, 3)));
+  const maxStrike1 = Math.max(0, ...(landB1.strikes ?? []).map(s => s.id));
+  const poolB1 = poolB("root");
+  const landB2 = await callOkB("getTerritory", {}, tokenB);
+  const freshB = (landB2.strikes ?? []).filter(s => s.id > maxStrike1);
+  ok("a read mid-reconciliation settles nothing twice: any strike the second read adds was struck live after the first read began, and the pool moves ~nothing",
+    freshB.every(s => Number(s.at) > readStartB) && Math.abs(poolB("root") - poolB1) < 0.01,
+    `fresh ${JSON.stringify(freshB.map(s => [s.id, s.at]))} vs read start ${readStartB}, pool delta ${poolB("root") - poolB1}`);
+
+  // R5 — the retaliation rides the realtime gear: light
+  // the beacon, rewind the cradle's anchor, and with the
+  // slow hand still dormant the curse answers at the edge
+  // on the gear's own beats.
+  const nowR = Date.now();
+  dbB.prepare("UPDATE tender_progress SET lighthouse_lit = 1, wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?")
+    .run(nowR - 200_000, keyB);
+  dbB.prepare("UPDATE tender_resources SET last_seen_at = ? WHERE owner_key = ?").run(nowR, keyB);
+  await sleep(1400); // several realtime beats, no reads
+  const born = dbB.prepare(`SELECT w.retaliation AS ret, t.q AS q, t.r AS r FROM homeland_wanderers w JOIN territory_tiles t ON t.id = w.tile_id WHERE w.owner_key = ? AND w.id != ?`).all(keyB, darkFatB);
+  ok("lit + online, the retaliation is born ON THE REALTIME GEAR: darks stand marked at the land's edge (ring 7 — any step inward since is the battle's own march), the slow hand never having turned",
+    born.length >= 1 && born.every(x => Number(x.ret) === 1 && ringOf(x.q, x.r) >= mapRingB - 1) && born.some(x => ringOf(x.q, x.r) === mapRingB),
+    JSON.stringify(born));
+}
+
 console.log(`\nMASTER CLOCK: ${pass} passed, ${fail} failed`);
+try { child?.kill(); } catch { /* already gone */ }
+try { dbB?.close(); } catch { /* already closed */ }
 db.close();
 process.exit(fail ? 1 : 0);
