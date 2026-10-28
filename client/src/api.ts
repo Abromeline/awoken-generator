@@ -1127,6 +1127,10 @@ export interface RoomEnterResult {
 export interface RoomSeatView {
   tenderId: number | null; name: string; watcher: boolean; isHost: boolean;
   tileId: number | null; away: boolean; classKey: string | null; weaponKey: string | null; level: number;
+  /** The seat Tender's own homeland body (THE ROOM'S BODY
+   *  LAW, 2026-10-28): its pool and its blackout, served so
+   *  a fallen guest reads as fallen at the Table. */
+  body: { hp: number; maxHp: number; down: boolean } | null;
 }
 export interface RoomStateView {
   ok: true; code: string; door: "instance" | "homeland"; hostName: string;

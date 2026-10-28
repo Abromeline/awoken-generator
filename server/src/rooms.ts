@@ -229,6 +229,47 @@ export function resolveRoomSeat(token: string | null | undefined): {
   };
 }
 
+// ── The seats standing on a land (the engine's road in) ────
+// The homeland's settles (actions.ts) reckon for every body
+// and every feeder standing on the land a room stands on —
+// THE ROOM'S BODY-AND-SEED LAWS (Nigel, 2026-10-28: "Guests
+// should take damage" · "star seeds should draw energy from
+// any tender standing on them"). The room registry lives
+// here, so the engine reads the seats through these two
+// doors and writes a woken seat's new stand through the
+// second — the registry itself never leaves this module.
+export interface RoomSeatOnLand {
+  tenderId: number | null;
+  tileId: number | null;
+  isHost: boolean;
+  watcher: boolean;
+}
+
+export function roomSeatsOnLand(landOwnerKey: string): RoomSeatOnLand[] {
+  const out: RoomSeatOnLand[] = [];
+  for (const room of rooms.values()) {
+    if (room.landOwnerKey !== landOwnerKey) continue;
+    for (const seat of room.seats.values()) {
+      out.push({ tenderId: seat.tenderId, tileId: seat.tileId, isHost: seat.isHost, watcher: seat.watcher });
+    }
+  }
+  return out;
+}
+
+/** Move one seat's figure stand on its land (the bastion
+ *  wake moves a fallen guest's figure without touching the
+ *  guest's own homeland stand, which is another land's
+ *  business). True when the seat was found and moved. */
+export function moveRoomSeatStand(landOwnerKey: string, tenderId: number, tileId: number): boolean {
+  for (const room of rooms.values()) {
+    if (room.landOwnerKey !== landOwnerKey) continue;
+    for (const seat of room.seats.values()) {
+      if (!seat.watcher && seat.tenderId === tenderId) { seat.tileId = tileId; return true; }
+    }
+  }
+  return false;
+}
+
 // ── Routes ──────────────────────────────────────────────────
 export function registerRoomRoutes(app: Express): void {
   const fail = (res: Response, status: number, error: string) => { res.status(status).json({ error }); };
@@ -354,10 +395,31 @@ export function registerRoomRoutes(app: Express): void {
     const seats = [];
     for (const seat of room.seats.values()) {
       const figure = seat.tenderId != null ? await seatFigure(seat.tenderId) : { classKey: null, weaponKey: null, level: 1 };
+      // THE BODY each seat's figure carries (THE ROOM'S BODY
+      // LAW, Nigel 2026-10-28: "Guests should take damage"):
+      // the seat Tender's own homeland body — its pool and
+      // its blackout — read from their own record, so the
+      // party panel shows a fallen guest as fallen.
+      let body: { hp: number; maxHp: number; down: boolean } | null = null;
+      if (!seat.watcher && seat.tenderId != null) {
+        try {
+          const key = tenderOwnerKey(seat.tenderId);
+          const p = await getTenderProgress(key);
+          const row = sqlite.prepare("SELECT hp, down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(key) as { hp: number | null; downUntil: number | null } | undefined;
+          if (row) {
+            body = {
+              hp: row.hp == null ? p.maxTenderHp : Math.min(Number(row.hp), p.maxTenderHp),
+              maxHp: p.maxTenderHp,
+              down: row.downUntil != null && Number(row.downUntil) > now,
+            };
+          }
+        } catch { /* no progress stands — no body to serve */ }
+      }
       seats.push({
         tenderId: seat.tenderId, name: seat.name, watcher: seat.watcher, isHost: seat.isHost,
         tileId: seat.tileId, away: now - seat.lastSeenAt > AWAY_AFTER_MS,
         classKey: figure.classKey, weaponKey: figure.weaponKey, level: figure.level,
+        body,
       });
     }
     const seedRow = sqlite.prepare(`SELECT level, fed_energy AS fed FROM star_seeds
@@ -380,6 +442,17 @@ export function registerRoomRoutes(app: Express): void {
     const mine = mySeat(req);
     if (!mine) { fail(res, 401, "That seat has faded — take the door again."); return; }
     if (mine.seat.watcher) { fail(res, 403, "Watchers stand nowhere — take a seat to walk the land."); return; }
+    // A FALLEN Tender does not walk (the homeland's own law,
+    // Phase D — the same refusal setTenderTile speaks at
+    // home): the blackout holds the seat's figure where it
+    // fell until the bastion wake, on a guest exactly as on
+    // the host.
+    if (mine.seat.tenderId != null) {
+      const bodyRow = sqlite.prepare("SELECT down_until AS downUntil FROM tender_progress WHERE owner_key = ?").get(tenderOwnerKey(mine.seat.tenderId)) as { downUntil: number | null } | undefined;
+      if (bodyRow?.downUntil != null && Number(bodyRow.downUntil) > Date.now()) {
+        fail(res, 400, "Your Tender has fallen — he wakes at the bastion, half-healed, when the blackout lifts."); return;
+      }
+    }
     const tileId = Number((req.body ?? {}).tileId);
     const tile = sqlite.prepare("SELECT id FROM territory_tiles WHERE id = ? AND owner_key = ?").get(tileId, mine.room.landOwnerKey) as { id: number } | undefined;
     if (!tile) { fail(res, 400, "That ground is not this land's."); return; }

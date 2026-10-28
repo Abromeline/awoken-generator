@@ -634,6 +634,21 @@ try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN bastion_building_id INTEGER
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN fed_energy INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN feed_credit REAL NOT NULL DEFAULT 0"); } catch { /* exists */ }
 try { sqlite.exec("ALTER TABLE star_seeds ADD COLUMN feed_anchor_at INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
+// THE ROOM'S SEED LAW (Nigel, 2026-10-28: "star seeds should
+// draw energy from any tender standing on them"): the draw
+// drinks for EVERY Tender standing on a seed — a guest on a
+// hosted homeland's seed, the seats on a fresh table's heart
+// seed — each at their own rate out of their own purse. The
+// fractional pace of every feeder past the land's own Tender
+// is carried here, one row a (seed, feeder) pair, the same
+// banking the seed's own feed_credit gives the land Tender:
+// no feeder's fraction is ever lost between settles.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS star_seed_feed_credits (
+  seed_id INTEGER NOT NULL,
+  feeder_key TEXT NOT NULL,
+  credit REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (seed_id, feeder_key)
+);`);
 // STARFALL — ONLINE ONLY (Nigel, 2026-10-24 23:43): the last
 // moment a settle saw this Tender present, so the hourly gate
 // can refuse the hours he was away — no falls bank up offline.

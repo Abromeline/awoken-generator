@@ -296,7 +296,7 @@ function SeatedRoom({ enter }: { enter: RoomEnterResult }) {
           {(roomState?.seats ?? []).map(s => (
             <li key={`${s.tenderId ?? "w"}-${s.name}`} className={s.away ? "away" : ""}>
               <span>{s.watcher ? "👁" : s.isHost ? "🏠" : "⚔"} {s.name}{s.tenderId === enter.you.tenderId ? " (you)" : ""}</span>
-              <span className="quiet small">{s.watcher ? "watching" : `${s.classKey ?? "—"} · Lv ${s.level}${s.away ? " · stepped away" : ""}`}</span>
+              <span className="quiet small">{s.watcher ? "watching" : `${s.classKey ?? "—"} · Lv ${s.level}${s.away ? " · stepped away" : ""}${s.body ? (s.body.down ? " · fallen — in blackout" : ` · body ${Math.max(0, Math.ceil(s.body.hp))}/${s.body.maxHp}`) : ""}`}</span>
             </li>
           ))}
           {!roomState && <li className="quiet">The seats are gathering…</li>}

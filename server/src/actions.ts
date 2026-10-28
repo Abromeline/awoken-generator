@@ -33,6 +33,14 @@ import { partyIdsFor, partyCapFor, partyCountFor, tryAddPartyMember, removeParty
 // imports this module; the binding is only ever called at
 // request time, long after both modules stand.)
 import { castModFor, partyBattleSeatFor } from "./table.js";
+// THE ROOM'S BODY-AND-SEED LAWS (Nigel, 2026-10-28): the
+// room layer's seat ledger is read from here — who stands on
+// a room's land, and where a woken seat's figure lands —
+// imported, never copied, on the same terms as the Table's
+// binding above (rooms.ts already imports this module; the
+// bindings are only ever called at request time, long after
+// both modules stand).
+import { roomSeatsOnLand, moveRoomSeatStand } from "./rooms.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, inventoryCanHold, recordDropEvent, drainDropEvents, type FellDrop } from "./drops.js";
 import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_EMPOWERMENT_BONUS } from "./reagentSets.js";
@@ -2943,6 +2951,20 @@ async function applySeedStageRise(ownerKey: string, seed: any, fromLevel: number
  *  tile the validated movement road (setTenderTile) last
  *  seated her on, read here exactly as tenderStand reads
  *  it.
+ *  THE ROOM'S SEED LAW (Nigel, 2026-10-28 12:54: "star
+ *  seeds should draw energy from any tender standing on
+ *  them"): where a room stands on the land, every seated
+ *  Tender standing on a seed feeds it too — a guest on a
+ *  hosted homeland's seed, the seats on a fresh table's
+ *  heart seed (whose land has no one Tender at all) — each
+ *  at THEIR OWN rate, out of THEIR OWN purse, over the
+ *  same window and under the same presence law as the
+ *  land's Tender, their fractional pace banked in their
+ *  own ledger row (star_seed_feed_credits) so no feeder's
+ *  fraction is lost. Their stands are the room layer's
+ *  seat stands, read through rooms.ts. The arrival
+ *  purification below stays the land Tender's own office:
+ *  the ruling named the draw, not the turning.
  *  THE GROUND ANSWERS HER ARRIVAL (Nigel, 2026-10-25
  *  11:48: "instant purification on seed hex when a
  *  tender joins so he can feed the seed without dying
@@ -2968,6 +2990,25 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
   // anywhere the read can see — the per-seed test below
   // spends it only on the seed she actually stands on.
   const tenderRate = tenderTile ? tenderStandingFeedRateFor(ownerKey, levelForExp(Number(tenderRow?.totalExp ?? 0)), tenderRow?.classKey) : 0;
+  // THE SEATED FEEDERS (the room's seed law, in the header
+  // above): every other Tender seated on this land, by
+  // their seat stand. The land's own Tender is never among
+  // them — the standing path reckons them, and a host's
+  // seat stand is that same record besides — so the dedup
+  // is by key, and no one feeds twice.
+  const seatFeeders = roomSeatsOnLand(ownerKey)
+    .filter(s => !s.watcher && s.tenderId != null && s.tileId != null)
+    .map(s => ({ key: tenderOwnerKey(s.tenderId as number), tileId: s.tileId as number }))
+    .filter(f => f.key !== ownerKey);
+  const feederProgress = new Map<string, { totalExp: number | null; classKey: string | null }>();
+  const progressOf = (key: string) => {
+    let p = feederProgress.get(key);
+    if (!p) {
+      p = (sqlite.prepare("SELECT total_exp AS totalExp, class_key AS classKey FROM tender_progress WHERE owner_key = ?").get(key) as { totalExp: number | null; classKey: string | null } | undefined) ?? { totalExp: 0, classKey: null };
+      feederProgress.set(key, p);
+    }
+    return p;
+  };
   for (const seed of seeds) {
     const home = byId.get(seed.tile_id);
     const anchor = Number(seed.feed_anchor_at || 0);
@@ -3011,6 +3052,36 @@ async function settleSeedFeeding(ownerKey: string): Promise<void> {
       }
       if (credit >= 2) credit = 1.999;
       changed = true;
+    }
+    // THE SEATED FEEDERS' DRAW (the room's seed law): the
+    // same window the land Tender's draw just reckoned —
+    // each feeder standing on THIS seed's tile accrues at
+    // their own rate, banks the fraction in their own
+    // ledger row, and pays whole points out of their own
+    // purse into this seed's one fed ledger.
+    if (elapsed > 0 && elapsed <= PROTECTION_ONLINE_GAP_MS) {
+      for (const feeder of seatFeeders) {
+        if (feeder.tileId !== home.id) continue;
+        const fp = progressOf(feeder.key);
+        const rate = tenderStandingFeedRateFor(feeder.key, levelForExp(Number(fp.totalExp ?? 0)), fp.classKey);
+        if (rate <= 0) continue;
+        const crow = sqlite.prepare("SELECT credit FROM star_seed_feed_credits WHERE seed_id = ? AND feeder_key = ?").get(seed.id, feeder.key) as { credit: number } | undefined;
+        let fCredit = Number(crow?.credit ?? 0) + (elapsed / 60000) * rate;
+        const whole = Math.floor(fCredit);
+        if (whole >= 1) {
+          const purse = await getEnergyFor(feeder.key);
+          const take = Math.min(whole, Math.max(0, Math.floor(purse)));
+          if (take > 0) {
+            await spendEnergy(feeder.key, take);
+            fed += take;
+            fCredit -= take;
+          }
+        }
+        if (fCredit >= 2) fCredit = 1.999;
+        sqlite.prepare("INSERT INTO star_seed_feed_credits (seed_id, feeder_key, credit) VALUES (?, ?, ?) ON CONFLICT(seed_id, feeder_key) DO UPDATE SET credit = excluded.credit")
+          .run(seed.id, feeder.key, fCredit);
+        changed = true;
+      }
     }
     const levelBefore = Math.max(1, Number(seed.level || 1));
     const level = Math.max(levelBefore, seedLevelForFed(fed));
@@ -5927,7 +5998,7 @@ const regenBankByPlacement = new Map<number, number>();
  *  watermark's own cap), walked in half-second sub-steps so
  *  movement, strikes and deaths interleave as they would
  *  lived: a figure felled mid-window strikes no more. */
-async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId: number | null, woundTender: (ownerKey: string, damage: number) => Promise<void>): Promise<void> {
+async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId: number | null, woundTender: (ownerKey: string, damage: number) => Promise<void>, guestBodies: { key: string; tileId: number }[] = []): Promise<void> {
   const prow = sqlite.prepare("SELECT battle_watermark AS wm, lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
   if (!prow) return;
   const now = Date.now();
@@ -6827,23 +6898,46 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // Nothing of his in reach: the Tender himself, when he
       // stands within the bite and nothing of his stands —
       // the old border law's own priority.
-      if (standTileId != null) {
-        const stand = byId.get(standTileId);
-        if (stand && axialDist(d, stand) <= ENEMY_BITE_REACH) {
+      // THE ROOM'S BODY LAW (Nigel, 2026-10-28 12:54:
+      // "Guests should take damage"): the bodies the curse
+      // may bite are EVERY seated Tender's figure standing
+      // on the land — the land's own Tender first among
+      // equals, then each guest (guestBodies, settled just
+      // before this pass in getTerritory) — and the bite
+      // falls on the NEAREST body in reach, the wound
+      // landing on THAT Tender's own record. At home the
+      // list holds the one body it always held, and the
+      // reckoning below is the one it always was (his own
+      // zodiac AC read at the settle's head; a guest's body
+      // is read by their own).
+      {
+        const bodies: { key: string; tileId: number }[] = [];
+        if (standTileId != null) bodies.push({ key: ownerKey, tileId: standTileId });
+        for (const b of guestBodies) bodies.push(b);
+        let bitten: { key: string; tile: any } | null = null;
+        let bittenDist = Infinity;
+        for (const b of bodies) {
+          const bt = byId.get(b.tileId);
+          if (!bt) continue;
+          const dist = axialDist(d, bt);
+          if (dist <= ENEMY_BITE_REACH && dist < bittenDist) { bitten = { key: b.key, tile: bt }; bittenDist = dist; }
+        }
+        if (bitten) {
+          const stand = bitten.tile;
           const roll = homelandDN(20);
-          const tAC = 10 + zTenderAc; // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard — plus THE ZODIAC'S TENDER AC (Recovery #1)
+          const tAC = 10 + (bitten.key === ownerKey ? zTenderAc : fxSum(bitten.key, "tenderAc")); // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard — plus THE ZODIAC'S TENDER AC (Recovery #1), each body by its own zodiac
           const tenderHit = roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= tAC);
           let tenderDmg = 0;
           if (tenderHit) {
             let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
             for (let i = 0; i < dice; i++) raw += homelandDN(6);
             tenderDmg = homelandFateMitigate(raw, tAC, d.lvl);
-            await woundTender(ownerKey, Math.max(1, tenderDmg));
+            await woundTender(bitten.key, Math.max(1, tenderDmg));
           }
           // THE DARK'S BLOW AT THE TENDER, WITNESSED (the
           // projectile rendering fix, 2026-10-27): awakenedId
           // 0 names the Tender himself as the bitten one.
-          recordHomelandStrike(ownerKey, { kind: "dark", tileId: standTileId, wandererId: d.id, awakenedId: 0, fromTileId: d.tileId, fromQ: d.q, fromR: d.r, toQ: stand.q, toR: stand.r, at: tNow, hit: tenderHit, dmg: tenderDmg, felled: false, element: "dark" });
+          recordHomelandStrike(ownerKey, { kind: "dark", tileId: stand.id, wandererId: d.id, awakenedId: 0, fromTileId: d.tileId, fromQ: d.q, fromR: d.r, toQ: stand.q, toR: stand.r, at: tNow, hit: tenderHit, dmg: tenderDmg, felled: false, element: "dark" });
           continue;
         }
       }
@@ -10008,8 +10102,20 @@ export const handlers = {
    *  he wakes half-healed at the respawn's reading of ground —
    *  his standing bastion, or, with no bastion, his safe hex
    *  (THE SAFE HEX'S OFFICE, Nigel, 2026-10-23 23:26; the
-   *  reading itself is bastionAnchorTileId's). */
-  async settleTenderBody(ownerKey: string, tiles: any[], standTileId: number): Promise<number> {
+   *  reading itself is bastionAnchorTileId's).
+   *  THE ROOM'S BODY LAW (Nigel, 2026-10-28 12:54: "Guests
+   *  should take damage"): a seated guest's body settles by
+   *  this same law on the room's land — the body record is
+   *  the GUEST's own (ownerKey), the anchor chain is read on
+   *  the LAND's ground (opts.landKey: the bastion and the
+   *  safe hex standing on the room's land are the land's),
+   *  and the wake moves the guest's SEAT stand (opts.
+   *  onWakeStand) rather than their tender_progress stand,
+   *  which is their own homeland's business and is never
+   *  written with another land's tile. At home landKey ==
+   *  ownerKey and no sink is passed: the settle is exactly
+   *  the one it always was. */
+  async settleTenderBody(ownerKey: string, tiles: any[], standTileId: number, opts?: { landKey?: string; onWakeStand?: (tileId: number) => void }): Promise<number> {
     const TENDER_BLACKOUT_MS = 15000;
     const now = Date.now();
     const progress = await getTenderProgress(ownerKey);
@@ -10024,7 +10130,11 @@ export const handlers = {
       .run(hp, wm, downUntil, ownerKey);
     // THE WAKE: the blackout has run out.
     if (downUntil != null && now >= downUntil) {
-      let anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+      // The respawn's ground is the LAND's (the room's body
+      // law, above): at home the land is his own and the two
+      // keys are one.
+      const anchorKey = opts?.landKey ?? ownerKey;
+      let anchor = await this.bastionAnchorTileId(anchorKey, tiles);
       if (anchor == null) {
         // THE SAFE HEX'S OFFICE, KEPT AT THE WAKE ITSELF
         // (Nigel, 2026-10-23 23:26): no bastion stands and
@@ -10038,15 +10148,20 @@ export const handlers = {
         // say: ensure the safe hex (ensureOneSafeSquare,
         // piece 7 — it mutates `tiles` in place), then read
         // the anchor again off the ground it restored.
-        await ensureOneSafeSquare(ownerKey, tiles);
-        anchor = await this.bastionAnchorTileId(ownerKey, tiles);
+        await ensureOneSafeSquare(anchorKey, tiles);
+        anchor = await this.bastionAnchorTileId(anchorKey, tiles);
       }
       downUntil = null;
       hp = maxHp / 2;
       wm = null;
       save();
       if (anchor != null) {
-        sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(anchor, ownerKey);
+        // The wake places the figure: at home, on his own
+        // progress record; in a room, on the seat (the room's
+        // body law) — the sink is the only difference, and a
+        // guest's progress stand is never written here.
+        if (opts?.onWakeStand) opts.onWakeStand(anchor);
+        else sqlite.prepare("UPDATE tender_progress SET tender_tile_id = ? WHERE owner_key = ?").run(anchor, ownerKey);
         return anchor;
       }
       return standTileId;
@@ -10527,6 +10642,34 @@ export const handlers = {
     let wandererViews: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[] = [];
     let weaponStrikeView: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null = null;
     let tenderView: any = tenderStand;
+    // THE ROOM'S BODIES (Nigel, 2026-10-28 12:54: "Guests
+    // should take damage"): every OTHER Tender seated on
+    // this land has a body standing on it, and it settles
+    // by the homeland's own body law on this same read —
+    // the curse withers it on cursed ground, clean ground
+    // mends it, a fall blacks it out, and the wake stands
+    // its SEAT at the land's bastion or safe hex — the
+    // wound and the fall landing on the guest's own record,
+    // never the host's, and their own homeland stand never
+    // written. Settled before the living battle below, so
+    // the fight reckons with the bodies as they now stand
+    // (and a body the curse just felled is not bitten
+    // again). The bodies ride into the battle as its bite
+    // targets beside the land's own Tender. On a land with
+    // no room standing on it the seat list is empty and
+    // this pass is nothing at all.
+    const guestBodies: { key: string; tileId: number }[] = [];
+    for (const seat of roomSeatsOnLand(ownerKey)) {
+      if (seat.watcher || seat.tenderId == null || seat.tileId == null) continue;
+      const bodyKey = tenderOwnerKey(seat.tenderId);
+      if (bodyKey === ownerKey) continue; // the land's own Tender: their body settles as it always has, below
+      const seatTenderId = seat.tenderId;
+      const stood = await this.settleTenderBody(bodyKey, tiles as any[], seat.tileId, {
+        landKey: ownerKey,
+        onWakeStand: (tileId) => { moveRoomSeatStand(ownerKey, seatTenderId, tileId); },
+      });
+      guestBodies.push({ key: bodyKey, tileId: stood });
+    }
     if (tenderStand) {
       const stoodTileId = await this.settleTenderBody(ownerKey, tiles as any[], tenderStand.tileId);
       tenderStand.tileId = stoodTileId;
@@ -10540,7 +10683,7 @@ export const handlers = {
       await settleProtection(ownerKey);
       const wres = await this.settleWanderers(ownerKey, tiles as any[], tenderStand.tileId);
       wandererViews = wres.views;
-      await settleHomelandBattle(ownerKey, tiles as any[], tenderStand.tileId, this.woundTender.bind(this));
+      await settleHomelandBattle(ownerKey, tiles as any[], tenderStand.tileId, this.woundTender.bind(this), guestBodies);
       // HOMELAND CASTING (Nigel, 2026-10-20): the written
       // ground answers the dark now standing on it — blades
       // spring, lattices pin, coils throw back — before the
