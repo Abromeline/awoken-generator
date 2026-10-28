@@ -5059,7 +5059,14 @@ async function settleTransientWorkings(ownerKey: string, tiles: any[]): Promise<
 export const HOMELAND_DARK_HP: Record<string, number> = { fray: 3, hollow: 4, unraveler: 5, tangle: 7 };
 export const HOMELAND_DARK_POWER: Record<string, number> = { fray: 1, hollow: 1, unraveler: 2, tangle: 2 };
 export const HOMELAND_DARK_SPEED: Record<string, number> = { fray: 3, unraveler: 2, hollow: 0, tangle: 1 };
-export const AWOKEN_STRIKE_MS: Record<string, number> = { sky: 2000, tide: 2500, root: 3000, stone: 3500, fire: 3000, neutral: 3000 };
+/** THE FIRE CADENCE, DOUBLED (Nigel's battle-feel ruling,
+ * 2026-10-25, landed by the projectile rendering fix,
+ * 2026-10-27): Awoken fire TWICE AS OFTEN as the table first
+ * dealt — every interval here stands at half its first
+ * measure, so the sky answers in one second where she once
+ * took two. The dark's own bite cadence (enemyStrikeMs)
+ * is NOT doubled: the ruling names the Awoken's fire. */
+export const AWOKEN_STRIKE_MS: Record<string, number> = { sky: 1000, tide: 1250, root: 1500, stone: 1750, fire: 1500, neutral: 1500 };
 /** THE WATCHTOWER'S VOLLEY BEAT (Nigel, 2026-10-24):
  *  one volley every 8 seconds of settled battle time. */
 export const TOWER_VOLLEY_MS = 8000;
@@ -5489,7 +5496,8 @@ async function settleProtection(ownerKey: string): Promise<void> {
     .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), lit ? 1 : 0, now, intensity, mark, ownerKey);
 }
 
-/** THE STRIKE WITNESS (the Token Strip, Nigel 2026-10-23):
+/** THE STRIKE WITNESS (the Token Strip, Nigel 2026-10-23;
+ *  widened by the projectile rendering fix, 2026-10-27):
  *  the living battle's blows, kept in the weaponStrike
  *  record's own shape and extended to the placements' strikes
  *  — who struck, from where, at which dark, and what came of
@@ -5497,9 +5505,19 @@ async function settleProtection(ownerKey: string): Promise<void> {
  *  fight and never from a second simulated one. The log is a
  *  witness, not a ledger: it lives in memory, keeps only the
  *  last two minutes, and a restart simply starts it empty,
- *  exactly as an unwitnessed blow is lost. */
+ *  exactly as an unwitnessed blow is lost.
+ *  THE WIDENING (2026-10-27): the dark's blows stand in the
+ *  log beside the placements' (kind "dark": fromTileId is
+ *  the dark's tile, awakenedId the placement it bit, or 0
+ *  when it bit the Tender himself, tileId the victim's
+ *  tile) — before this fix a dark blow was never witnessed
+ *  at all, so the blows that felled a company arrived
+ *  invisibly. Reactive answers (a Root's thorns, a Seal's
+ *  riposte, a tower's volley, the light's burn) are not
+ *  strikes of either cadence and stay unwitnessed, as
+ *  they always were. */
 export type HomelandStrike = {
-  id: number; kind: "placement";
+  id: number; kind: "placement" | "dark";
   tileId: number; wandererId: number; awakenedId: number; fromTileId: number;
   fromQ: number; fromR: number; toQ: number; toR: number;
   at: number; hit: boolean; dmg: number; felled: boolean;
@@ -5512,15 +5530,52 @@ export type HomelandStrike = {
 };
 const homelandStrikeLog = new Map<string, HomelandStrike[]>();
 let homelandStrikeSeq = 0;
-function recordHomelandStrike(ownerKey: string, s: Omit<HomelandStrike, "id" | "kind">): void {
+/** THE WITNESS'S KEEP (the projectile rendering fix,
+ * 2026-10-27): the log once kept only the last 64 blows —
+ * at the doubled fire cadence a single 2.8 s read of a
+ * crowded field strikes more than that, and the cap
+ * silently discarded struck blows before the map could
+ * ever see them. The keep now stands at 2048 — a full
+ * minute-long settle of the densest field the engine can
+ * deal fits inside it — inside the same two-minute window;
+ * the window, not the count, is the witness's memory. */
+export const HOMELAND_STRIKE_WITNESS_CAP = 2048;
+function recordHomelandStrike(ownerKey: string, s: Omit<HomelandStrike, "id">): void {
   const log = homelandStrikeLog.get(ownerKey) ?? [];
-  log.push({ ...s, id: ++homelandStrikeSeq, kind: "placement" });
+  log.push({ ...s, id: ++homelandStrikeSeq });
   const keep = s.at - 120000;
-  homelandStrikeLog.set(ownerKey, log.filter(x => x.at >= keep).slice(-64));
+  homelandStrikeLog.set(ownerKey, log.filter(x => x.at >= keep).slice(-HOMELAND_STRIKE_WITNESS_CAP));
 }
 /** The strikes the map has yet to witness, newest last. */
 export function recentHomelandStrikes(ownerKey: string): HomelandStrike[] {
   const log = homelandStrikeLog.get(ownerKey) ?? [];
+  const keep = Date.now() - 120000;
+  return log.filter(x => x.at >= keep);
+}
+
+/** THE WEAPON'S OWN WITNESS (the projectile rendering fix,
+ * 2026-10-27): settleHomelandWeapon strikes every blow its
+ * cadence deals — up to forty in a single settle after a
+ * long quiet — but the tender_progress record it has always
+ * kept holds only the LATEST of them, so the map flew one
+ * blow of each settle and the rest were struck invisibly.
+ * Every blow now stands in this witness in the order the
+ * referee struck it, kept for the same two minutes as the
+ * battle's log; tender_progress keeps its latest-only
+ * record for the readers that ask after it. The keep of
+ * 512 stands far beyond the settle's own forty-blow cap
+ * across the whole window. */
+export type HomelandWeaponStrike = { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean };
+const homelandWeaponLog = new Map<string, HomelandWeaponStrike[]>();
+export const HOMELAND_WEAPON_WITNESS_CAP = 512;
+function recordHomelandWeaponStrike(ownerKey: string, s: HomelandWeaponStrike): void {
+  const log = homelandWeaponLog.get(ownerKey) ?? [];
+  log.push(s);
+  const keep = s.at - 120000;
+  homelandWeaponLog.set(ownerKey, log.filter(x => x.at >= keep).slice(-HOMELAND_WEAPON_WITNESS_CAP));
+}
+export function recentHomelandWeaponStrikes(ownerKey: string): HomelandWeaponStrike[] {
+  const log = homelandWeaponLog.get(ownerKey) ?? [];
   const keep = Date.now() - 120000;
   return log.filter(x => x.at >= keep);
 }
@@ -6423,6 +6478,16 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
               }
             }
         }
+        // THE DARK'S BLOW, WITNESSED (the projectile
+        // rendering fix, 2026-10-27): the bite stands in the
+        // witness log beside the placements' strikes, so the
+        // map flies the dark's bolt at its victim — before
+        // this fix these blows were never recorded anywhere,
+        // and a company could be felled by shots no one saw.
+        // A blow the border ward turned is witnessed as
+        // struck but not landed: it flew, and the ward —
+        // not the victim — took it.
+        recordHomelandStrike(ownerKey, { kind: "dark", tileId: victim.tileId, wandererId: d.id, awakenedId: victim.awakenedId, fromTileId: d.tileId, fromQ: d.q, fromR: d.r, toQ: victim.q, toR: victim.r, at: tNow, hit: hit && !turned, dmg: hit && !turned ? dmg : 0, felled: victim.dead, element: "dark" });
         continue;
       }
       // Nothing of his in reach: the Tender himself, when he
@@ -6433,12 +6498,18 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (stand && axialDist(d, stand) <= ENEMY_BITE_REACH) {
           const roll = homelandDN(20);
           const tAC = 10 + zTenderAc; // the bare Tender stands at the base, as the Table's gate reckons him before his weapon's guard — plus THE ZODIAC'S TENDER AC (Recovery #1)
-          if (roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= tAC)) {
+          const tenderHit = roll === 20 || (roll !== 1 && roll + fateStep(d.lvl) >= tAC);
+          let tenderDmg = 0;
+          if (tenderHit) {
             let raw = 0; const dice = d.power * (roll === 20 ? 2 : 1);
             for (let i = 0; i < dice; i++) raw += homelandDN(6);
-            const dmg = homelandFateMitigate(raw, tAC, d.lvl);
-            await woundTender(ownerKey, Math.max(1, dmg));
+            tenderDmg = homelandFateMitigate(raw, tAC, d.lvl);
+            await woundTender(ownerKey, Math.max(1, tenderDmg));
           }
+          // THE DARK'S BLOW AT THE TENDER, WITNESSED (the
+          // projectile rendering fix, 2026-10-27): awakenedId
+          // 0 names the Tender himself as the bitten one.
+          recordHomelandStrike(ownerKey, { kind: "dark", tileId: standTileId, wandererId: d.id, awakenedId: 0, fromTileId: d.tileId, fromQ: d.q, fromR: d.r, toQ: stand.q, toR: stand.r, at: tNow, hit: tenderHit, dmg: tenderDmg, felled: false, element: "dark" });
           continue;
         }
       }
@@ -6533,7 +6604,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         // The witness keeps misses too (the weaponStrike
         // record's own shape): the map lunges only where the
         // referee struck, hit or miss.
-        recordHomelandStrike(ownerKey, { tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false, element: f.dominant });
+        recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false, element: f.dominant });
         continue;
       }
       const payload = await awakenedPayloadById(f.awakenedId);
@@ -6576,7 +6647,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // is recorded where the referee struck it — the point
       // the dark stood on at the striking, before any shove
       // carries it — so the map's projectile flies true.
-      recordHomelandStrike(ownerKey, { tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant });
+      recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant });
       if (!target.dead) {
         if (f.dominant === "tide") tideWetOnDark(target, tNow);
         if (f.dominant === "stone") target.cracked = Math.min(3, target.cracked + 1);
@@ -9972,6 +10043,13 @@ export const handlers = {
         if (felled && foe.seedRising) seedFells++;
         if (felled) sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(foe.id);
         else if (hit) sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(foe.hpNow, foe.id);
+        // EVERY BLOW WITNESSED (the projectile rendering
+        // fix, 2026-10-27): the tender_progress record
+        // below keeps only the latest blow — this blow
+        // also stands in the weapon's witness, so the map
+        // flies each one the referee struck, pierce
+        // included.
+        recordHomelandWeaponStrike(ownerKey, { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled });
         return { tileId: foe.tileId, wandererId: foe.id, weaponKey: wk, at: strikeAt, hit, dmg, felled };
       };
       record = blow(foes[0]);
@@ -10817,7 +10895,7 @@ export const handlers = {
     // renders this light and computes none of its own.
     const tileLight = computeTileLight(ownerKey, tiles as any[]);
     for (const t of tiles as any[]) (t as any).light = tileLight.get(`${t.q},${t.r}`) ?? LIGHT_DARK;
-    return { tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex

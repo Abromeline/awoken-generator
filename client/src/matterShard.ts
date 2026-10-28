@@ -35,6 +35,46 @@ export const MATTER_SHARD_FRAMES: string[] = [shard1, shard2, shard3, shard4, sh
 export const SHARD_SLICE_MS = 88;
 export const SHARD_FLIGHT_MS = SHARD_SLICE_MS * MATTER_SHARD_FRAMES.length;
 
+/** THE FLIGHT'S PACE (Nigel's battle-feel rulings,
+ * 2026-10-25, landed by the projectile rendering fix,
+ * 2026-10-27): a shard's flight runs at HALF SPEED — the
+ * six frames over twice the first measure, 1056 ms — and
+ * a DARK blow flies at a THIRD SPEED, 1584 ms, so an
+ * enemy's shot can be seen coming. The Table's shots take
+ * the same face and the same pace (the blanket ruling,
+ * 2026-10-27 19:49: the homeland's shot face and pace win),
+ * so these are the only flight lengths on either ground. */
+export const SHARD_FLIGHT_SLOW_MS = SHARD_FLIGHT_MS * 2;
+export const SHARD_FLIGHT_DARK_MS = SHARD_FLIGHT_MS * 3;
+export function shardFlightMsFor(dark: boolean): number {
+  return dark ? SHARD_FLIGHT_DARK_MS : SHARD_FLIGHT_SLOW_MS;
+}
+
+/** THE SHARD'S DRAWN SIZE (the same rulings): every
+ * projectile stands THREE TIMES the size it first shipped
+ * at — the frame once drew 72 × 38 land units; it now
+ * draws 216 × 114, on the homeland and at the Table alike
+ * (the Table's seat scales this measure onto its own
+ * hexes when it draws there). */
+export const SHARD_DRAW_W = 216;
+export const SHARD_DRAW_H = 114;
+
+/** THE STAGGER'S SPAN (the projectile rendering fix,
+ * 2026-10-27): a settled batch's blows fly at their TRUE
+ * MOMENTS — each flight starts at the moment its blow
+ * stood in the batch relative to the batch's first blow,
+ * never all born at the read that carried them. A batch
+ * wider than this span is compressed proportionally into
+ * it, so a long quiet's backlog does not take a minute to
+ * re-fly; a batch narrower than the span keeps its true
+ * spacing, unscaled. One law, both grounds. */
+export const STRIKE_STAGGER_MAX_MS = 2600;
+export function strikeStartsAt(at: number, firstAt: number, lastAt: number, now: number): number {
+  const span = Math.max(0, lastAt - firstAt);
+  const scale = span > STRIKE_STAGGER_MAX_MS ? STRIKE_STAGGER_MAX_MS / span : 1;
+  return now + Math.max(0, at - firstAt) * scale;
+}
+
 /** The five tintable elements (the palette's own keys). */
 export const SHARD_TINT_ELEMENTS = ["root", "tide", "sky", "stone", "fire"] as const;
 

@@ -23,9 +23,13 @@
 //      one's do not move.
 //   §C THE RE-BASED CADENCE + THE TRIM: strike intervals
 //      read off the strike witness's own timestamps — a
-//      level-1 Root strikes ~3000 ms apart, a level-1
-//      Stone ~3500, and a level-11 Root's interval carries
-//      the 5% trim (~2850), never the untrimmed 3000.
+//      level-1 Root strikes ~1500 ms apart, a level-1
+//      Stone ~1750, and a level-11 Root's interval carries
+//      the 5% trim (~1425), never the untrimmed 1500.
+//      (RESTATED 2026-10-27: Nigel's battle-feel ruling of
+//      2026-10-25 — Awoken fire twice as often — halved the
+//      table this drive was written against; every cadence
+//      figure below stands at the halved measure.)
 // The ambient cradle is stilled by hand on every poll (its
 // anchor wound to now), as in the other battle drives: its
 // weather is not this proof's.
@@ -137,10 +141,10 @@ async function advance(ownerKey, token, ms) {
 console.log("§S the seams — the doubled table, the trim, the tower's beat and bonus, read from the source");
 {
   const actions = readFileSync(join(root, "server/src/actions.ts"), "utf8");
-  check("the cadence table stands DOUBLED on the ruled 3-second base (Sky 2000 · Tide 2500 · Root 3000 · Stone 3500)",
-    actions.includes("sky: 2000, tide: 2500, root: 3000, stone: 3500, fire: 3000, neutral: 3000"));
-  check("the old table stands nowhere in the settlement's keeping",
-    !actions.includes("sky: 1000, tide: 1250, root: 1500, stone: 1750"));
+  check("the cadence table stands at the twice-doubled measure of Nigel's 2026-10-25 ruling (Sky 1000 · Tide 1250 · Root 1500 · Stone 1750 · Fire 1500 · Neutral 1500)",
+    actions.includes("sky: 1000, tide: 1250, root: 1500, stone: 1750, fire: 1500, neutral: 1500"));
+  check("the superseded table stands nowhere in the settlement's keeping",
+    !actions.includes("sky: 2000, tide: 2500, root: 3000, stone: 3500"));
   check("the SPEED BONUS trim stands in the answer pass's interval (0.5% a level above 1, the crowding tax on the trimmed measure)",
     actions.includes("(AWOKEN_STRIKE_MS[f.dominant] ?? 3000) * (1 - 0.005 * Math.max(0, f.level - 1))") &&
     actions.includes("const interval = baseMs * crowdTax(crowdOf(f.tileId));"));
@@ -254,18 +258,18 @@ async function strikeDiffs(name, element, exp) {
 {
   const root1 = await strikeDiffs("Root Novice", "root", 100);
   console.log(`  root L1: ${root1.count} strikes, mean interval ${root1.mean.toFixed(0)} ms`);
-  check("a level-1 Root strikes on the 3-second base (mean in [2850, 3150], every gap in [2500, 3500])",
-    root1.count >= 15 && root1.mean >= 2850 && root1.mean <= 3150 && root1.diffs.every(d => d >= 2500 && d <= 3500),
+  check("a level-1 Root strikes on the halved 1.5-second base (mean in [1400, 1600], every gap in [1250, 1750])",
+    root1.count >= 15 && root1.mean >= 1400 && root1.mean <= 1600 && root1.diffs.every(d => d >= 1250 && d <= 1750),
     `count=${root1.count} mean=${root1.mean.toFixed(0)} diffs=${root1.diffs.slice(0, 8).join(",")}`);
   const stone1 = await strikeDiffs("Stone Novice", "stone", 100);
   console.log(`  stone L1: ${stone1.count} strikes, mean interval ${stone1.mean.toFixed(0)} ms`);
-  check("a level-1 Stone strikes on its 3.5-second seat of the spread (mean in [3350, 3650])",
-    stone1.count >= 14 && stone1.mean >= 3350 && stone1.mean <= 3650,
+  check("a level-1 Stone strikes on its 1.75-second seat of the spread (mean in [1650, 1850])",
+    stone1.count >= 14 && stone1.mean >= 1650 && stone1.mean <= 1850,
     `count=${stone1.count} mean=${stone1.mean.toFixed(0)}`);
   const root11 = await strikeDiffs("Root Adept", "root", 12100);
   console.log(`  root L11: ${root11.count} strikes, mean interval ${root11.mean.toFixed(0)} ms`);
-  check("a level-11 Root carries the 5% SPEED BONUS trim: mean in [2700, 2970] — measurably under the untrimmed 3000",
-    root11.count >= 15 && root11.mean >= 2700 && root11.mean <= 2970 && root11.mean < root1.mean - 100,
+  check("a level-11 Root carries the 5% SPEED BONUS trim: mean in [1350, 1485] — measurably under the untrimmed 1500",
+    root11.count >= 15 && root11.mean >= 1350 && root11.mean <= 1485 && root11.mean < root1.mean - 40,
     `count=${root11.count} mean=${root11.mean.toFixed(0)} vs L1 ${root1.mean.toFixed(0)}`);
 }
 

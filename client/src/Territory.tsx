@@ -72,7 +72,7 @@ import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
-import { MATTER_SHARD_FRAMES, SHARD_SLICE_MS, SHARD_FLIGHT_MS, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
 import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
@@ -614,12 +614,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // strike arrives, the weapon lunges at that foe's hex on the
   // map's own clock. The client animates only what the server
   // struck — no blow is ever invented on this side of the glass.
+  // EVERY BLOW FLIES (the projectile rendering fix, 2026-10-27):
+  // the referee strikes up to forty blows in one settle, and
+  // the old single record showed only the latest — the rest
+  // were struck invisibly. The server now serves EVERY blow
+  // (weaponStrikes, in the order struck); each stands in this
+  // queue at its true moment in the settled batch (the same
+  // stagger the placements' shards keep), and the flight
+  // machine below takes them one by one, in order, as its
+  // hand frees — a flown blow is marked consumed so no blow
+  // ever flies twice, and none is skipped.
   const [weaponStrikeAnim, setWeaponStrikeAnim] = useState<{ tileId: number; felled: boolean; localAt: number } | null>(null);
   const strikeSeenRef = useRef(0);
-  const noteWeaponStrike = (s: { tileId: number; at: number; felled: boolean } | null | undefined) => {
-    if (!s || s.at <= strikeSeenRef.current) return;
-    strikeSeenRef.current = s.at;
-    setWeaponStrikeAnim({ tileId: s.tileId, felled: s.felled, localAt: Date.now() });
+  const weaponQueueRef = useRef<{ tileId: number; felled: boolean; startsAt: number; seq: number }[]>([]);
+  const weaponQueueSeqRef = useRef(0);
+  const weaponAnimConsumedRef = useRef(0);
+  const noteWeaponStrikes = (list: { tileId: number; at: number; felled: boolean }[] | null | undefined, latest: { tileId: number; at: number; felled: boolean } | null | undefined) => {
+    // An older server serves only the latest record; honour
+    // it as a one-blow batch rather than flying nothing.
+    const blows = list && list.length ? list : (latest ? [latest] : []);
+    const fresh = blows.filter(s => s && typeof s.at === "number" && s.at > strikeSeenRef.current);
+    if (!fresh.length) return;
+    strikeSeenRef.current = Math.max(strikeSeenRef.current, ...fresh.map(s => s.at));
+    const now = Date.now();
+    const firstAt = Math.min(...fresh.map(s => s.at));
+    const lastAt = Math.max(...fresh.map(s => s.at));
+    for (const s of fresh) {
+      weaponQueueRef.current.push({ tileId: s.tileId, felled: s.felled, startsAt: strikeStartsAt(s.at, firstAt, lastAt, now), seq: ++weaponQueueSeqRef.current });
+    }
+    weaponQueueRef.current.sort((a, b) => a.startsAt - b.startsAt || a.seq - b.seq);
   };
   // ── THE PLACEMENT STRIKES' WITNESS (the Token Strip, Nigel
   // 2026-10-23) ────────────────────────────────────────────
@@ -632,7 +655,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // a second simulated fight. The first read only sets the
   // watermark — the witness log reaches two minutes back,
   // and the map does not replay a battle it did not watch.
-  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; bornAt: number }[]>([]);
+  // THE FLIGHT LAW, RESTATED (the projectile rendering fix,
+  // 2026-10-27): every witnessed blow flies — the dark's
+  // bites stand in the same log (kind "dark") and fly from
+  // the dark to its victim at a third speed. A batch's
+  // flights start at their TRUE MOMENTS in the batch (the
+  // stagger in matterShard.ts), never all born at the read.
+  // A placement's shard runs at half speed (1056 ms) and
+  // stands three times its first size; the keep below holds
+  // every live flight of the ruled density — it once held
+  // 25, and the eldest live flight fell unseen.
+  const STRIKE_FLIGHT_KEEP = 240;
+  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; startsAt: number; flightMs: number; dark: boolean }[]>([]);
   const strikeIdSeenRef = useRef(0);
   const strikeWitnessInitRef = useRef(false);
   const notePlacementStrikes = (strikes: import("./api").HomelandStrike[] | null | undefined, tilesList: TerritoryTile[]) => {
@@ -659,22 +693,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const dc = isoOffset(t.q, t.r, size);
       return { x: c.cx + (dp.px - dc.px), y: c.cy + (dp.py - dc.py) };
     };
+    const now = Date.now();
+    const firstAt = Math.min(...fresh.map(s => s.at));
+    const lastAt = Math.max(...fresh.map(s => s.at));
     for (const s of fresh) {
       const from = pointOf(s.fromTileId, s.fromQ, s.fromR);
       const to = pointOf(s.tileId, s.toQ, s.toR);
       if (!from || !to) continue;
+      const dark = s.kind === "dark";
+      const flightMs = shardFlightMsFor(dark);
+      const startsAt = strikeStartsAt(s.at, firstAt, lastAt, now);
+      const wait = Math.max(0, startsAt - now);
       const id = `strike-${s.id}`;
-      setStrikeFlights(prev => [...prev.slice(-24), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", bornAt: Date.now() }]);
-      setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), SHARD_FLIGHT_MS + 60);
+      setStrikeFlights(prev => [...prev.slice(-(STRIKE_FLIGHT_KEEP - 1)), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", startsAt, flightMs, dark }]);
+      setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), wait + flightMs + 60);
       // THE STRIKE'S VOICE (Nigel, 2026-10-26: "add these
       // sounds for he elemental attacks"): the loosed
-      // strike sounds its element's cast at the flight's
-      // birth, and — only if the referee's blow landed —
+      // strike sounds its element's cast as its flight
+      // leaves, and — only if the referee's blow landed —
       // its hit as the shard arrives. A miss sounds no
       // hit; a neutral blow sounds nothing at all (the
-      // module keeps the five elements and no others).
-      playElementSound(s.element, "cast");
-      if (s.hit) setTimeout(() => playElementSound(s.element, "hit"), SHARD_FLIGHT_MS);
+      // module keeps the five elements and no others) —
+      // and a dark blow, wearing the element "dark", keeps
+      // the same silence the Table's dark strikes keep.
+      setTimeout(() => playElementSound(s.element, "cast"), wait);
+      if (s.hit) setTimeout(() => playElementSound(s.element, "hit"), wait + flightMs);
     }
   };
   // THE WEAPON'S FLIGHT (the Proving Ground's motion, ported
@@ -710,6 +753,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const iv = window.setInterval(() => {
       if (!tenderStandRef.current?.weaponKey) return;
       const now = Date.now();
+      // THE QUEUE'S HAND (the projectile rendering fix,
+      // 2026-10-27): with no flight live and the queue's
+      // head at its moment, the head becomes the standing
+      // strike the flight machine flies — one at a time, in
+      // the order the referee struck them, so every blow of
+      // a settle is flown, never just the latest.
+      if (!weaponFlightRef.current) {
+        const head = weaponQueueRef.current[0];
+        if (head && head.startsAt <= now) {
+          weaponQueueRef.current.shift();
+          setWeaponStrikeAnim({ tileId: head.tileId, felled: head.felled, localAt: now });
+        }
+      }
       if (weaponFlightRef.current || now - weaponTickRef.current >= 120) {
         weaponTickRef.current = now;
         setWeaponTick(t => t + 1);
@@ -1908,7 +1964,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setWanderers(refreshed.wanderers ?? []);
     noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
-    noteWeaponStrike(refreshed.weaponStrike);
+    noteWeaponStrikes(refreshed.weaponStrikes, refreshed.weaponStrike);
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
     noteFieldLosses(refreshed);
@@ -5996,7 +6052,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // weapon from its orbit point at that foe's hex. A
       // changed hand ends any flight — the striker is gone.
       let flight = weaponFlightRef.current;
-      if (weaponStrikeAnim && weaponKey && (!flight || flight.strikeLocalAt !== weaponStrikeAnim.localAt)) {
+      if (weaponStrikeAnim && weaponKey && weaponStrikeAnim.localAt !== weaponAnimConsumedRef.current && (!flight || flight.strikeLocalAt !== weaponStrikeAnim.localAt)) {
         const tt = tiles.find(t => t.id === weaponStrikeAnim.tileId);
         const tp = tt ? tilePos(tt) : null;
         if (tp) {
@@ -6009,8 +6065,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           weaponTrailRef.current = [];
         }
       }
-      if (flight && flight.key !== weaponKey) { weaponFlightRef.current = null; flight = null; }
-      if (flight && wnow - flight.strikeLocalAt > 4000) { weaponFlightRef.current = null; flight = null; }
+      if (flight && flight.key !== weaponKey) { weaponAnimConsumedRef.current = flight.strikeLocalAt; weaponFlightRef.current = null; flight = null; }
+      if (flight && wnow - flight.strikeLocalAt > 4000) { weaponAnimConsumedRef.current = flight.strikeLocalAt; weaponFlightRef.current = null; flight = null; }
       // Where the weapon stands this frame, and where its tip
       // points. Idle: the orbit, with the Ground's sway; the
       // arrow and the spear hunt with their tips even at rest.
@@ -6056,7 +6112,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const t = (el - OUT_MS) / BACK_MS, e = t * t * (3 - 2 * t);
             wx = flight.tx + (orbitX - flight.tx) * e;
             wy = flight.ty + (orbitY - flight.ty) * e;
-          } else { weaponFlightRef.current = null; flight = null; }
+          } else { weaponAnimConsumedRef.current = flight.strikeLocalAt; weaponFlightRef.current = null; flight = null; }
         }
       } else if (flight && flight.key === "arrow") {
         // THE HOMING ARROW (the Ground's circuit, steered on
@@ -6092,7 +6148,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           if (flight.phase === "out") {
             flight.phase = "loop";
             weaponLandedRef.current = { x: flight.tx, y: flight.ty, at: wnow, felled: !!weaponStrikeAnim?.felled };
-          } else { weaponFlightRef.current = null; flight = null; }
+          } else { weaponAnimConsumedRef.current = flight.strikeLocalAt; weaponFlightRef.current = null; flight = null; }
         }
         if (flight) {
           weaponTrailRef.current.push({ x: flight.x, y: flight.y, t: wnow });
@@ -7756,17 +7812,29 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             // themselves are untouched; only the hand that
             // moves them changed, because SMIL's hand does
             // not move on iPad Safari.
-            const elapsed = Math.min(Math.max(marchNow - f.bornAt, 0), SHARD_FLIGHT_MS);
-            const road = SHARD_FLIGHT_MS > 0 ? elapsed / SHARD_FLIGHT_MS : 1;
+            // THE PACE AND THE SIZE (the projectile rendering
+            // fix, 2026-10-27): the flight's life is its own
+            // measure now — half speed for a placement's
+            // shard, a third speed for a dark blow (the six
+            // frames stretched evenly across it, each slice
+            // keeping the rise-hold-fade shape) — the shard
+            // stands three times its first size, and a flight
+            // whose staggered moment has not yet come is not
+            // drawn at all.
+            const elapsed = marchNow - f.startsAt;
+            if (elapsed < 0) return null;
+            const road = f.flightMs > 0 ? Math.min(elapsed / f.flightMs, 1) : 1;
             const x = f.fx + (f.tx - f.fx) * road;
             const y = f.fy + (f.ty - f.fy) * road;
             const heading = Math.atan2(f.ty - f.fy, f.tx - f.fx) * 180 / Math.PI;
-            const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / SHARD_SLICE_MS));
-            const within = Math.min(1, Math.max(0, (elapsed - slice * SHARD_SLICE_MS) / SHARD_SLICE_MS));
+            const sliceMs = f.flightMs / MATTER_SHARD_FRAMES.length;
+            const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / sliceMs));
+            const within = Math.min(1, Math.max(0, (elapsed - slice * sliceMs) / sliceMs));
             const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
+            if (fade <= 0) return null;
             return (
               <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
-                <image href={MATTER_SHARD_FRAMES[slice]} x={-36} y={-19} width={72} height={38} opacity={fade}
+                <image href={MATTER_SHARD_FRAMES[slice]} x={-SHARD_DRAW_W / 2} y={-SHARD_DRAW_H / 2} width={SHARD_DRAW_W} height={SHARD_DRAW_H} opacity={fade}
                   filter={tint ? `url(#${tint})` : undefined} />
               </g>
             );
