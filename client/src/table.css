@@ -77,6 +77,13 @@ button { font-family: inherit; }
 }
 .table-btn.primary { background: var(--gold); color: #191104; font-weight: bold; }
 .table-btn:disabled { opacity: 0.45; cursor: default; }
+/* The doors wear his artwork (Nigel, 2026-10-28): a button
+   made FROM a thing is the thing's image — the starseed door
+   wears the meteor, the host door wears the beacon, each at
+   the glyph's old footprint, modestly larger so the art
+   reads, seated beside the door's words. */
+.door-btn { display: inline-flex; align-items: center; gap: 9px; }
+.door-face { height: 32px; width: auto; display: block; }
 
 /* ————— The Discord intro door (2026-10-26) —————
    The beginning inside the door card: the claim/sign-in forms,
@@ -1254,3 +1261,46 @@ button { font-family: inherit; }
   .st-rail { width: 178px; }
   .st-bottom { max-width: calc(100% - 396px); }
 }
+
+/* ── THE DISCORD INTERFACE'S TABS + THE ROOM SEAT ──────────
+   (THE HOMELAND SERVES DISCORD, 2026-10-28: the tab bar —
+   the Room, the Test Ground, Campaign Mode — and the room
+   seat's furniture standing beside the homeland's own face.) */
+.table-shell { min-height: 100dvh; display: flex; flex-direction: column; }
+.table-tabs {
+  display: flex; gap: 6px; padding: 8px 10px; flex-wrap: wrap;
+  background: #17110b; border-bottom: 1px solid #4a3520; position: relative; z-index: 40;
+}
+.table-tabs button {
+  background: #211810; border: 1px solid #4a3520; color: #cbbd9d;
+  border-radius: 8px; padding: 7px 14px; font: inherit; cursor: pointer;
+}
+.table-tabs button.active { border-color: #e9c979; color: #e9c979; background: #2a1f13; }
+.room-seat { display: flex; align-items: stretch; min-height: 0; flex: 1; }
+.room-seat-map { flex: 1 1 auto; min-width: 0; position: relative; }
+.room-furniture {
+  flex: 0 0 300px; max-width: 86vw; overflow-y: auto; padding: 12px 14px;
+  background: #1d150e; border-left: 1px solid #4a3520; color: #e8dcc3;
+  font-size: 14px; line-height: 1.45;
+}
+.room-furniture h2 { font-size: 17px; margin: 2px 0 6px; color: #e9c979; }
+.room-furniture h3 { font-size: 14px; margin: 16px 0 6px; color: #e9c979; }
+.room-party { list-style: none; margin: 0; padding: 0; }
+.room-party li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed rgba(203,189,157,0.18); }
+.room-party li.away { opacity: 0.55; }
+.room-tale {
+  max-height: 220px; overflow-y: auto; border: 1px solid #4a3520; border-radius: 8px;
+  padding: 6px 9px; background: rgba(0,0,0,0.25);
+}
+.room-tale .tale-line { margin: 4px 0; }
+.room-tale .tale-line.roll { color: #ffd977; }
+.room-tale .tale-line.door, .room-tale .tale-line.seat { color: #cbbd9d; font-style: italic; }
+.room-dice { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.room-dice .door-input { flex: 1 1 auto; min-width: 0; }
+.table-btn.small { padding: 5px 10px; font-size: 13px; }
+@media (max-width: 760px) {
+  .room-seat { flex-direction: column; }
+  .room-furniture { flex: 0 0 auto; max-width: none; border-left: none; border-top: 1px solid #4a3520; }
+}
+.table-shell > [data-tab-panel] { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.table-shell > [data-tab-panel] > .room-seat { flex: 1 1 auto; min-height: 0; }

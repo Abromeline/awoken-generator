@@ -545,6 +545,15 @@ export const terrainArt = sqliteTable("terrain_art", {
 export const fieldPlacements = sqliteTable("field_placements", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerKey: text("owner_key").notNull(),
+  // THE HOMELAND SERVES DISCORD (Nigel, 2026-10-28): owner_key
+  // is the LAND a placement stands on; actor_key is the Tender
+  // whose Awoken it is. At home the two are one key, as they
+  // always were; in a room standing on another Tender's land
+  // (or an instance land) they part — the land's field reads by
+  // owner_key, a Tender's own fielded company reads by
+  // actor_key. Null on rows written before this law = the
+  // land's own (the boot backfills actor_key = owner_key).
+  actorKey: text("actor_key"),
   awakenedId: integer("awakened_id").notNull(),
   tileId: integer("tile_id").notNull(),
   placedAt: integer("placed_at", { mode: "timestamp_ms" })

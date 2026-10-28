@@ -318,6 +318,17 @@ interface Props {
    *  2026-10-17): the tree-glyph button and the attunement
    *  panel's bottom entry both open the wheel. */
   onOpenZodiac?: () => void;
+  /** THE ROOM's other seats (THE HOMELAND SERVES DISCORD,
+   *  2026-10-28): the Tenders seated with the viewer on this
+   *  land — each drawn standing at their stand in their class's
+   *  own idle frame, with their name. Presence only: their
+   *  companies are the land's own placements, drawn as ever. */
+  roomSeats?: { tenderId: number | null; name: string; classKey: string | null; tileId: number | null; away?: boolean }[];
+  /** The viewer's own seat stand, when the payload's Tender
+   *  stand is not theirs (a guest in a room: the payload's
+   *  stand is the host's). The viewer's figure stands where
+   *  their seat stands. */
+  roomSelfStand?: { tileId: number; classKey: string; weaponKey?: string | null } | null;
 }
 
 
@@ -407,7 +418,7 @@ function useClampedAnchor(desired: { xPct: number; yPct: number } | null) {
   return { ref, xPct: eff.xPct as number | null, yPct: eff.yPct as number | null };
 }
 
-export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, onToggleDeck, deckOpen }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, onToggleDeck, deckOpen, roomSeats, roomSelfStand }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -838,6 +849,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const rightPressRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const linePressRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const tenderStandRef = useRef<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
+  // The room seat's own stand (see Props.roomSelfStand), kept in
+  // a ref so the snapshot applier reads the seat's latest stand.
+  const roomSelfStandRef = useRef<{ tileId: number; classKey: string; weaponKey?: string | null } | null>(null);
+  roomSelfStandRef.current = roomSelfStand ?? null;
   const tenderPosRef = useRef<{ x: number; y: number } | null>(null);
   const tenderAnchorRef = useRef<number | null>(null);
   const tenderKeysRef = useRef<Set<string>>(new Set());
@@ -1997,7 +2012,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setWorkings(refreshed.workings ?? []);
-    setTenderStand(refreshed.tender ?? null);
+    // In a room, a guest's figure stands at their SEAT's stand —
+    // the payload's Tender stand is the land Tender's, and
+    // drawing it would put the host's figure in the guest's
+    // hands. (The host's own seat carries no override: their
+    // stand in the payload IS their stand, one record.)
+    setTenderStand(roomSelfStandRef.current ?? refreshed.tender ?? null);
     setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
     noteDropNotices(refreshed);
@@ -6657,6 +6677,33 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const node = awokenElements[i];
       if (node) standingItems.push({ key: `standing-fig-${row.placement.id}`, baseY: row.fy, node });
     });
+    // THE ROOM's SEATS, standing on the land (THE HOMELAND
+    // SERVES DISCORD, 2026-10-28): every other seated Tender's
+    // figure at their stand, in their class's own idle frame —
+    // the same standing form the viewer's own figure takes —
+    // with their name above their head. A seat stepped away
+    // stands dimmed; its figure does not leave.
+    (roomSeats ?? []).forEach((seat) => {
+      if (seat.tileId == null) return;
+      const t = tiles.find(tt => tt.id === seat.tileId);
+      if (!t) return;
+      const art = seat.classKey ? TENDER_CLASSES[seat.classKey as TenderClassId] : null;
+      if (!art) return;
+      const c = tilePos(t);
+      const fh = 30 * (0.8 + zoom * 0.5) / zoom;
+      const feet = c.cy + fh * 0.16;
+      const node = (
+        <g key={`room-seat-${seat.tenderId ?? seat.name}`} pointerEvents="none" opacity={seat.away ? 0.45 : 1}>
+          <ellipse cx={c.cx} cy={feet} rx={fh * 0.3} ry={fh * 0.09} fill="rgba(0,0,0,0.35)" />
+          <image href={art.idle} x={c.cx - fh / 2} y={feet - fh} width={fh} height={fh} preserveAspectRatio="xMidYMax meet" />
+          <text x={c.cx} y={feet - fh - 3 / zoom} textAnchor="middle" fontSize={7.5 / zoom} fontWeight={700}
+            fill="#cfe8ff" style={{ paintOrder: "stroke", stroke: "rgba(8,2,14,0.92)", strokeWidth: 3 / zoom, letterSpacing: "0.03em" }}>
+            {seat.name}
+          </text>
+        </g>
+      );
+      standingItems.push({ key: `standing-seat-${seat.tenderId ?? seat.name}`, baseY: c.cy, node });
+    });
     buildPieces.filter(p => isWallKind(p.kind)).forEach((p, i) => {
       const node = buildWallNodes[i];
       if (!node) return;
@@ -7440,9 +7487,16 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         </div>
       )}
+      {/* THE SKY SAYS WHAT THE WEATHER MEANS, IN WORDS (parity
+          row N26, Nigel, 2026-10-28): the mood's description —
+          the same served record (mood.description) the Table's
+          sky reads inline — stands on the face of this pill,
+          exactly as the Table renders it. It stood only in a
+          title tooltip before; touch players never see a
+          tooltip, so the tooltip-only reading is struck. */}
       {mood && (
-        <div className="world-mood" title={mood.description}>
-          🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
+        <div className="world-mood">
+          🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}{mood.description ? ` — ${mood.description}` : ""}
         </div>
       )}
       {/* THE BAG (the loot table fix, Nigel, ruled

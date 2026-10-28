@@ -394,6 +394,14 @@ const placementCols = sqlite.prepare(`PRAGMA table_info(field_placements)`).all(
 if (!placementCols.some((col) => col.name === "stance")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN stance TEXT NOT NULL DEFAULT 'defense'`);
 }
+// THE HOMELAND SERVES DISCORD (2026-10-28): a placement's actor —
+// the Tender whose Awoken stands — apart from the land it stands
+// on (owner_key). Every standing placement was its land's own
+// before this law, so the backfill is exact.
+if (!placementCols.some((col) => col.name === "actor_key")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN actor_key TEXT`);
+  sqlite.exec(`UPDATE field_placements SET actor_key = owner_key WHERE actor_key IS NULL`);
+}
 // Curse HP for territory tiles.
 if (!tileCols.some((col) => col.name === "curse_hp")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_hp INTEGER`);

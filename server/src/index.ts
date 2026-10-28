@@ -13,6 +13,7 @@ import { getFrontLessonsSeen, markFrontLessonSeen } from "./frontLessons.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
 import { registerTableRoutes, registerTableSocket, tableDoorMode } from "./table.js";
+import { registerRoomRoutes, resolveRoomSeat } from "./rooms.js";
 import { registerExportDoor } from "./exportDoor.js";
 
 const app = express();
@@ -97,12 +98,48 @@ const WORKSHOP_ACTIONS = new Set([
   "replyFeedback",
   "deleteFeedback",
 ]);
+// THE ROOM LAYER's guard (THE HOMELAND SERVES DISCORD,
+// 2026-10-28): acts that belong to a Tender alone on their own
+// land — roads the room never walks. The solo-only first-seed
+// bookkeeping, the Tender-figure walk (a seat walks by standing
+// in the room: /api/room/stand), the manually-fired battle
+// resolves, and the key-parameterised settle internals, which a
+// direct call would aim at a stranger's key entirely. Refused
+// in plain words; the room's own acts are the land's own.
+const ROOM_REFUSED_ACTIONS = new Set<string>([
+  "setTenderTile",
+  "claimFirstSeedReward", "endFirstSeedRun", "commitToConfluence",
+  "setChampion", "addFieldToParty", "resolveBattle",
+  "feedEnergy", "hoverSpend",
+  "settleMarches", "settleIncursions", "settleSeedCalm", "settleSeedMissions",
+]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
     try {
       if (WORKSHOP_ACTIONS.has(name)) requireWorkshop(req);
       const tenderToken = tenderTokenFromHeader(req.headers["x-tender-token"]);
       const tender = await tenderFromToken(tenderToken);
+      // THE ROOM LAYER's seam: a seat token stands this call
+      // inside a room — the handler then reads THE ROOM'S LAND
+      // for every land fact and the CALLER's own account for
+      // every purse (actions.ts: landKeyFor / actorKeyFor). A
+      // seat binds only to its own Tender, or to a watcher, who
+      // may read the land and nothing else; a seat token naming
+      // another Tender is no seat at all.
+      const seat = resolveRoomSeat(typeof req.headers["x-room-seat"] === "string" ? req.headers["x-room-seat"] : null);
+      let room: ActionContext["room"] = null;
+      if (seat) {
+        if (seat.watcher) room = { code: seat.code, landOwnerKey: seat.landOwnerKey, watcher: true, seatTileId: seat.seatTileId };
+        else if (tender && seat.tenderId === tender.id) room = { code: seat.code, landOwnerKey: seat.landOwnerKey, watcher: false, seatTileId: seat.seatTileId };
+      }
+      if (room) {
+        if (room.watcher && name !== "getTerritory") {
+          throw Object.assign(new Error("Watchers may look, and no more — take a seat at the Table to act on the land."), { status: 403 });
+        }
+        if (ROOM_REFUSED_ACTIONS.has(name)) {
+          throw Object.assign(new Error("That road belongs to a Tender alone on their own land — in a room it is not walked. (The room runs the homeland as it stands; the acts a room shares are the land's own.)"), { status: 400 });
+        }
+      }
       const handler = (handlers[name] as (args: unknown, ctx?: ActionContext) => Promise<unknown>).bind(handlers);
       const result = await handler(req.body ?? {}, {
         visitorId: visitorIdFromHeader(req.headers["x-visitor-id"]),
@@ -111,6 +148,7 @@ for (const name of actionNames) {
         // Resolved here (not in WORKSHOP_ACTIONS) so mixed public/workshop
         // handlers like saveAwoken can gate their own workshop branch.
         workshopAuthorized: workshopTokenValid(req.headers["x-workshop-token"]),
+        room,
       });
       res.json(result);
     } catch (error) {
@@ -264,6 +302,7 @@ registerExportDoor(app);
 // answer /api/table/* with index.html. The room socket mounts after
 // listen (registerTableSocket, at the foot of this file).
 registerTableRoutes(app);
+registerRoomRoutes(app);
 
 // Legal pages — Discord requires a public Privacy Policy and Terms of
 // Service for the Activity's application. Plain pages, served before
