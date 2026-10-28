@@ -4512,6 +4512,27 @@ function strongestDark(room: Room): EnemyUnit | null {
   for (const e of room.dark.values()) if (!best || e.hp > best.hp) best = e;
   return best;
 }
+/** THE WITNESS'S KEEP AT THIS SEAT (the projectile
+ * rendering fix, 2026-10-27): every struck blow is
+ * witnessed. Four gates once dropped every strike past
+ * the fortieth from the ledger — in a dense beat those
+ * blows were struck but never served, so no seat ever
+ * flew them. The gates are struck; the ledger keeps the
+ * last TABLE_STRIKE_WITNESS_CAP blows inside the window
+ * below — a bound no ruled-density beat can reach (a beat
+ * resolves dozens of blows, not hundreds). The window
+ * itself widens from 1200 ms to TABLE_STRIKE_WITNESS_MS:
+ * a dark shot now flies 1584 ms and a batch's last shot
+ * may start a stagger's span after its first, so the
+ * witness must outlast the flying of what it witnessed —
+ * a strike pruned before every seat has been served it
+ * is a blow struck unseen. */
+export const TABLE_STRIKE_WITNESS_CAP = 512;
+export const TABLE_STRIKE_WITNESS_MS = 5000;
+function witnessStrike(room: Room, s: Omit<Strike, "id">): void {
+  room.strikes.push({ ...s, id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1) });
+  if (room.strikes.length > TABLE_STRIKE_WITNESS_CAP) room.strikes.splice(0, room.strikes.length - TABLE_STRIKE_WITNESS_CAP);
+}
 function fireShatterPiece(room: Room, caster: Player, from: Pt, aimHex: string): void {
   const aim = tileCenter(aimHex);
   if (!aim) return;
@@ -4520,9 +4541,7 @@ function fireShatterPiece(room: Room, caster: Player, from: Pt, aimHex: string):
   const ac = target ? target.armor : 10;
   const roll = dN(20);
   const { total, hit } = shatterPieceHit(roll, bonus, ac);
-  if (room.strikes.length < 40) {
-    room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: Date.now(), from: roundPos(from), to: roundPos(aim), element: null, side: "light", hit, killed: !!(target && hit && target.hp <= 1), weapon: "shatter" });
-  }
+  witnessStrike(room, { at: Date.now(), from: roundPos(from), to: roundPos(aim), element: null, side: "light", hit, killed: !!(target && hit && target.hp <= 1), weapon: "shatter" });
   tell(room, `Rune Shatter — a piece flies: 🎲 ${roll} ${signedTerm(bonus)} − 2 (the Shatter's tax) = ${total} vs AC ${ac}${hit ? " — it strikes." : " — it glances away."}`);
   if (target && hit) {
     target.hp -= 1;
@@ -4812,9 +4831,7 @@ function waterMoteAtTable(room: Room, unit: FieldUnit, now: number): boolean {
   // The watering is witnessed as a strike is (the referee's
   // witness lives inside runRound; the record is written
   // here in its exact shape).
-  if (room.strikes.length < 40) {
-    room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos({ x: mote.x, y: mote.y }), element: "tide", side: "light", hit: true, killed: false, weapon: null });
-  }
+  witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos({ x: mote.x, y: mote.y }), element: "tide", side: "light", hit: true, killed: false, weapon: null });
   const livingMotes = () => (work!.nodes ?? []).filter(n => n.mote && n.hp > 0).length;
   while ((mote.bank ?? 0) >= BRAMBLE_MOTE_SPREAD_COST && livingMotes() < BRAMBLE_MOTE_CAP) {
     const parent = { x: mote.px ?? unit.pos.x, y: mote.py ?? unit.pos.y };
@@ -5639,7 +5656,9 @@ async function runRound(room: Room): Promise<void> {
     const beatDue = room.battle.beatAcc >= BEAT_MS / 1000;
     if (beatDue) room.battle.beatAcc = 0;
     // Shots age off the ledger; clients fly what is fresh.
-    room.strikes = room.strikes.filter(s => now - (s.at ?? 0) < 1200);
+    // The window is the witness's keep (TABLE_STRIKE_WITNESS_MS,
+    // above): it must outlast the flying of what it witnessed.
+    room.strikes = room.strikes.filter(s => now - (s.at ?? 0) < TABLE_STRIKE_WITNESS_MS);
     // MANIFEST copies fade when their twenty seconds run out.
     if (room.manifests?.length) {
       const kept = room.manifests.filter(m => now < m.expiresAt);
@@ -5649,7 +5668,7 @@ async function runRound(room: Room): Promise<void> {
       }
     }
     const witness = (from: Pt, to: Pt, element: string | null, side: "light" | "dark", hit: boolean, killed: boolean, weapon?: string | null, extra?: { copy?: boolean; pierce?: boolean }) => {
-      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" || extra?.pierce ? { pierce: true } : {}), ...(extra?.copy ? { copy: true } : {}) });
+      witnessStrike(room, { at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" || extra?.pierce ? { pierce: true } : {}), ...(extra?.copy ? { copy: true } : {}) });
     };
     if (beatDue) {
       await refreshGrimoire().catch(() => {});
@@ -7437,7 +7456,7 @@ function handleConnection(ws: WebSocket): void {
       const purified = tile.curseHp <= 0;
       // The witness: the blow flies to the TILE, on the same
       // ledger the referee's strikes fly by.
-      if (room.strikes.length < 40) room.strikes.push({ id: (room.strikeSeq = (room.strikeSeq ?? 0) + 1), at: now, from: roundPos(unit.pos), to: roundPos(tileCenter(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
+      witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos(tileCenter(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
       if (purified) {
         tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
         // The striker's dominant element claims the tile; a

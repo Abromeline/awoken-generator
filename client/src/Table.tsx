@@ -39,7 +39,8 @@ import glyphBeacon from "./assets/glyphs/beacon.png";
 import glyphBlade from "./assets/glyphs/blade.png";
 import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
-import { ANIMATED_GLYPH, PROJECTILE_GIF } from "./effects";
+import { ANIMATED_GLYPH } from "./effects";
+import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import { brambleFrameAt, brambleMoteFrameAt, BRAMBLE_DRAW_W, BRAMBLE_ASPECT, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE } from "./brambleFx";
 import seedSaplingArt from "./assets/starseed/sapling.png";
@@ -818,18 +819,50 @@ export default function Table() {
   // VISUALIZED COMBAT (Nigel, 2026-10-17): the referee reports
   // every strike of the round it just resolved; the Table
   // flies them — the attacker's element from its hex to its
-  // mark's, the dark answering in a darkened bolt.
-  const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; img: string; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean }[]>([]);
+  // mark's, the dark answering back.
+  // THE SHOT'S FACE AND PACE (the projectile rendering fix,
+  // 2026-10-27; Nigel's blanket ruling of the same day,
+  // 19:49 — the homeland's version wins the unflagged
+  // choices): a shot at this seat is the homeland's MATTER
+  // SHARD — the same six frames, the same element tint, the
+  // same pace (half speed; a dark blow at a third speed),
+  // the same drawn size against its ground — flown on a
+  // straight road by this seat's own clock (nowMs). The
+  // element-GIF bolts and their SMIL <animateMotion> road
+  // are struck from this layer: SMIL does not run on iPad
+  // Safari, so those bolts sat at their start points there.
+  // (PROJECTILE_GIF survives in effects.ts for the
+  // Battleground, a different seat with its own face.) A
+  // batch's shots start at their TRUE MOMENTS in the batch
+  // (the stagger in matterShard.ts), never all at the push
+  // that carried them, and the keep below holds every live
+  // shot of the ruled density — it once held 30.
+  const SHOT_KEEP = 240;
+  /** A strike is flown while it is younger than this; an
+   * older one is marked seen without flying, so a late
+   * joiner never replays the whole fight. The window was
+   * 1600 ms when flights lived 1500 ms; it stands a little
+   * wider now that a dark flight lives 1584 ms and a
+   * batch's last shot may start up to the stagger's span
+   * after the first. */
+  const SHOT_FRESH_MS = 2500;
+  /** The shard's drawn size on this stage: the homeland
+   * draws it 216 × 114 against its 54-unit hex base; this
+   * stage's hex base is TILE_SIZE, and the shard keeps the
+   * same measure against its own ground. */
+  const SHOT_W = SHARD_DRAW_W * TILE_SIZE / 54;
+  const SHOT_H = SHARD_DRAW_H * TILE_SIZE / 54;
+  const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean; startsAt: number; flightMs: number }[]>([]);
   const shotIdRef = useRef(0);
-  // Each shot's removal timer, kept by the shot's own id
-  // (the Fix Pass, 2026-10-20): a shot's 1500 ms of life is
-  // ITS OWN, held in this ref — never again in an effect
-  // whose cleanup the next state push (~250 ms) cancels,
-  // which is why shots once piled to the cap and froze at
-  // their endpoints mid-battle (Nigel's photo).
-  const shotTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  // Each shot's timers, kept by the shot's own id (the Fix
+  // Pass, 2026-10-20): a shot's life is ITS OWN, held in
+  // this ref — never again in an effect whose cleanup the
+  // next state push (~250 ms) cancels, which is why shots
+  // once piled to the cap and froze at their endpoints
+  // mid-battle (Nigel's photo).
+  const shotTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>[]>());
   useEffect(() => () => {
-    for (const t of shotTimersRef.current.values()) clearTimeout(t);
+    for (const ts of shotTimersRef.current.values()) for (const t of ts) clearTimeout(t);
     shotTimersRef.current.clear();
   }, []);
   // SMOOTHING (Phase B): drawn positions, lerped across ticks
@@ -851,21 +884,29 @@ export default function Table() {
       if (typeof st.id !== "number") return false;
       if (st.id <= flownStrikeRef.current) return false;
       flownStrikeRef.current = st.id;
-      return now - (st.at ?? 0) < 1600;
+      return now - (st.at ?? 0) < SHOT_FRESH_MS;
     });
-    const fresh = freshStrikes.map((st) => ({
-      id: ++shotIdRef.current,
-      from: st.from, to: st.to,
-      img: st.side === "dark" ? PROJECTILE_GIF.unaligned : ((st.element ? PROJECTILE_GIF[st.element] : undefined) ?? PROJECTILE_GIF.unaligned),
-      dark: st.side === "dark", hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000, pierce: st.pierce,
-    }));
-    if (!fresh.length) return;
-    setShots(prev => [...prev.slice(-30), ...fresh]);
+    if (!freshStrikes.length) return;
+    const batchFirstAt = Math.min(...freshStrikes.map((st) => st.at ?? now));
+    const batchLastAt = Math.max(...freshStrikes.map((st) => st.at ?? now));
+    const fresh = freshStrikes.map((st) => {
+      const dark = st.side === "dark";
+      return {
+        id: ++shotIdRef.current,
+        from: st.from, to: st.to,
+        element: st.element ?? null,
+        dark, hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000, pierce: st.pierce,
+        startsAt: strikeStartsAt(st.at ?? now, batchFirstAt, batchLastAt, now),
+        flightMs: shardFlightMsFor(dark),
+      };
+    });
+    setShots(prev => [...prev.slice(-(SHOT_KEEP - fresh.length)), ...fresh]);
     // THE STRIKE'S VOICE (Nigel, 2026-10-26: "add these
     // sounds for he elemental attacks"): a flown strike
-    // sounds its element's cast as its shot is loosed, and
-    // — only if the referee's blow landed — its hit as the
-    // shot falls, on the shot's own 1500 ms. The element
+    // sounds its element's cast as its shot is loosed — at
+    // the shot's own staggered moment — and — only if the
+    // referee's blow landed — its hit as the shot falls,
+    // at the end of the shot's own flight. The element
     // is the record's own: a unit's card element, a ward
     // riposte's hue (those ride side "dark" in the record
     // but carry the ward's hue, and sound with it). The
@@ -875,21 +916,22 @@ export default function Table() {
     // nothing: the module keeps the five elements and no
     // others. Antique strikes, marked seen above without
     // flying, sound nothing.
-    for (const st of freshStrikes) playElementSound(st.element, "cast");
     // Removal is keyed per shot and lives outside this
     // effect's cleanup, so a state push can no longer cancel
-    // a flying shot's end: each falls exactly 1500 ms after
-    // it was loosed, whatever the room sends meanwhile.
+    // a flying shot's end: each falls exactly at the end of
+    // its own flight, whatever the room sends meanwhile.
     for (const [i, f] of fresh.entries()) {
       const st = freshStrikes[i];
       const prior = shotTimersRef.current.get(f.id);
-      if (prior) clearTimeout(prior);
-      const t = setTimeout(() => {
+      if (prior) for (const t of prior) clearTimeout(t);
+      const wait = Math.max(0, f.startsAt - now);
+      const castT = setTimeout(() => playElementSound(st.element, "cast"), wait);
+      const endT = setTimeout(() => {
         shotTimersRef.current.delete(f.id);
         setShots(prev => prev.filter(x => x.id !== f.id));
         if (st?.hit) playElementSound(st.element, "hit");
-      }, 1500);
-      shotTimersRef.current.set(f.id, t);
+      }, wait + f.flightMs);
+      shotTimersRef.current.set(f.id, [castT, endT]);
     }
   }, [shared]);
   // THE BLADE'S VOICE AT THE TABLE (Nigel, 2026-10-26):
@@ -967,13 +1009,18 @@ export default function Table() {
   // blade flight is live — a loose or a cast — the stage
   // clock ticks at 50 ms, the homeland shard's cadence, so
   // the blade's road is walked step by step, not in five
-  // 150 ms strides.
+  // 150 ms strides. THE SHARD'S CLOCK (the projectile
+  // rendering fix, 2026-10-27): the Table's shots are the
+  // homeland's shards now, drawn by this same clock — while
+  // any shot stands in the layer, the clock keeps the same
+  // 50 ms cadence for them.
   const anyBladeFlightLive = (shared?.bladeFlights ?? []).length > 0 || (shared?.bladeCasts ?? []).length > 0;
+  const anyShotLive = shots.length > 0;
   useEffect(() => {
-    if (!anyBladeFlightLive) return;
+    if (!anyBladeFlightLive && !anyShotLive) return;
     const t = setInterval(() => setNowMs(Date.now()), 50);
     return () => clearInterval(t);
-  }, [anyBladeFlightLive]);
+  }, [anyBladeFlightLive, anyShotLive]);
   // THE TENDERS TAKE THE FIELD (Nigel's class sprites, 2026-10-19):
   // which class figure the local tender wears on the stage. THE
   // CLASS GATE (ruled 2026-10-19): for a bound Tender the figure IS
@@ -4342,10 +4389,12 @@ export default function Table() {
               ))}
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
-              {/* The round's strikes, flown on gravity's arc from
-                  tile to tile. Each shot lives its own 1500 ms
-                  on a timer keyed to its id, then unmounts —
-                  state pushes can no longer strand one at its
+              {/* The round's strikes, flown from tile to tile
+                  (the shots layer below). Each shot lives its
+                  own flight — the homeland's pace since the
+                  projectile rendering fix, 2026-10-27 — on a
+                  timer keyed to its id, then unmounts — state
+                  pushes can no longer strand one at its
                   endpoint (the Fix Pass, 2026-10-20). */}
               {/* THE SINGLE BLADE'S FLIGHTS (Recovery R4;
                   the clock, 2026-10-24): a Blade loosed by
@@ -4429,22 +4478,55 @@ export default function Table() {
                   })}
                 </g>
               ))}
+              {/* THE ROUND'S STRIKES, FLOWN (restated by the
+                  projectile rendering fix, 2026-10-27): each
+                  shot is the homeland's Matter Shard, walked
+                  along the straight road from its striker's
+                  point to its mark's by the stage's own clock
+                  (nowMs) — the frame of the elapsed slice, the
+                  head turned onto the road, the element's tint
+                  — at the homeland's pace and size. The tint
+                  filters are defined once, below, from the
+                  same ramps the homeland defines. A dark
+                  blow wears the art untinted, as the
+                  homeland's dark blows do; a miss flies at
+                  the homeland's faded measure. A shot whose
+                  staggered moment has not come, or whose
+                  flight has ended, is not drawn. */}
+              <defs>
+                {SHARD_TINT_ELEMENTS.map(el => {
+                  const ramp = shardTintRamp(elementPalette[el]);
+                  return (
+                    <filter key={el} id={`shard-tint-${el}`} colorInterpolationFilters="sRGB" x="-5%" y="-5%" width="110%" height="110%">
+                      <feColorMatrix type="saturate" values="0" />
+                      <feComponentTransfer>
+                        <feFuncR type="table" tableValues={ramp.r} />
+                        <feFuncG type="table" tableValues={ramp.g} />
+                        <feFuncB type="table" tableValues={ramp.b} />
+                      </feComponentTransfer>
+                    </filter>
+                  );
+                })}
+              </defs>
               <g className="shots-layer">
                 {shots.map((shot) => {
-                  const a = shot.from;
-                  const b = shot.to;
-                  const dist = Math.hypot(b.x - a.x, b.y - a.y);
-                  const qx = (a.x + b.x) / 2;
-                  const qy = shot.pierce ? (a.y + b.y) / 2 : Math.min(a.y, b.y) - (26 + dist * 0.38);
+                  const elapsed = nowMs - shot.startsAt;
+                  if (elapsed < 0 || elapsed > shot.flightMs) return null;
+                  const road = shot.flightMs > 0 ? elapsed / shot.flightMs : 1;
+                  const x = shot.from.x + (shot.to.x - shot.from.x) * road;
+                  const y = shot.from.y + (shot.to.y - shot.from.y) * road;
+                  const heading = Math.atan2(shot.to.y - shot.from.y, shot.to.x - shot.from.x) * 180 / Math.PI;
+                  const sliceMs = shot.flightMs / MATTER_SHARD_FRAMES.length;
+                  const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / sliceMs));
+                  const within = Math.min(1, Math.max(0, (elapsed - slice * sliceMs) / sliceMs));
+                  const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
+                  if (fade <= 0) return null;
+                  const tint = shot.dark ? null : shardTintFilterId(shot.element);
                   return (
-                    <image
-                      key={shot.id}
-                      href={shot.img}
-                      x={-13} y={-13} width={26} height={26}
-                      className={shot.dark ? "dark-shot" : undefined}
-                    >
-                      <animateMotion dur="0.55s" fill="freeze" rotate="auto" path={`M ${a.x} ${a.y} Q ${qx} ${qy} ${b.x} ${b.y}`} />
-                    </image>
+                    <g key={shot.id} pointerEvents="none" opacity={shot.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
+                      <image href={MATTER_SHARD_FRAMES[slice]} x={-SHOT_W / 2} y={-SHOT_H / 2} width={SHOT_W} height={SHOT_H} opacity={fade}
+                        filter={tint ? `url(#${tint})` : undefined} />
+                    </g>
                   );
                 })}
               </g>

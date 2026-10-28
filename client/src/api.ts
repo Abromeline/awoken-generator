@@ -176,7 +176,12 @@ export interface TerritoryTile {
  *  free points the striker and the dark stood on at the
  *  striking. */
 export interface HomelandStrike {
-  id: number; kind: "placement";
+  /** "placement" — an Awoken's struck blow; "dark" — a dark
+   *  thing's bite, witnessed by the projectile rendering
+   *  fix (2026-10-27): fromTileId is the dark's tile and
+   *  awakenedId the placement it bit, or 0 when it bit the
+   *  Tender himself. */
+  id: number; kind: "placement" | "dark";
   tileId: number; wandererId: number; awakenedId: number; fromTileId: number;
   fromQ: number; fromR: number; toQ: number; toR: number;
   at: number; hit: boolean; dmg: number; felled: boolean;
@@ -807,7 +812,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; strikes?: HomelandStrike[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
