@@ -614,7 +614,7 @@ const ROSTER = [
   { name: "tangle", label: "Tangle", note: "Knotted thorns. Pins one Awokin where it stands." },
 ] as const;
 
-export default function Table() {
+export default function Table({ campaignDoor = false }: { campaignDoor?: boolean } = {}) {
   // THE ERROR NET'S PROOF INJECTION (2026-10-24): a test-only
   // fault, set only by scripts/drive-table-error-net.mjs via
   // the ?tablefault= query flag — no production road ever sets
@@ -1607,6 +1607,20 @@ export default function Table() {
     return () => clearTimeout(t);
   }, [phase, bootStep]);
 
+  // THE CAMPAIGN TAB (THE HOMELAND SERVES DISCORD, amendment 2,
+  // 2026-10-28): mounted as the Discord interface's Campaign
+  // tab, the door goes straight to this instance's campaign
+  // room the moment Discord's answer stands — the tab IS the
+  // campaign door. (Away from Discord the tab shows the
+  // standing campaign door below, its key field and all.)
+  const campaignAutoRef = useRef(false);
+  useEffect(() => {
+    if (!campaignDoor || campaignAutoRef.current || !authJoin) return;
+    campaignAutoRef.current = true;
+    connect({ authToken: authJoin.authToken, room: `campaign-${authJoin.instanceId}` });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignDoor, authJoin]);
+
   function connect(join: Record<string, unknown>) {
     lastJoinRef.current = join;
     // The room this seat stands in, kept where the invite
@@ -2047,7 +2061,8 @@ export default function Table() {
               />
               <div className="door-actions">
                 <button
-                  className="table-btn"
+                  className={campaignDoor ? "table-btn primary" : "table-btn"}
+                  data-campaign-door={campaignDoor ? "true" : undefined}
                   disabled={!devName.trim()}
                   onClick={() => connect({ devName: devName.trim(), room: `campaign-${campKey.trim() || "main"}` })}
                 >

@@ -64,12 +64,40 @@ export interface ActionContext {
   /** Whether the request carries a live workshop token (true when the
    *  workshop lock is disabled, matching requireWorkshop's semantics). */
   workshopAuthorized?: boolean;
+  /** THE HOMELAND SERVES DISCORD (Nigel, 2026-10-28): the room
+   *  seat this call stands in, resolved by the dispatcher from
+   *  the X-Room-Seat header through the room layer's seat ledger
+   *  (rooms.ts). The room names the LAND the call acts on — a
+   *  host's own homeland, or an instance land dealt for the
+   *  room — while `tender` remains the ACTOR: their deck, their
+   *  purse, their book. Absent, the call stands at home, where
+   *  land and actor are one key, exactly as they always were. */
+  room?: { code: string; landOwnerKey: string; watcher: boolean; seatTileId?: number | null } | null;
 }
 
 /** Owner key for credits, welcome state, and deck ownership. */
 function ownerKeyFor(ctx?: ActionContext): string {
   if (ctx?.tender) return tenderOwnerKey(ctx.tender.id);
   return ctx?.visitorId ?? SINGLE_OWNER;
+}
+
+/** THE ACTOR's key (THE HOMELAND SERVES DISCORD, 2026-10-28):
+ *  the Tender making the call — their deck, purse, grimoire and
+ *  progress, wherever they stand. Identical to ownerKeyFor; the
+ *  name exists so a converted handler can say which of the two
+ *  keys each read means. */
+export function actorKeyFor(ctx?: ActionContext): string {
+  return ownerKeyFor(ctx);
+}
+
+/** THE LAND's key (THE HOMELAND SERVES DISCORD, 2026-10-28):
+ *  the ground the call acts on — in a room, the room's land
+ *  (a host's homeland, or the room's instance land); at home,
+ *  the actor's own key, so every converted handler behaves
+ *  exactly as it did before the room layer stood. */
+export function landKeyFor(ctx?: ActionContext): string {
+  if (ctx?.room?.landOwnerKey) return ctx.room.landOwnerKey;
+  return ownerKeyFor(ctx);
 }
 
 /** Display name for newly woken creatures. */
@@ -1827,6 +1855,34 @@ export async function planAwakening(layers: z.infer<typeof layerRefShape>[]): Pr
   const basePower = canonicalLayers.reduce((sum, layer) => sum + (layer.power ?? 0), 0);
   const baseToughness = canonicalLayers.reduce((sum, layer) => sum + (layer.toughness ?? 0), 0);
   return { canonicalLayers, identityKey, previousCount, name, flavorText, basePower, baseToughness };
+}
+
+/** Client payloads for OTHER Tenders' Awoken (THE HOMELAND
+ *  SERVES DISCORD, 2026-10-28): a room's field holds companies
+ *  the viewer does not own, and the map draws a placement only
+ *  from its creature's full payload — so the room's territory
+ *  read carries the foreign fielded rows in the studio's own
+ *  shape, family (empowerment) reckoned within each owner's
+ *  own collection exactly as buildStudio reckons it. */
+async function awakenedPayloadsForRows(rows: AwakenedRow[]): Promise<ReturnType<typeof toAwakenedPayload>[]> {
+  if (!rows.length) return [];
+  const assetRows = await db.select().from(schema.layerAssets);
+  const assetStats = assetStatsFromRows(assetRows);
+  const out: ReturnType<typeof toAwakenedPayload>[] = [];
+  const owners = [...new Set(rows.map(r => r.ownerKey).filter((k): k is string => !!k))];
+  for (const owner of owners) {
+    const familyRows = await db.select().from(schema.awakened).where(eq(schema.awakened.ownerKey, owner));
+    const parsed = familyRows.map((row) => {
+      const layers = parseLayers(row.compositionJson, assetStats);
+      const identity = row.identityKey === "legacy" ? identityFor(layers) : row.identityKey;
+      return { row, layers, identity };
+    });
+    const idsByIdentity = new Map<string, number[]>();
+    for (const item of parsed) idsByIdentity.set(item.identity, [...(idsByIdentity.get(item.identity) ?? []), item.row.id].sort((a, b) => a - b));
+    const wanted = new Set(rows.filter(r => r.ownerKey === owner).map(r => r.id));
+    for (const item of parsed) if (wanted.has(item.row.id)) out.push(toAwakenedPayload(item.row, item.layers, item.identity, idsByIdentity));
+  }
+  return out;
 }
 
 async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?: boolean }) {
@@ -7367,7 +7423,7 @@ async function fieldFirstThreeParty(ownerKey: string, tiles: any[], standTileId:
     // party fields beside any pillar on its ground.
     const firstPoint = pillarFreePoint(standingPillars(ownerKey), landing.q, landing.r);
     await db.insert(schema.fieldPlacements).values({
-      ownerKey, awakenedId: r.id, tileId: landing.id,
+      ownerKey, actorKey: ownerKey, awakenedId: r.id, tileId: landing.id,
       follow: 1,
       posQ: firstPoint.q, posR: firstPoint.r,
       hp: await placementMaxHp(r.id),
@@ -7437,9 +7493,12 @@ async function partyViewFor(ownerKey: string) {
  *  entry carries is the Table's summon price: the Awokin's
  *  power, one at least (castCost's base, off campaign). */
 export type SummonCompanyEntry = { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number };
-async function summonCompanyFor(ownerKey: string): Promise<SummonCompanyEntry[]> {
+async function summonCompanyFor(ownerKey: string, landKey: string = ownerKey): Promise<SummonCompanyEntry[]> {
+  // "Placed" for this Tender's company = THEIR placements on
+  // the land in question (in a room, another Tender's fielded
+  // company never strikes this Tender's names from the wheel).
   const placedRows = await db.select({ awakenedId: schema.fieldPlacements.awakenedId }).from(schema.fieldPlacements)
-    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    .where(and(eq(schema.fieldPlacements.ownerKey, landKey), eq(schema.fieldPlacements.actorKey, ownerKey)));
   const placedIds = new Set(placedRows.map(r => r.awakenedId));
   const stagedSet = new Set(stagedIdsFor(ownerKey));
   const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
@@ -7481,10 +7540,10 @@ async function summonCompanyFor(ownerKey: string): Promise<SummonCompanyEntry[]>
  *  changes only WHO may be named: any deck Awoken, from the
  *  wheel, mid-battle or no. */
 export type ReinforcementDeckEntry = { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number };
-async function reinforcementDeckFor(ownerKey: string): Promise<ReinforcementDeckEntry[]> {
+async function reinforcementDeckFor(ownerKey: string, landKey: string = ownerKey): Promise<ReinforcementDeckEntry[]> {
   const party = new Set(partyIdsFor(ownerKey));
   const placedRows = await db.select({ awakenedId: schema.fieldPlacements.awakenedId }).from(schema.fieldPlacements)
-    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    .where(and(eq(schema.fieldPlacements.ownerKey, landKey), eq(schema.fieldPlacements.actorKey, ownerKey)));
   const placedIds = new Set(placedRows.map(r => r.awakenedId));
   const stagedSet = new Set(stagedIdsFor(ownerKey));
   const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
@@ -8136,7 +8195,7 @@ export const handlers = {
   },
 
   async claimBonusTile(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ tileId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("Invalid tile.");
     const tile = await db.select().from(schema.territoryTiles)
@@ -8356,7 +8415,7 @@ export const handlers = {
 
   // Resolve a wave pull from mystery purification
   async resolveWavePull(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       tileId: z.number().int().positive(),
       victory: z.boolean(),
@@ -8862,7 +8921,7 @@ export const handlers = {
 
   /** Persist battle damage to a tile. Returns new HP, and whether it fell. */
   async damageTileHp(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       tileId: z.number().int().positive(),
       damage: z.number().int().min(1).max(20),
@@ -8891,7 +8950,7 @@ export const handlers = {
 
   /** Persist battle damage to an Awoken placement. */
   async damageAwokenHp(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       damage: z.number().int().min(1).max(20),
@@ -8926,7 +8985,7 @@ export const handlers = {
 
   /** Demolish a building. */
   async setShrineMode(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       buildingId: z.number().int().positive(),
       mode: z.enum(["blessing", "attune"]),
@@ -8949,7 +9008,7 @@ export const handlers = {
   },
 
   async demolishBuilding(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       buildingId: z.number().int().positive(),
     }).safeParse(args);
@@ -8973,7 +9032,7 @@ export const handlers = {
 
   /** Hourly binding heal: binding Awoken heal wounded fighters outside battle. Once per hour max. */
   async bindingHealTick(_args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const now = Date.now();
     const ONE_HOUR = 60 * 60 * 1000;
 
@@ -10378,7 +10437,7 @@ export const handlers = {
   },
 
   async getTerritory(_args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     // Marches land before the territory is read (War-Ground, 2026-10-16).
     await this.settleMarches(ownerKey);
     // Columns land and launch before the territory is read
@@ -10556,7 +10615,9 @@ export const handlers = {
         // Billing the full absence would punish time away (Anti-Duolingo).
         const hoursToCharge = 1;
         const cost = hoursToCharge * (nearCircle(p.tileId) ? 1 : BINDING_PER_HOUR);
-        if (await spendEnergy(ownerKey, cost)) {
+        // The binder's own purse pays the upkeep (in a room, a
+        // guest's binding is billed to the guest, never the host).
+        if (await spendEnergy((p as any).actorKey ?? ownerKey, cost)) {
           await db.update(schema.fieldPlacements)
             .set({ lastBindingChargeAt: new Date() })
             .where(eq(schema.fieldPlacements.id, p.id));
@@ -11120,22 +11181,39 @@ export const handlers = {
     const nameById = new Map(rosterRows.map(r => [r.id, r.name]));
     const rosterById = new Map(rosterRows.map(r => [r.id, r]));
     for (const p of placements) {
-      const nm = nameById.get(p.awakenedId);
+      // The field can hold other Tenders' Awoken (a room's
+      // company, still standing when the host reads alone):
+      // a name or a stone sum that the land's own roster cannot
+      // name is read from the Awoken's own row, by id.
+      let nm = nameById.get(p.awakenedId);
+      let aw = rosterById.get(p.awakenedId);
+      if (nm == null || !aw) {
+        const row = sqlite.prepare("SELECT name, composition_json AS compositionJson FROM awakened WHERE id = ?").get(p.awakenedId) as any;
+        if (row) { if (nm == null) nm = row.name; if (!aw) aw = row; }
+      }
       if (nm != null) (p as any).name = nm;
       // THE STONE CAST's GATE, served with the field: each
       // placement carries its Awoken's Rock (Stone) element sum,
       // so the wheel can seat the building ability tab on
       // exactly the Awoken the server's gate would accept —
       // the server still judges the cast itself, at the door.
-      const aw = rosterById.get(p.awakenedId);
       (p as any).stone = aw ? await stoneSumOf(aw) : 0;
     }
     const placedIdSet = new Set(placements.map(p => p.awakenedId));
-    const stagedIdSet = new Set(stagedIdsFor(ownerKey));
+    const stagedIdSet = new Set(stagedIdsFor(actorKeyFor(ctx)));
+    // "Elsewhere" names the VIEWER's own absent Awoken: in a
+    // room that is the actor's roster and the actor's own
+    // standings on this land, never the land Tender's.
+    const elsewhereRoster = ctx?.room
+      ? await db.select().from(schema.awakened).where(eq(schema.awakened.ownerKey, actorKeyFor(ctx)))
+      : rosterRows;
+    const myPlacedIdSet = ctx?.room
+      ? new Set(placements.filter(p => (p as any).actorKey === actorKeyFor(ctx)).map(p => p.awakenedId))
+      : placedIdSet;
     const elsewhere: { name: string; element: string; where: "fielded" | "staged" }[] = [];
     const ELEMENT_ORDER = ["tide", "sky", "stone", "root", "fire"];
-    for (const row of rosterRows) {
-      const fielded = placedIdSet.has(row.id);
+    for (const row of elsewhereRoster) {
+      const fielded = myPlacedIdSet.has(row.id);
       const staged = stagedIdSet.has(row.id);
       if (!fielded && !staged) continue;
       // The dominant filed element across its parts — the same
@@ -11155,16 +11233,19 @@ export const handlers = {
     // can call, the summoner's power the cast will roll with,
     // and whether the Tender's own stand is cursed — the −3
     // the branch names beside each price, as the Table's does.
-    const summonProgress = await getTenderProgress(ownerKey);
-    const standTileRow = tenderStand ? (tiles as any[]).find(t => t.id === tenderStand.tileId) : null;
+    const summonProgress = await getTenderProgress(actorKeyFor(ctx));
+    // The caller's own stand for the summoning face: at home,
+    // the land Tender's stand; in a room, the seat's stand.
+    const myStandTileId = ctx?.room ? (ctx.room.seatTileId ?? null) : (tenderStand?.tileId ?? null);
+    const standTileRow = myStandTileId != null ? (tiles as any[]).find(t => t.id === myStandTileId) : null;
     const summoning = {
-      company: tenderStand ? await summonCompanyFor(ownerKey) : [],
+      company: myStandTileId != null ? await summonCompanyFor(actorKeyFor(ctx), ownerKey) : [],
       // THE REINFORCEMENT DECK, served with the company
       // (Recovery R6): the wheel's Awoken branch lists these
       // under the company — a pick calls the Awoken into
       // the party at once, and it joins the company above.
-      reinforcements: tenderStand ? await reinforcementDeckFor(ownerKey) : [],
-      summonersPower: summonersPowerFor(ownerKey, summonProgress.level, summonProgress.classKey),
+      reinforcements: myStandTileId != null ? await reinforcementDeckFor(actorKeyFor(ctx), ownerKey) : [],
+      summonersPower: summonersPowerFor(actorKeyFor(ctx), summonProgress.level, summonProgress.classKey),
       standCursed: !!standTileRow?.cursed,
     };
     // THE HEX BUILDING SYSTEM (slice 1, 2026-10-25): the
@@ -11185,7 +11266,27 @@ export const handlers = {
     // renders this light and computes none of its own.
     const tileLight = computeTileLight(ownerKey, tiles as any[]);
     for (const t of tiles as any[]) (t as any).light = tileLight.get(`${t.q},${t.r}`) ?? LIGHT_DARK;
-    return { tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ownerKey), dropNotices: drainDropNotices(ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    // The field can hold other Tenders' companies (in a room,
+    // and still standing when the host reads alone afterward):
+    // their creature payloads ride along — the map draws a
+    // placement only from its payload. A land holding only its
+    // own Tender's company carries none.
+    let guestAwoken: ReturnType<typeof toAwakenedPayload>[] = [];
+    {
+      const actor = actorKeyFor(ctx);
+      const seenIds = new Set<number>();
+      const foreignRows: AwakenedRow[] = [];
+      for (const p of placements as any[]) {
+        const id = p.awakenedId as number;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        const row = rosterById.get(id)
+          ?? (await db.select().from(schema.awakened).where(eq(schema.awakened.id, id)).limit(1))[0];
+        if (row && row.ownerKey !== actor) foreignRows.push(row);
+      }
+      guestAwoken = await awakenedPayloadsForRows(foreignRows);
+    }
+    return { guestAwoken, tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -11202,7 +11303,7 @@ export const handlers = {
    *  the server's own map, never on the client's say-so. */
   async setTenderTile(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ tileId: z.number().int().positive(), airborne: z.boolean().optional() }).safeParse(args);
     if (!parsed.success) badRequest("A hex is needed.");
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -11248,7 +11349,7 @@ export const handlers = {
    * price, as attunement has always been the price of shaping. */
   async beginBuild(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ q: z.number().int(), r: z.number().int() }).safeParse(args);
     if (!parsed.success) badRequest("The work needs a hex (q, r).");
     const { q, r } = parsed.data;
@@ -11272,7 +11373,7 @@ export const handlers = {
    * only a lake may be lowered; the sky is not unmade by fire). */
   async pourBuild(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       tileId: z.number().int().positive(),
       branch: z.enum(["tide", "sky"]).optional(),
@@ -11296,17 +11397,17 @@ export const handlers = {
       await db.update(schema.territoryTiles).set({ buildFinish: tile.buildFinish } as any).where(eq(schema.territoryTiles.id, tile.id));
     }
     const wanted = stageWantedElement(tile)!;
-    const pool = await aspectPoolFor(ownerKey, wanted);
+    const pool = await aspectPoolFor(actorKeyFor(ctx), wanted);
     if (pool < BUILD_POUR) badRequest(`The ${wanted} pool holds ${Math.floor(pool)} — a pour needs ${BUILD_POUR}.`);
-    if (!(await spendAspectPoints(ownerKey, wanted, BUILD_POUR))) badRequest(`The ${wanted} pool would not give up its pour.`);
+    if (!(await spendAspectPoints(actorKeyFor(ctx), wanted, BUILD_POUR))) badRequest(`The ${wanted} pool would not give up its pour.`);
     await feedBuild(ownerKey, tile, wanted, BUILD_POUR);
     return {
       ok: true as const, tileId: tile.id,
       buildStage: buildStageOf(tile), buildPoints: tile.buildPoints ?? 0,
       buildBranch: tile.buildBranch ?? null, buildFinish: tile.buildFinish ?? null,
       baked: tile.baked ?? 0, lowered: tile.lowered ?? 0, z: tile.z ?? 0, element: tile.element,
-      wanted: stageWantedElement(tile), pool: await aspectPoolFor(ownerKey, wanted),
-      terrainBank: await terrainBankFor(ownerKey), maxEnergy: await calculateMaxEnergy(ownerKey),
+      wanted: stageWantedElement(tile), pool: await aspectPoolFor(actorKeyFor(ctx), wanted),
+      terrainBank: await terrainBankFor(ownerKey), maxEnergy: await calculateMaxEnergy(actorKeyFor(ctx)),
     };
   },
 
@@ -11365,14 +11466,19 @@ export const handlers = {
    *  Table act still takes all five into its own store. */
   async attuneTile(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       element: z.enum(["root", "tide", "sky", "stone", "fire"]),
       tileId: z.number().int().positive().optional(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Name one of the five elements to attune the ground with.");
     const element = parsed.data.element;
-    const stand = sqlite.prepare("SELECT tender_tile_id AS tileId FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    // In a room, the caller's stand is their seat's stand on
+    // this land (kept by the room layer); at home it is read
+    // from their own progress row, as ever.
+    const stand = ctx?.room
+      ? { tileId: ctx.room.seatTileId ?? null }
+      : sqlite.prepare("SELECT tender_tile_id AS tileId FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
     if (!stand?.tileId) badRequest("You stand nowhere on your land — step onto the ground you would attune.");
     const standRows = await db.select().from(schema.territoryTiles)
       .where(and(eq(schema.territoryTiles.id, Number(stand.tileId)), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
@@ -11384,7 +11490,7 @@ export const handlers = {
         .where(and(eq(schema.territoryTiles.id, parsed.data.tileId), eq(schema.territoryTiles.ownerKey, ownerKey))).limit(1);
       tile = rows[0] as any;
       if (!tile) badRequest("That hex is not yours to attune.");
-      const reach = 1 + attuneReachFor(ownerKey);
+      const reach = 1 + attuneReachFor(actorKeyFor(ctx));
       if (hexDistTiles(standTile, tile) > reach) {
         badRequest(`That ground lies beyond your attuning reach — Attune touches your own hex and its ring${reach > 1 ? `, and ${reach - 1} ring${reach > 2 ? "s" : ""} more by your skill` : ""}. Step closer, and attune again.`);
       }
@@ -11407,9 +11513,9 @@ export const handlers = {
     // triple the points, into the ledger and, where the ground
     // already holds the element, into the growing tray
     // alike, as each standing press point feeds both.
-    const attuneProgress = await getTenderProgress(ownerKey);
+    const attuneProgress = await getTenderProgress(actorKeyFor(ctx));
     const laid = pourLaidFor(attuneProgress.classKey, null, 1);
-    const spent = await spendAttunement(ownerKey, element, 1);
+    const spent = await spendAttunement(actorKeyFor(ctx), element, 1);
     if (!spent.ok) badRequest(`Attuning the ground costs 1 ${element} point — your ${element} pool holds ${Math.floor(spent.held)}.`);
     // THE ATTUNEMENT RATE (the zodiac's clause, Recovery
     // #1): "every attunement point laid grants one more"
@@ -11485,7 +11591,7 @@ export const handlers = {
       attuneElement: element as string, attunePoints: Math.round(hold * 100) / 100,
       growPoints: tile.growPoints ?? 0, sealedTrays: tile.sealedTrays ?? 0, turned,
       working: workingName, laid,
-      pool: await aspectPoolFor(ownerKey, element),
+      pool: await aspectPoolFor(actorKeyFor(ctx), element),
     };
   },
 
@@ -11494,7 +11600,7 @@ export const handlers = {
    *  field is read. The order is the Tender's to give and lift. */
   async setPlacementFollow(args: unknown, ctx?: ActionContext) {
     if (!ctx?.tender) throw Object.assign(new Error("Claim your secret code first."), { status: 403 });
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ placementId: z.number().int().positive(), follow: z.boolean() }).safeParse(args);
     if (!parsed.success) badRequest("A placement and its order are needed.");
     const own = await db.select().from(schema.fieldPlacements)
@@ -11510,8 +11616,8 @@ export const handlers = {
       // means in party. (Lowering the flag only lowers it —
       // the orders that end membership are the march and
       // the patrol, as they have always been.)
-      const progress = await getTenderProgress(ownerKey);
-      const followCap = partyCapFor(ownerKey, progress.level);
+      const progress = await getTenderProgress(actorKeyFor(ctx));
+      const followCap = partyCapFor(actorKeyFor(ctx), progress.level);
       const rows = await db.select({ id: schema.fieldPlacements.id, follow: schema.fieldPlacements.follow }).from(schema.fieldPlacements)
         .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
       const followingCount = rows.filter(p => p.follow === 1 && p.id !== parsed.data.placementId).length;
@@ -11557,18 +11663,23 @@ export const handlers = {
    *  tile-tap fielding is retired (the hand stays the
    *  collection). */
   async summonAwoken(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("A summon names the Awokin to call.");
     const awakenedId = parsed.data.awakenedId;
-    const progress = await getTenderProgress(ownerKey);
+    const progress = await getTenderProgress(actorKeyFor(ctx));
     // The fallen silence, as at every homeland cast (Phase D).
-    const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { down_until: number | null } | undefined;
+    const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(actorKeyFor(ctx)) as { down_until: number | null } | undefined;
     if (progressRow?.down_until != null && Number(progressRow.down_until) > Date.now()) {
       badRequest("Your Tender has fallen — no summoning until he wakes at the bastion.");
     }
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
-    const stand = await this.tenderStand(ownerKey, tiles as any[]);
+    // In a room, the seat's own stand (kept by the room layer)
+    // is where the caller stands on this land; at home, the
+    // land Tender's stand, as ever.
+    const stand = ctx?.room
+      ? (ctx.room.seatTileId != null ? { tileId: ctx.room.seatTileId, classKey: progress.classKey, weaponKey: null as string | null } : null)
+      : await this.tenderStand(ownerKey, tiles as any[]);
     if (!stand) badRequest("You have no stand on this land to summon from — choose your class first, and the calling wakes.");
     const tileById = new Map((tiles as any[]).map(t => [t.id, t]));
     const standTile = tileById.get(stand.tileId);
@@ -11577,7 +11688,7 @@ export const handlers = {
     // ownership is the only belonging ever asked at this
     // door — the party gate that stood here is struck, and
     // the gate lives on the following now, below.
-    const ownedRow = sqlite.prepare("SELECT name FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as { name: string } | undefined;
+    const ownedRow = sqlite.prepare("SELECT name FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, actorKeyFor(ctx)) as { name: string } | undefined;
     if (!ownedRow) badRequest("That Awokin is not yours to call.");
     // Already standing: one body stands in one place.
     const already = await db.select({ id: schema.fieldPlacements.id }).from(schema.fieldPlacements)
@@ -11586,13 +11697,13 @@ export const handlers = {
     // The court stays in hand (Nigel, 2026-10-12): housed
     // Awokin and the marked champion cannot be stationed.
     const courtHoused = await db.select({ awakenedId: schema.hallResidents.awakenedId }).from(schema.hallResidents)
-      .where(eq(schema.hallResidents.ownerKey, ownerKey));
+      .where(eq(schema.hallResidents.ownerKey, actorKeyFor(ctx)));
     const courtChamp = await db.select({ awakenedId: schema.tenderChampions.awakenedId }).from(schema.tenderChampions)
-      .where(eq(schema.tenderChampions.ownerKey, ownerKey)).limit(1);
+      .where(eq(schema.tenderChampions.ownerKey, actorKeyFor(ctx))).limit(1);
     const courtIds = new Set<number>([...courtHoused.map(r => r.awakenedId), ...(courtChamp.length ? [courtChamp[0].awakenedId] : [])]);
     if (courtIds.has(awakenedId)) badRequest("The court stays in hand — housed Awokin and the champion cannot be stationed on the field.");
     // Staged at the bastion: kept back for its instance.
-    if (stagedIdsFor(ownerKey).includes(awakenedId)) badRequest("That Awokin waits at the bastion — it is kept back for the instance that carries it.");
+    if (stagedIdsFor(actorKeyFor(ctx)).includes(awakenedId)) badRequest("That Awokin waits at the bastion — it is kept back for the instance that carries it.");
     // Still re-coalescing from a fall: callable nowhere.
     const dispRow = sqlite.prepare("SELECT dispersed_until FROM awakened WHERE id = ?").get(awakenedId) as { dispersed_until: number | null } | undefined;
     if (dispRow?.dispersed_until && dispRow.dispersed_until > Date.now()) badRequest("That Awokin is still re-coalescing from its fall — it can be called nowhere yet.");
@@ -11603,16 +11714,16 @@ export const handlers = {
     // a cast — while a party member she has cast already
     // stands, this call costs her half. The first member she
     // ever fields pays full price: none stands yet to grant it.
-    const cost = await witchPriceFor(ownerKey, progress.classKey, Math.max(1, power));
+    const cost = await witchPriceFor(actorKeyFor(ctx), progress.classKey, Math.max(1, power));
     // THE FOLLOWING GATE (Nigel, 2026-10-24): the count is
     // the placements standing in the follow on this ground —
     // never the field's whole number, never the ledger's
     // rows. A landed summon follows by default, so a full
     // following refuses the cast whole, before any price is
     // charged: the way past is orders, spoken in the refusal.
-    const followCap = partyCapFor(ownerKey, progress.level);
+    const followCap = partyCapFor(actorKeyFor(ctx), progress.level);
     const followingCount = (await db.select({ follow: schema.fieldPlacements.follow }).from(schema.fieldPlacements)
-      .where(eq(schema.fieldPlacements.ownerKey, ownerKey))).filter(p => p.follow === 1).length;
+      .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.actorKey, actorKeyFor(ctx))))).filter(p => p.follow === 1).length;
     if (followingCount >= followCap) {
       badRequest(`Your following stands full — ${followCap} at your side, and a summon follows by default. Give orders to one who follows you — a march, a patrol — and her spot frees for the next call. (The width is reckoned: 3 to start, plus a spot for every party star you hold.)`);
     }
@@ -11659,10 +11770,10 @@ export const handlers = {
     const landing = candidates.find(t => loadOf(t.id) < 4);
     if (!landing) badRequest("No ground at your side can take another standing — every hex beside you already holds four or more who are not of your party. Step to clearer ground, or let the crowd move on.");
     // THE PURSE, BEFORE THE ROLL — a faltering call spends it.
-    if (!(await spendEnergy(ownerKey, cost))) badRequest(`Not enough energy — ${payload.name} costs ✦${cost}.`);
+    if (!(await spendEnergy(actorKeyFor(ctx), cost))) badRequest(`Not enough energy — ${payload.name} costs ✦${cost}.`);
     // THE CAST, the Table referee's arithmetic whole.
     const gift = progress.classKey === "sage" ? -2 : 0;
-    const sp = summonersPowerFor(ownerKey, progress.level, progress.classKey);
+    const sp = summonersPowerFor(actorKeyFor(ctx), progress.level, progress.classKey);
     const curse = standTile.cursed ? -3 : 0;
     const roll = homelandDN(20);
     const dc = 10 + power;
@@ -11678,7 +11789,7 @@ export const handlers = {
     const bornShield = await rollShieldFor(awakenedId, ownerKey);
     const summonPoint = pillarFreePoint(standingPillars(ownerKey), landing.q, landing.r);
     await db.insert(schema.fieldPlacements).values({
-      ownerKey, awakenedId, tileId: landing.id,
+      ownerKey, actorKey: actorKeyFor(ctx), awakenedId, tileId: landing.id,
       // A SUMMONED AWOKEN FOLLOWS ITS TENDER (Nigel,
       // 2026-10-24, as it has always been on this ground):
       // the cast is the homeland's follow-raising moment —
@@ -11718,7 +11829,7 @@ export const handlers = {
 
 
   async moveAwoken(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       tileId: z.number().int().positive(),
@@ -11767,7 +11878,7 @@ export const handlers = {
       const payload = await awakenedPayloadById(awokenRows[0].id);
       const power = payload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
       const cost = 1 + Math.floor((power - 1) / 3);
-      if (!(await spendEnergy(ownerKey, cost))) badRequest("Not enough energy.");
+      if (!(await spendEnergy(actorKeyFor(ctx), cost))) badRequest("Not enough energy.");
     }
     await db.update(schema.fieldPlacements)
       .set({ tileId: tile[0].id, lastMovedAt: new Date(), posQ: tile[0].q, posR: tile[0].r, marchPosQ: null, marchPosR: null })
@@ -11797,7 +11908,7 @@ export const handlers = {
   // is entered at the ground, frac 0, state 'rising', and the
   // lazy settle (settleBuildRises) raises it from there.
   async placeBuildPiece(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       kind: z.enum(["triangle", "square", "wall", "door", "halfwall", "narrow"]),
       verts: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(4),
@@ -11884,7 +11995,7 @@ export const handlers = {
    *  floor still carries comes down; a wall whose edge another
    *  floor carries stands.) The answer names what fell. */
   async removeBuildPiece(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("The taking-away names the piece.");
     await settleBuildRises(ownerKey);
@@ -11905,7 +12016,7 @@ export const handlers = {
    *  though it may still be struck or taken away. With nothing
    *  to cement to it is not kept: it follows the settling law. */
   async stopBuildPiece(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("The stop names the rising piece.");
     await settleBuildRises(ownerKey);
@@ -11935,7 +12046,7 @@ export const handlers = {
    *  that much HP, and a piece at 0 HP falls — by the one fall
    *  road, cascade and settling reckoned as taking-away does. */
   async strikeBuildPiece(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       pieceId: z.number().int().positive(),
@@ -11979,7 +12090,7 @@ export const handlers = {
   // Awoken by the tier law. Numbers snapshot from the book at
   // the cast. Workings stand until spent or broken here.
   async castMapWorking(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       spellKey: z.string().min(1).max(80),
       hue: z.string().max(20).optional(),
@@ -12026,7 +12137,7 @@ export const handlers = {
     // bands), and a smuggled hue changes nothing.
     const hue = await pageHueFor(ownerKey, spell);
     if (spell.engine === "none") badRequest(`“${spell.name}” is written in the book but not yet seated — give it an engine in the workshop before it can be cast.`);
-    const progress = await getTenderProgress(ownerKey);
+    const progress = await getTenderProgress(actorKeyFor(ctx));
 
     // REAGENT EMPOWERMENT (Nigel, 2026-10-25 10:22; wired
     // 2026-10-25 on his live report — reagentSets.ts holds
@@ -12047,14 +12158,14 @@ export const handlers = {
     // purse itself) ever consumes. Reagents never gate:
     // an unempowered cast's prices, charges and rolls are
     // exactly what they have always been.
-    const empowerment = reagentEmpowermentFor(ownerKey, spell.key);
+    const empowerment = reagentEmpowermentFor(actorKeyFor(ctx), spell.key);
     const castBonus = empowerment.active ? REAGENT_EMPOWERMENT_BONUS : 0;
     let empowermentSpent = false;
     const spendCastEnergy = async (amount: number): Promise<boolean> => {
-      const charged = await spendEnergy(ownerKey, amount);
+      const charged = await spendEnergy(actorKeyFor(ctx), amount);
       if (charged && empowerment.active && !empowermentSpent) {
         empowermentSpent = true;
-        consumeReagentSet(ownerKey, empowerment.lines);
+        consumeReagentSet(actorKeyFor(ctx), empowerment.lines);
       }
       return charged;
     };
@@ -12079,11 +12190,16 @@ export const handlers = {
     // still counts as cast for every other purpose.
     const castTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const castTileById = new Map(castTiles.map((t) => [t.id, t]));
-    const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(ownerKey) as { down_until: number | null } | undefined;
+    const progressRow = sqlite.prepare("SELECT down_until FROM tender_progress WHERE owner_key = ?").get(actorKeyFor(ctx)) as { down_until: number | null } | undefined;
     if (progressRow?.down_until != null && Number(progressRow.down_until) > Date.now()) {
       badRequest("Your Tender has fallen — no casting until he wakes at the bastion.");
     }
-    const stand = await this.tenderStand(ownerKey, castTiles as any[]);
+    // In a room, casting reach is reckoned from the seat's own
+    // stand on this land (kept by the room layer); at home,
+    // from the land Tender's stand, as ever.
+    const stand = ctx?.room
+      ? (ctx.room.seatTileId != null ? { tileId: ctx.room.seatTileId, classKey: progress.classKey, weaponKey: null as string | null } : null)
+      : await this.tenderStand(ownerKey, castTiles as any[]);
     const standTile = stand ? castTileById.get(stand.tileId) : null;
     const assertCastReach = (tile: any, range: number = HOMELAND_CAST_RING) => {
       if (!standTile || !tile) badRequest("You have no stand on this land to cast from.");
@@ -12150,7 +12266,7 @@ export const handlers = {
       // THE WITCH'S COMPANY PRICE (Recovery R7): while a
       // party member she has cast stands, the Heal costs her
       // half — here and at every homeland cast door below.
-      const healPrice = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+      const healPrice = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, spell.cost));
       if (!(await spendCastEnergy(healPrice))) badRequest(`Not enough energy — ${spell.name} costs ${healPrice}.`);
       // The roll (Homeland Casting): the purse is already
       // charged — a fizzle spends it and mends nothing.
@@ -12201,7 +12317,7 @@ export const handlers = {
       // same ring in the point's tongue.)
       assertCastReach(tile, bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
       if (aimPoint) assertPointReach(bindingHealRangeFor(progress.classKey, HOMELAND_CAST_RING));
-      const springleafPrice = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+      const springleafPrice = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, spell.cost));
       if (!(await spendCastEnergy(springleafPrice))) badRequest(`Not enough energy — ${spell.name} costs ${springleafPrice}.`);
       const cast = homelandCastRoll(progress, spell, castBonus);
       if (!cast.ok) { const mercyBack = await mercyRefundHomeland(ownerKey, springleafPrice); return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: springleafPrice, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, springleafPrice), ...(mercyBack ? { mercyRefund: mercyBack } : {}), spellKey: spell.key }; }
@@ -12339,7 +12455,7 @@ export const handlers = {
         }
         if (!step && !aimPoint && tileId == null) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
         if (facing && !step) badRequest("The Black Gate is cast in the direction you face — name your facing (N, NE, E, SE, S, SW, W or NW).");
-        const gateCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+        const gateCost = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, spell.cost));
         if (!(await spendCastEnergy(gateCost))) badRequest(`Not enough energy — ${spell.name} costs ${gateCost}.`);
         const cast = homelandCastRoll(progress, spell, castBonus);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: gateCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, gateCost), spellKey: spell.key };
@@ -12418,7 +12534,7 @@ export const handlers = {
       // with placement_id 0, for no figure raises them and
       // no stance sustains them: they stand by their HP.
       if (spell.engine === "bulwark") {
-        const bulwarkCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+        const bulwarkCost = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, spell.cost));
         if (!(await spendCastEnergy(bulwarkCost))) badRequest(`Not enough energy — ${spell.name} costs ${bulwarkCost}.`);
         const cast = homelandCastRoll(progress, spell, castBonus);
         if (!cast.ok) return { ok: true as const, fizzled: true as const, roll: cast.roll, mod: cast.mod, dc: cast.dc, cost: bulwarkCost, refunded: await refundHomelandFizzle(ownerKey, progress.classKey, bulwarkCost), spellKey: spell.key };
@@ -12508,7 +12624,7 @@ export const handlers = {
       const wardBase = ebbWard ? Math.max(1, spell.cost - 1) : spell.cost;
       // THE WITCH'S COMPANY PRICE (Recovery R7) rides the
       // ward door's final reckoned price, as at the Table.
-      const wardCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, wardBase));
+      const wardCost = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, wardBase));
       if (!(await spendCastEnergy(wardCost))) badRequest(`Not enough energy — ${spell.name} costs ${wardCost}.`);
       // The roll (Homeland Casting): the purse is charged
       // before it — a fizzle spends the charge alone and
@@ -12574,7 +12690,7 @@ export const handlers = {
       const nowCast = Date.now();
       // THE WITCH'S COMPANY PRICE (Recovery R7): one price
       // for the branch's three doors, reckoned once here.
-      const newWorkingPrice = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, spell.cost));
+      const newWorkingPrice = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, spell.cost));
       if (spell.engine === "bats") {
         // The cap (Nigel, 2026-10-22): three swarms standing
         // for one caster — the Witch suffers no cap.
@@ -12734,7 +12850,7 @@ export const handlers = {
       const runeBase = ebbRune ? Math.max(1, spell.cost - 1) : spell.cost;
       // THE WITCH'S COMPANY PRICE (Recovery R7) rides the
       // rune door's final reckoned price, as at the Table.
-      const runeCost = empoweredCastPrice(empowerment, await witchPriceFor(ownerKey, progress.classKey, runeBase));
+      const runeCost = empoweredCastPrice(empowerment, await witchPriceFor(actorKeyFor(ctx), progress.classKey, runeBase));
       if (!(await spendCastEnergy(runeCost))) badRequest(`Not enough energy — ${spell.name} costs ${runeCost}.`);
       // The roll (Homeland Casting): charged before it — a
       // fizzle spends the charge alone and writes nothing.
@@ -12777,7 +12893,7 @@ export const handlers = {
       if (spell.engine === "shardrain") {
         let lvl = 0;
         if (hue !== "unaligned") {
-          const pools = await attunementPools(ownerKey);
+          const pools = await attunementPools(actorKeyFor(ctx));
           lvl = attunementLevel((pools[hue] ?? 0) + (skillAttunementGrants(ownerKey)[hue] ?? 0));
         }
         // THE RAIN'S AREA (Nigel, 2026-10-24 22:37): the
@@ -12830,7 +12946,7 @@ export const handlers = {
    *  to draw (fromTileId is the rune's ground); the harm is
    *  refereed here, whole. */
   async looseBlade(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ wandererId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("The order needs a dark thing to name.");
     const { wandererId } = parsed.data;
@@ -12904,8 +13020,8 @@ export const handlers = {
   async settleMarches(ownerKey: string) {
     const now = Date.now();
     const rows = sqlite.prepare(
-      "SELECT id, awakened_id, follow, march_path, march_ends, march_goal, march_pos_q AS marchPosQ, march_pos_r AS marchPosR FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
-    ).all(ownerKey, now) as { id: number; awakened_id: number; follow: number; march_path: string; march_ends: number; march_goal: string | null; marchPosQ: number | null; marchPosR: number | null }[];
+      "SELECT id, awakened_id, actor_key AS actorKey, follow, march_path, march_ends, march_goal, march_pos_q AS marchPosQ, march_pos_r AS marchPosR FROM field_placements WHERE owner_key = ? AND march_path IS NOT NULL AND march_ends IS NOT NULL AND march_ends <= ?"
+    ).all(ownerKey, now) as { id: number; awakened_id: number; actorKey: string | null; follow: number; march_path: string; march_ends: number; march_goal: string | null; marchPosQ: number | null; marchPosR: number | null }[];
     // THE PILLARS (2026-10-26): a march's landing is set
     // beside any pillar it would stand inside (below).
     const marchPillars = standingPillars(ownerKey);
@@ -12926,7 +13042,7 @@ export const handlers = {
         if (bastion && bastion.tileId === dest) {
           sqlite.prepare("DELETE FROM field_placements WHERE id = ?").run(row.id);
           sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, ?)")
-            .run(ownerKey, row.awakened_id, row.march_ends, row.follow === 1 ? "field" : "march");
+            .run(row.actorKey ?? ownerKey, row.awakened_id, row.march_ends, row.follow === 1 ? "field" : "march");
           continue;
         }
       }
@@ -13297,7 +13413,7 @@ export const handlers = {
       failed-seed law the seed becomes a cursed bastion with
       the column as its guard. */
   async failIncursion(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const columnId = Math.floor(Number((args as any)?.columnId ?? 0));
     if (!columnId) badRequest("Which column was faced?");
     const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
@@ -13370,7 +13486,7 @@ export const handlers = {
 
   /** The fallen seeds and their fates, for the map's face. */
   async getSeeds(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleIncursions(ownerKey);
     const seeds = sqlite.prepare("SELECT * FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','corrupted','first') ORDER BY created_at ASC").all(ownerKey) as any[];
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -13410,7 +13526,7 @@ export const handlers = {
       stays the hold's to win. Territory calls this on mount
       when no tiles are held; getTerritory itself stays a read. */
   async ensureFirstSeed(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const existingTiles = await db.select({ id: schema.territoryTiles.id }).from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.ownerKey, ownerKey)).limit(1);
     if (existingTiles.length) return { ok: true, created: false };
@@ -13439,7 +13555,7 @@ export const handlers = {
       company standing on its hex. Settles any arrived wave first,
       like every honest read in this house. */
   async getFirstSeedEvent(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await settleFirstSeedEvent(ownerKey);
     // HAS A BEACON AT ALL (Nigel, 2026-10-25 19:44: "it need
     // to actually check if a player has a beacon before
@@ -13518,7 +13634,7 @@ export const handlers = {
       breaks it. Only the hold purifies here. Casting never
       closes: this answers in 'waiting' and 'holding' alike. */
   async deployFirstSeed(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedIds: z.array(z.number().int().positive()).min(1).max(4),
     }).safeParse(args);
@@ -13538,7 +13654,7 @@ export const handlers = {
       .where(
         and(
           eq(schema.awakened.collection, "tender"),
-          or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
+          or(eq(schema.awakened.ownerKey, actorKeyFor(ctx)), isNull(schema.awakened.ownerKey))
         )
       );
     const fighters = owned.filter(a => parsed.data.awakenedIds.includes(a.id));
@@ -13564,11 +13680,11 @@ export const handlers = {
       const payload = await awakenedPayloadById(f.id);
       totalCost += deployCostForPower(payload?.power ?? 0);
     }
-    if (!(await spendEnergy(ownerKey, totalCost))) badRequest("Not enough energy.");
+    if (!(await spendEnergy(actorKeyFor(ctx), totalCost))) badRequest("Not enough energy.");
     const seedTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(seed.tile_id) as { q: number; r: number } | undefined;
     for (const f of fighters) {
       await db.insert(schema.fieldPlacements).values({
-        ownerKey, awakenedId: f.id, tileId: seed.tile_id,
+        ownerKey, actorKey: actorKeyFor(ctx), awakenedId: f.id, tileId: seed.tile_id,
         posQ: seedTile?.q ?? 0, posR: seedTile?.r ?? 0,
         hp: await placementMaxHp(f.id),
       });
@@ -13580,7 +13696,7 @@ export const handlers = {
       ladder is the event's own — a resumed run climbs from the
       banked rung, never from nothing. */
   async startFirstSeedHold(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await settleFirstSeedEvent(ownerKey);
     const ev = firstSeedEventRow(ownerKey);
     if (!ev) badRequest("No starseed waits on your land.");
@@ -13630,7 +13746,7 @@ export const handlers = {
       No reinforcements follow through the curse: the party
       that goes is the party that must survive there and back. */
   async fetchSeed(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const seedId = Math.floor(Number((args as any)?.seedId ?? 0));
     const awakenedIds = (Array.isArray((args as any)?.awakenedIds) ? (args as any).awakenedIds : []).map((n: any) => Math.floor(Number(n))).filter((n: number) => n > 0).slice(0, 4);
     if (!seedId) badRequest("Which seed?");
@@ -13681,7 +13797,7 @@ export const handlers = {
       a place that may one day be a city. The seed's own energy
       is spent into the ground it will grow from. */
   async holdSeed(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const seedId = Math.floor(Number((args as any)?.seedId ?? 0));
     if (!seedId) badRequest("Which seed?");
     const seed = sqlite.prepare("SELECT * FROM star_seeds WHERE id = ? AND owner_key = ?").get(seedId, ownerKey) as any;
@@ -13704,7 +13820,7 @@ export const handlers = {
       notification: the host carries this call to their friends
       themselves, and the Table room answers it. */
   async callToArms(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const columnId = Math.floor(Number((args as any)?.columnId ?? 0)) || null;
     const seedId = Math.floor(Number((args as any)?.seedId ?? 0)) || null;
     if (!columnId && !seedId) badRequest("Call against what — a column, or a cursed bastion?");
@@ -13751,7 +13867,7 @@ export const handlers = {
 
   /** My standing calls, for the map's face and the Table. */
   async getCalls(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const calls = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' ORDER BY created_at ASC").all(ownerKey) as any[];
     return { calls };
   },
@@ -13764,7 +13880,7 @@ export const handlers = {
       every honest read in this house, so an arrived sender
       already stands in the staged ranks. */
   async getBastion(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const tileById = new Map((tiles as any[]).map(t => [t.id, t]));
@@ -13779,13 +13895,13 @@ export const handlers = {
       const element = [...weights.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       return { awakenedId, name: p.name, power: p.power, toughness: p.toughness, element, level: p.level ?? null };
     };
-    const stagedRows = sqlite.prepare("SELECT awakened_id, via, staged_at FROM bastion_staged WHERE owner_key = ? ORDER BY staged_at ASC").all(ownerKey) as any[];
+    const stagedRows = sqlite.prepare("SELECT awakened_id, via, staged_at FROM bastion_staged WHERE owner_key = ? ORDER BY staged_at ASC").all(actorKeyFor(ctx)) as any[];
     const staged = [];
     for (const r of stagedRows) staged.push({ ...(await face(Number(r.awakened_id))), via: r.via, stagedAt: Number(r.staged_at) });
-    const handIds = handIdsFor(ownerKey);
+    const handIds = handIdsFor(actorKeyFor(ctx));
     const stagedSet = new Set(stagedRows.map(r => Number(r.awakened_id)));
     const handSet = new Set(handIds);
-    const reserveIds = rosterIdsFor(ownerKey).filter(id => !handSet.has(id) && !stagedSet.has(id));
+    const reserveIds = rosterIdsFor(actorKeyFor(ctx)).filter(id => !handSet.has(id) && !stagedSet.has(id));
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
     const field = [];
     for (const p of placements as any[]) {
@@ -13807,7 +13923,7 @@ export const handlers = {
       play — it is not fielded, not dealt — it WAITS at the
       bastion as a reinforcement. */
   async stageAwokin(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
     if (!awakenedId) badRequest("Which Awokin stages at the bastion?");
     const mine = sqlite.prepare("SELECT id FROM awakened WHERE id = ? AND owner_key = ?").get(awakenedId, ownerKey) as any;
@@ -13815,10 +13931,10 @@ export const handlers = {
     if (!bastionRowFor(ownerKey)) badRequest("No bastion stands — hold a seed and raise its bastion first, and the staging hall opens.");
     const placed = sqlite.prepare("SELECT id FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
     if (placed) badRequest("That Awokin stands on the field — send it to the bastion, and it will stage on arrival.");
-    const already = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    const already = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(actorKeyFor(ctx), awakenedId) as any;
     if (already) badRequest("That Awokin already waits at the bastion.");
-    if (!handIdsFor(ownerKey).includes(awakenedId)) badRequest("Only the hand stages — that Awokin waits in your reserve. Bring it into your hand of twenty first.");
-    sqlite.prepare("INSERT INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'hand')").run(ownerKey, awakenedId, Date.now());
+    if (!handIdsFor(actorKeyFor(ctx)).includes(awakenedId)) badRequest("Only the hand stages — that Awokin waits in your reserve. Bring it into your hand of twenty first.");
+    sqlite.prepare("INSERT INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'hand')").run(actorKeyFor(ctx), awakenedId, Date.now());
     return { ok: true };
   },
 
@@ -13827,11 +13943,11 @@ export const handlers = {
       bastion's own hex under the field's standing law (room
       for four, the bastion's ground is purified by its hold). */
   async unstageAwokin(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
     const toField = (args as any)?.toField === true;
     if (!awakenedId) badRequest("Which Awokin leaves the bastion's ranks?");
-    const row = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+    const row = sqlite.prepare("SELECT awakened_id FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").get(actorKeyFor(ctx), awakenedId) as any;
     if (!row) badRequest("That Awokin does not wait at the bastion.");
     if (toField) {
       const bastion = bastionRowFor(ownerKey);
@@ -13841,15 +13957,15 @@ export const handlers = {
       // No count refuses the muster home either (THE
       // CROWDING GATE, Nigel 2026-10-18): the bastion's
       // hex holds who returns; the crowd costs speed.
-      sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
+      sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(actorKeyFor(ctx), awakenedId);
       const bastionTile = sqlite.prepare("SELECT q, r FROM territory_tiles WHERE id = ?").get(bastion.tileId) as { q: number; r: number } | undefined;
       // THE PILLAR AT THE LANDING (2026-10-26): the return
       // stands beside any pillar on the bastion's ground.
       const bastionPoint = pillarFreePoint(standingPillars(ownerKey), bastionTile?.q ?? 0, bastionTile?.r ?? 0);
-      await db.insert(schema.fieldPlacements).values({ ownerKey, awakenedId, tileId: bastion.tileId, posQ: bastionPoint.q, posR: bastionPoint.r, hp: await placementMaxHp(awakenedId) });
+      await db.insert(schema.fieldPlacements).values({ ownerKey, actorKey: actorKeyFor(ctx), awakenedId, tileId: bastion.tileId, posQ: bastionPoint.q, posR: bastionPoint.r, hp: await placementMaxHp(awakenedId) });
       return { ok: true, mustered: true };
     }
-    sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
+    sqlite.prepare("DELETE FROM bastion_staged WHERE owner_key = ? AND awakened_id = ?").run(actorKeyFor(ctx), awakenedId);
     return { ok: true };
   },
 
@@ -13866,7 +13982,7 @@ export const handlers = {
       is a standing order, not a maneuver, as the muster and
       the fetch have always held. */
   async sendToBastion(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
     if (!awakenedId) badRequest("Which Awokin is sent to the bastion?");
@@ -13879,7 +13995,7 @@ export const handlers = {
     if (placement.tile_id === bastion.tileId) {
       // Already home: it simply steps into the ranks.
       sqlite.prepare("DELETE FROM field_placements WHERE id = ?").run(placement.id);
-      sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'field')").run(ownerKey, awakenedId, Date.now());
+      sqlite.prepare("INSERT OR IGNORE INTO bastion_staged (owner_key, awakened_id, staged_at, via) VALUES (?, ?, ?, 'field')").run(actorKeyFor(ctx), awakenedId, Date.now());
       return { ok: true, arrived: true };
     }
     const following = placement.follow === 1;
@@ -13913,7 +14029,7 @@ export const handlers = {
       is a waiting room, not a exile. The first choosing writes
       the default hand down, then applies itself. */
   async setHandMember(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const awakenedId = Math.floor(Number((args as any)?.awakenedId ?? 0));
     const inHand = (args as any)?.inHand === true;
     if (!awakenedId) badRequest("Which Awokin changes hands?");
@@ -13922,7 +14038,7 @@ export const handlers = {
     const rows = sqlite.prepare("SELECT awakened_id FROM tender_hand WHERE owner_key = ?").all(ownerKey) as any[];
     if (!rows.length) {
       // Materialize the default hand so the choosing is exact.
-      for (const id of handIdsFor(ownerKey)) {
+      for (const id of handIdsFor(actorKeyFor(ctx))) {
         sqlite.prepare("INSERT OR IGNORE INTO tender_hand (owner_key, awakened_id) VALUES (?, ?)").run(ownerKey, id);
       }
     }
@@ -13935,7 +14051,7 @@ export const handlers = {
     } else {
       sqlite.prepare("DELETE FROM tender_hand WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
     }
-    return { ok: true, hand: handIdsFor(ownerKey) };
+    return { ok: true, hand: handIdsFor(actorKeyFor(ctx)) };
   },
 
   /** CREATE AN INSTANCE (Station 4): the bastion as departure
@@ -13945,10 +14061,10 @@ export const handlers = {
       is staged is the company that travels; if nothing is
       staged, there is no company to carry, and no instance. */
   async createBastionInstance(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const bastion = bastionRowFor(ownerKey);
     if (!bastion) badRequest("No bastion stands — hold a seed and raise its bastion first, and the hall opens.");
-    if (!stagedIdsFor(ownerKey).length) badRequest("No company is staged at the bastion — stage your Awokin first, and the instance has someone to carry.");
+    if (!stagedIdsFor(actorKeyFor(ctx)).length) badRequest("No company is staged at the bastion — stage your Awokin first, and the instance has someone to carry.");
     const existing = sqlite.prepare("SELECT * FROM bastion_calls WHERE owner_key = ? AND state = 'open' AND kind = 'instance'").get(ownerKey) as any;
     if (existing) {
       if (!existing.join_key) {
@@ -13966,7 +14082,7 @@ export const handlers = {
 
   /** The Eye and its columns, for the map's face. */
   async getIncursions(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleIncursions(ownerKey);
     const now = Date.now();
     const att = sqlite.prepare("SELECT eye, updated_at, break_until, total_spent FROM tender_attention WHERE owner_key = ?").get(ownerKey) as any;
@@ -13998,7 +14114,7 @@ export const handlers = {
   /** A column beaten — by whatever battle beat it. Buys the
       ruled 12-minute break before the next timer may start. */
   async defeatIncursion(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const columnId = Math.floor(Number((args as any)?.columnId ?? 0));
     if (!columnId) badRequest("Which column was beaten?");
     const col = sqlite.prepare("SELECT * FROM incursion_columns WHERE id = ? AND owner_key = ?").get(columnId, ownerKey) as any;
@@ -14070,7 +14186,7 @@ export const handlers = {
   },
 
   async setPatrol(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const parsed = z.object({ awakenedId: z.number().int().positive(), tileIds: z.array(z.number().int().positive()).max(8) }).safeParse(args);
     if (!parsed.success) badRequest("A patrol road is an Awokin and up to eight hexes.");
@@ -14120,7 +14236,7 @@ export const handlers = {
   // every screen) and the placement settles on arrival. A march
   // supersedes a patrol. One march at a time per Awoken.
   async setMarch(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const parsed = z.object({
       awakenedId: z.number().int().positive(), tileId: z.number().int().positive(),
@@ -14191,7 +14307,7 @@ export const handlers = {
     const energy = steps * (1 + Math.floor((power - 1) / 3));
     const marchCursed = new Map((tiles as any[]).map((t: any) => [t.id, !!t.cursed]));
     const seconds = marchWeightedSeconds(road, marchSecondsPerHexFor(layers, aw.experience ?? 0), (id) => !!marchCursed.get(id), marchCrowdOf(allPlacements as any[], new Set([awakenedId])));
-    if (!(await spendEnergy(ownerKey, energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
+    if (!(await spendEnergy(actorKeyFor(ctx), energy))) badRequest(`Not enough energy — that march costs ${energy}.`);
     const now = Date.now();
     // THE MARCH'S LANDING, CORRECTED AT THE ORDER (FLOP fix,
     // 2026-10-26): a free-point march named inside a standing
@@ -14234,7 +14350,7 @@ export const handlers = {
   // out, walked back from the hex it has reached — at its own pace.
   // The outbound energy is spent either way; a recall is free.
   async recallMarch(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await this.settleMarches(ownerKey);
     const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("A recall names the marching Awokin.");
@@ -14285,7 +14401,7 @@ export const handlers = {
   },
 
   async getWave(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     let state = await db.select().from(schema.waveState)
       .where(eq(schema.waveState.ownerKey, ownerKey)).limit(1);
     if (!state.length) {
@@ -14463,7 +14579,7 @@ export const handlers = {
   },
 
   async getBuildings(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     await settleHallFor(ownerKey);
     const buildings = await db.select().from(schema.territoryBuildings)
       .where(eq(schema.territoryBuildings.ownerKey, ownerKey));
@@ -14554,7 +14670,7 @@ export const handlers = {
   },
 
   async placeBuilding(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       tileId: z.number().int(),
       buildingType: z.string(),
@@ -14704,7 +14820,7 @@ export const handlers = {
     if (energyRes.energy < def.cost) badRequest("Not enough energy.");
     await db.update(schema.tenderResources)
       .set({ energy: energyRes.energy - def.cost })
-      .where(eq(schema.tenderResources.ownerKey, ownerKey));
+      .where(eq(schema.tenderResources.ownerKey, actorKeyFor(ctx)));
     noteEnergySpent(ownerKey, def.cost);
     const readyAt = new Date(Date.now() + actualBuildMinutes * 60 * 1000);
     // Builders enter build mode - remember their previous stance
@@ -15417,7 +15533,7 @@ export const handlers = {
   },
 
   async harvestWheat(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ buildingId: z.number().int() }).safeParse(args);
     if (!parsed.success) badRequest("Invalid.");
     const HARVESTABLE = ["dream-wheat", "dream-weed", "sky-bloom"];
@@ -15440,13 +15556,13 @@ export const handlers = {
       : building.readyAt ? new Date(building.readyAt).getTime() : Date.now();
     if (Date.now() - lastHarvest < growMs) badRequest("Not ready yet.");
     // Give energy
-    const maxEnergy = await calculateMaxEnergy(ownerKey);
+    const maxEnergy = await calculateMaxEnergy(actorKeyFor(ctx));
     const res = await db.select().from(schema.tenderResources)
-      .where(eq(schema.tenderResources.ownerKey, ownerKey)).limit(1);
+      .where(eq(schema.tenderResources.ownerKey, actorKeyFor(ctx))).limit(1);
     const current = res.length ? res[0].energy : 0;
     await db.update(schema.tenderResources)
       .set({ energy: Math.min(current + harvestEnergy, maxEnergy) })
-      .where(eq(schema.tenderResources.ownerKey, ownerKey));
+      .where(eq(schema.tenderResources.ownerKey, actorKeyFor(ctx)));
     // Reset growth timer
     await db.update(schema.territoryBuildings)
       .set({ lastHarvestAt: new Date() })
@@ -15901,7 +16017,7 @@ export const handlers = {
    *  light with no banked minutes behind it cannot be lit —
    *  kills buy the light. */
   async setLighthouse(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ lit: z.boolean() }).safeParse(args);
     if (!parsed.success) badRequest("Invalid lighthouse switch.");
     const row = sqlite.prepare("SELECT protection_bank_ms AS bank FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
@@ -15985,7 +16101,7 @@ export const handlers = {
   },
 
   async setStance(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       stance: z.enum(["attack", "defense", "binding"]),
@@ -15993,7 +16109,7 @@ export const handlers = {
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid stance.");
     // All stances cost 1 energy to enter.
-    if (!(await spendEnergy(ownerKey, 1))) {
+    if (!(await spendEnergy(actorKeyFor(ctx), 1))) {
       badRequest("Not enough energy (need 1).");
     }
     // Verify the Awoken is on the field and owned by the Tender.
@@ -16014,13 +16130,13 @@ export const handlers = {
   },
 
   async attackTile(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       tileId: z.number().int().positive(),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid attack.");
-    if (!(await spendEnergy(ownerKey, 1))) {
+    if (!(await spendEnergy(actorKeyFor(ctx), 1))) {
       badRequest("Not enough energy (need 1).");
     }
     // The attacker must be on the field in attack stance.
@@ -16188,7 +16304,7 @@ export const handlers = {
   },
 
   async claimSpark(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       tileId: z.number().int().positive(),
     }).safeParse(args);
@@ -16229,7 +16345,7 @@ export const handlers = {
   },
 
   async igniteWildfire(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       tileId: z.number().int().positive(),
@@ -16270,7 +16386,7 @@ export const handlers = {
     const ignited = allTiles.filter(t => t.cursed && hexDist(center, t) === 1);
     if (!ignited.length) badRequest("No cursed tiles adjacent to ignite.");
     // All checks passed — now charge the 13 energy.
-    if (!(await spendEnergy(ownerKey, 13))) {
+    if (!(await spendEnergy(actorKeyFor(ctx), 13))) {
       badRequest("Not enough energy (need 13).");
     }
     // Mark them as ignited (wildfire)
@@ -16301,7 +16417,7 @@ export const handlers = {
 
   // --- Hall of Champions ---
   async getHall(_args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const hall = await settleHallFor(ownerKey);
     if (!hall) return { hall: null };
     const level = hall.level ?? 1;
@@ -16330,7 +16446,7 @@ export const handlers = {
   },
 
   async fundHallEnergy(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ amount: z.number().int().min(1).max(100000) }).safeParse(args);
     if (!parsed.success) badRequest("Invalid amount.");
     const hall = await settleHallFor(ownerKey);
@@ -16344,7 +16460,7 @@ export const handlers = {
     const remaining = cost.energy - fund.energy;
     if (remaining <= 0) badRequest("The energy reservoir for this tier is full.");
     const amount = Math.min(parsed.data.amount, remaining);
-    const spent = await spendEnergy(ownerKey, amount);
+    const spent = await spendEnergy(actorKeyFor(ctx), amount);
     if (!spent) badRequest("Not enough energy.");
     fund.energy += amount;
     await db.update(schema.territoryBuildings)
@@ -16354,7 +16470,7 @@ export const handlers = {
   },
 
   async fundHallElement(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       element: z.enum(["tide", "sky", "stone", "root"]),
       points: z.number().int().min(1).max(100000),
@@ -16393,7 +16509,7 @@ export const handlers = {
   },
 
   async beginHallUpgrade(_args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const hall = await settleHallFor(ownerKey);
     if (!hall || hall.status !== "active") badRequest("The Hall is not standing yet.");
     if (hall.upgradeReadyAt) badRequest("An upgrade is already underway.");
@@ -16416,7 +16532,7 @@ export const handlers = {
   },
 
   async houseAwoken(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
+    const ownerKey = landKeyFor(ctx);
     const parsed = z.object({
       roomIndex: z.number().int().min(0).max(9),
       awakenedId: z.number().int(),

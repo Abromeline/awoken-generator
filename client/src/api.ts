@@ -601,6 +601,19 @@ export function clearTenderToken(): void {
   }
 }
 
+// THE ROOM SEAT (THE HOMELAND SERVES DISCORD, 2026-10-28): when
+// this client stands inside a room, every action call carries
+// the seat token; the server then runs the call on the ROOM'S
+// LAND with the caller's own account (server/src/rooms.ts).
+// Held in memory only — a seat is taken fresh at the door.
+let roomSeat: string | null = null;
+export function setRoomSeat(token: string | null): void {
+  roomSeat = token;
+}
+export function roomSeatToken(): string | null {
+  return roomSeat;
+}
+
 // Workshop lock token: minted by /api/workshop/unlock, kept for the tab
 // only (sessionStorage). Sent on every call; the server ignores it unless
 // the workshop is locked.
@@ -655,7 +668,7 @@ function throwApiError(response: Response, data: { error?: string }): never {
 async function post<T>(name: string, args: unknown): Promise<T> {
   const response = await fetch(`/api/${name}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "", "X-Tender-Token": tenderToken() ?? "" },
+    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "", "X-Tender-Token": tenderToken() ?? "", "X-Room-Seat": roomSeatToken() ?? "" },
     body: JSON.stringify(args ?? {}),
   });
   const data = (await response.json()) as { error?: string };
@@ -961,8 +974,12 @@ export const api = {
   /** The Tender's body on the homeland (2026-10-19): the client
    *  reports the hex his figure has entered; followers are ordered
    *  to muster to his ring (or released from the order). */
-  setTenderTile: (args: { tileId: number; airborne?: boolean }) =>
-    post<{ ok: true; tileId: number }>("setTenderTile", args),
+  setTenderTile: (args: { tileId: number; airborne?: boolean }) => {
+    // In a room, the figure's walk is the seat's stand (the
+    // server refuses the solo walk on room calls by law).
+    if (roomSeatToken()) return postPath<{ ok: true; tileId: number }>("/api/room/stand", { tileId: args.tileId });
+    return post<{ ok: true; tileId: number }>("setTenderTile", args);
+  },
   /** The Building System (Nigel, 2026-10-19): found a hex of new
    *  land on the void at the land's edge, and pour 10 of the
    *  stage's element from your pools into the work. */
@@ -1092,7 +1109,7 @@ export const api = {
 async function postPath<T>(path: string, args?: unknown): Promise<T> {
   const response = await fetch(path, {
     method: args === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "", "X-Tender-Token": tenderToken() ?? "" },
+    headers: { "Content-Type": "application/json", "X-Visitor-Id": visitorId(), "X-Workshop-Token": workshopToken() ?? "", "X-Tender-Token": tenderToken() ?? "", "X-Room-Seat": roomSeatToken() ?? "" },
     body: args === undefined ? undefined : JSON.stringify(args),
   });
   const data = (await response.json()) as { error?: string };
@@ -1100,3 +1117,33 @@ async function postPath<T>(path: string, args?: unknown): Promise<T> {
   if (!response.ok) throwApiError(response, data);
   return data as T;
 }
+
+// ── The room layer's own endpoints (server/src/rooms.ts) ────
+export interface RoomEnterResult {
+  ok: true; code: string; door: "instance" | "homeland"; seatToken: string;
+  hostName: string; isHost: boolean;
+  you: { tenderId: number | null; name: string; tileId: number | null; watcher: boolean };
+}
+export interface RoomSeatView {
+  tenderId: number | null; name: string; watcher: boolean; isHost: boolean;
+  tileId: number | null; away: boolean; classKey: string | null; weaponKey: string | null; level: number;
+}
+export interface RoomStateView {
+  ok: true; code: string; door: "instance" | "homeland"; hostName: string;
+  seats: RoomSeatView[];
+  seed: { level: number; stage: string; fedEnergy: number } | null;
+  tale: { at: number; kind: string; name?: string; text: string }[];
+  landDoor: { privacy: "public" | "password"; hasPassword: boolean };
+}
+export const roomApi = {
+  enter: (args: { door: "homeland" | "starseed" | "room" | "join"; room?: string; password?: string; watch?: boolean; name?: string }) =>
+    postPath<RoomEnterResult>("/api/room/enter", args),
+  state: () => postPath<RoomStateView>("/api/room/state"),
+  stand: (tileId: number) => postPath<{ ok: true; tileId: number }>("/api/room/stand", { tileId }),
+  roll: (args: { label?: string; sides?: number; count?: number }) =>
+    postPath<{ ok: true; rolls: number[]; total: number; sides: number }>("/api/room/roll", args),
+  tell: (text: string) => postPath<{ ok: true }>("/api/room/tell", { text }),
+  setDoor: (args: { privacy: "public" | "password"; password?: string }) =>
+    postPath<{ ok: true; privacy: string }>("/api/room/door", args),
+  leave: () => postPath<{ ok: true }>("/api/room/leave", {}),
+};

@@ -3,9 +3,11 @@
 // Discord. Kept as its own module so Vite splits the room's whole
 // graph (React, art, styles) into a chunk the front page imports
 // only when the door has done its work.
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, useState, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Table from "./Table";
+import RoomSeat from "./RoomSeat";
 import { doorRecordLines } from "./tableSdk";
 import "./table.css";
 
@@ -66,15 +68,57 @@ class RoomErrorBoundary extends Component<{ children: ReactNode }, RoomFaultStat
   }
 }
 
+// THE DISCORD INTERFACE'S TABS (THE HOMELAND SERVES DISCORD,
+// 2026-10-28, with Nigel's two amendments of 11:57):
+//   · THE ROOM — the seat itself now: the homeland served
+//     whole, with the room layer on it (RoomSeat).
+//   · TEST GROUND — the old Table page, kept whole as its own
+//     tab (amendment 1: retired from serving the seat, never
+//     removed).
+//   · CAMPAIGN MODE — the campaign board (the Push 42 3D
+//     storyteller board + console) opened as a tab in the same
+//     interface (amendment 2): the same Table entered at its
+//     campaign door; its internals are untouched.
+// Only the open tab is mounted: the old Table's socket and the
+// room's polls are effectful, and two live seats in one page
+// would seat the same player twice.
+type TabId = "room" | "test" | "campaign";
+function TableShell() {
+  const [tab, setTab] = useState<TabId>("room");
+  return (
+    <div className="table-shell">
+      <nav className="table-tabs" aria-label="The Table's faces">
+        <button type="button" data-tab="room" className={tab === "room" ? "active" : ""} onClick={() => setTab("room")}>
+          🕯️ The Room
+        </button>
+        <button type="button" data-tab="test" className={tab === "test" ? "active" : ""} onClick={() => setTab("test")}>
+          🧪 Test Ground
+        </button>
+        <button type="button" data-tab="campaign" className={tab === "campaign" ? "active" : ""} onClick={() => setTab("campaign")}>
+          📖 Campaign Mode
+        </button>
+      </nav>
+      <div data-tab-panel={tab}>
+        {tab === "room" && <RoomSeat />}
+        {tab === "test" && <Table />}
+        {tab === "campaign" && <Table campaignDoor />}
+      </div>
+    </div>
+  );
+}
+
 export function mountTable(): void {
   const rootEl = document.getElementById("root");
   if (!rootEl) throw new Error("missing app root element");
   // No StrictMode here on purpose: the Table's connection is an
   // effectful socket, and a doubled dev mount would seat the same
   // player twice.
+  const queryClient = new QueryClient();
   createRoot(rootEl).render(
     <RoomErrorBoundary>
-      <Table />
+      <QueryClientProvider client={queryClient}>
+        <TableShell />
+      </QueryClientProvider>
     </RoomErrorBoundary>,
   );
 }
