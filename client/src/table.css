@@ -1277,7 +1277,13 @@ button { font-family: inherit; }
 }
 .table-tabs button.active { border-color: #e9c979; color: #e9c979; background: #2a1f13; }
 .room-seat { display: flex; align-items: stretch; min-height: 0; flex: 1; }
-.room-seat-map { flex: 1 1 auto; min-width: 0; position: relative; }
+/* overflow:hidden (the room's stylesheet, 2026-10-28): the
+   seat is the map's window — at home the app shell clips
+   the homeland's face to the window, and the bottom dock
+   hangs half its height below the view's foot by design,
+   clipped there. Unclipped in the seat, that hanging half
+   stretched the page's scrollable area past the window. */
+.room-seat-map { flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; }
 .room-furniture {
   flex: 0 0 300px; max-width: 86vw; overflow-y: auto; padding: 12px 14px;
   background: #1d150e; border-left: 1px solid #4a3520; color: #e8dcc3;
@@ -1304,3 +1310,23 @@ button { font-family: inherit; }
 }
 .table-shell > [data-tab-panel] { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .table-shell > [data-tab-panel] > .room-seat { flex: 1 1 auto; min-height: 0; }
+/* THE ROOM'S SEAT IS WINDOW-BOUND (the room's stylesheet,
+   2026-10-28): theme.css now rides this entry (TableApp
+   imports it ahead of this sheet) so the homeland's face
+   stands styled in the room — but two sizings were written
+   for a page that IS the homeland and cannot stand in a
+   seat. The shell is only min-height, so the seat's row
+   grew to its tallest content (the furniture rail at ~890px
+   on a 720px window) and the page scrolled; and the view's
+   min-height:100vh is a whole window, not a seat. While the
+   Room tab stands the shell takes the window's exact
+   height — the seat is then the window minus the tab bar,
+   the furniture scrolls inside its own rail as it was
+   drawn to, and the view is the seat's height exactly, so
+   the map fills the seat (and the seat clips the face at
+   its own edges, as the app shell clips it at home). The
+   other tabs keep the standing min-height shell,
+   untouched; the homeland's own page never wears this
+   shell at all. */
+.table-shell:has(> [data-tab-panel="room"]) { height: 100dvh; }
+.room-seat-map > .territory-view { min-height: 0; height: 100%; }

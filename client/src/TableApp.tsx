@@ -9,6 +9,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Table from "./Table";
 import RoomSeat from "./RoomSeat";
 import { doorRecordLines } from "./tableSdk";
+// THE ROOM'S STYLESHEET (2026-10-28): the homeland's face
+// (Territory) stands inside this entry's Room tab, and every
+// rule that lays Territory out — the bag's fixed seat, the
+// view's fit, the hand, the Pack panel, the Eye's glyph —
+// lives in theme.css, which only the homeland's own entry
+// imported before tonight: in the room the face rendered
+// unstyled (the bag at its art's intrinsic size, the view
+// thousands of px tall). theme.css comes FIRST so table.css
+// keeps its overrides over the shared ground.
+import "./theme.css";
 import "./table.css";
 
 // THE ERROR NET (Nigel, 2026-10-24): the room once had no
