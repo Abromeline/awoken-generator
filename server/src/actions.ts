@@ -4844,15 +4844,29 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
     if (!rainFoes.length && !tile.cursed) return none;
     // The sky opens ONCE: the pool is rolled whole — the base
     // dice plus one per attunement level snapshotted at the
-    // cast — and falls on everything under the writing.
+    // cast — and SPLITS between every foe under the writing
+    // (N50 split — parity closing programme, 2026-10-28: the
+    // Table's split is the true behaviour, as this ground's
+    // own cast comment has always promised): each foe takes
+    // the pool divided by the foes' count, floored, and the
+    // remainder walks down the line one point at a time, in
+    // the order the foes stand — the Table's reckoning in
+    // table.ts (springHex's shardrain branch), word for word.
+    // A lone foe takes the whole pool. The curse on the
+    // writing's own ground is still ground by the whole pool
+    // below — that grind is this ground's separate law and
+    // is not the foes' split.
     const dice = Math.max(1, (nums.diceBase ?? 2) + (nums.dicePerLevel ?? 1) * (nums.rainLevel ?? 0));
     let pool = 0;
     for (let i = 0; i < dice; i++) pool += homelandDN(6);
     sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(w.id);
     let felled = false;
+    const share = rainFoes.length ? Math.floor(pool / rainFoes.length) : 0;
+    let rem = pool - share * rainFoes.length;
     for (const x of rainFoes) {
+      const harm = share + (rem > 0 ? (rem--, 1) : 0);
       const cur = x.hp == null ? HOMELAND_FRAY_HP : Number(x.hp);
-      const next = cur - pool;
+      const next = cur - harm;
       if (next <= 0) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(x.id); felled = true; }
       else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, x.id);
     }
