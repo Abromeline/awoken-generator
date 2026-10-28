@@ -28,6 +28,11 @@
 //       the tile's tray by the same measure.
 //   S5. Shrine doubling still applies — to a binder's own
 //       interval (2 hours beside a blessing shrine = ~4).
+//   S6. The map-open channeling is folded into the time law
+//       (the same ruling, its own commit): a map read pays
+//       no point by itself — a binder standing 2 hours is
+//       settled ~2 by the read, and a second read at once
+//       pays ~nothing more.
 // The sky is assumed calm (attunement rate multiplier 1 —
 // thinning would double every accrual figure alike).
 // Run: node scripts/drive-settle-clocks.mjs
@@ -130,6 +135,7 @@ const awF = makeAw("Binder F", ["root", "root", "root"]);
 const awP1 = makeAw("Press One", ["root", "root", "root"]);
 const awP2 = makeAw("Press Two", ["tide", "tide", "tide"]);
 const awP3 = makeAw("Press Three", ["root", "root", "root"]);
+const awG = makeAw("Binder G", ["tide", "tide", "tide"]);
 
 const stand = (awakenedId, tileId, stance, placedMsAgo) => {
   const placed = Date.now() - placedMsAgo;
@@ -249,6 +255,16 @@ const t5row = db.prepare("SELECT mix_points AS mix, attune_anchor_at AS anchor, 
 ok("S3b: a company-less tile's stale anchor is retired", t5row.anchor === null, `anchor=${t5row.anchor}`);
 ok("S3b: and nothing poured for its empty hours (ledger and tray untouched)",
   t5row.mix === JSON.stringify({ sky: 0, stone: 0, tide: 0, root: 2 }) && (t5row.grow ?? 0) === 0, `mix=${t5row.mix} grow=${t5row.grow}`);
+
+// ═══ S6. The map read pays no point by itself ═══
+stand(awG, t3, "binding", 2 * H);
+const tideBeforeMap = poolOf("tide");
+await call("getTerritory", {}, token);
+const tideAfterOne = poolOf("tide");
+ok("S6: one map read settles the binder's interval (~2 tide for 2 hours stood — not 1 point for the read)",
+  near(tideAfterOne - tideBeforeMap, 2, 0.06), `delta=${tideAfterOne - tideBeforeMap}`);
+await call("getTerritory", {}, token);
+ok("S6: a second map read at once pays ~nothing (no per-read point)", poolOf("tide") - tideAfterOne < 0.03, `delta=${poolOf("tide") - tideAfterOne}`);
 
 console.log(`\nDRIVE (FIX THE CLOCKS — standing pays only for the time actually stood): ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

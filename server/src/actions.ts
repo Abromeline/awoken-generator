@@ -11499,75 +11499,22 @@ export const handlers = {
       console.error("[TerrainAttune] failed", e);
     }
 
-    // Aspect attunement: binding Awoken channel elements into the pool.
-    // 10 points of an element → an aspect of that element is born.
-    const ASPECT_THRESHOLD = 10;
-    const binders = placements.filter(p => p.stance === "binding");
-    if (binders.length) {
-      const awakenedIds = [...new Set(binders.map(p => p.awakenedId))];
-      const aws = await db.select().from(schema.awakened)
-        .where(inArray(schema.awakened.id, awakenedIds));
-      const awMap = new Map(aws.map(a => [a.id, a]));
-      for (const p of binders) {
-        const aw = awMap.get(p.awakenedId);
-        if (!aw) continue;
-        try {
-          const comp = JSON.parse(aw.compositionJson || "[]");
-          // Elemental points: pieces = 1 pt, aspects = 1 pt per level.
-          // The binder's 1 channeled point per tick is DIVIDED across all
-          // its elements in proportion to those points (Nigel, 2026-10-12) —
-          // the stronger element receives the larger share.
-          const counts: Record<string, number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-          const compEls = await compositionElements(comp);
-          comp.forEach((layer: any, i: number) => {
-            const el = compEls[i];
-            if (el !== "fire" && el in counts) {
-              counts[el] += layer.category === "aspect" ? ((layer as any).aspectLevel ?? 1) : 1;
-            }
-          });
-          const totalPts = Object.values(counts).reduce((a, b) => a + b, 0);
-          if (totalPts === 0) continue;
-          for (const [el, pts] of Object.entries(counts)) {
-            if (pts === 0) continue;
-            const share = pts / totalPts; // fraction of the 1 channeled point
-            const existing = await db.select().from(schema.aspectAttunement)
-              .where(and(
-                eq(schema.aspectAttunement.ownerKey, ownerKey),
-                eq(schema.aspectAttunement.element, el as any)
-              )).limit(1);
-            const newPoints = (existing[0]?.points ?? 0) + share;
-            if (existing.length) {
-              await db.update(schema.aspectAttunement)
-                .set({ points: newPoints, lifetimeGains: sql`${schema.aspectAttunement.lifetimeGains} + ${share}` })
-                .where(and(
-                  eq(schema.aspectAttunement.ownerKey, ownerKey),
-                  eq(schema.aspectAttunement.element, el as any)
-                ));
-            } else {
-              await db.insert(schema.aspectAttunement)
-                .values({ ownerKey, element: el as any, points: share, lifetimeGains: share });
-            }
-            // Threshold reached → birth an aspect (overflow is kept)
-            if (newPoints >= ASPECT_THRESHOLD) {
-              const pool = await db.select().from(schema.layerAssets)
-                .where(eq(schema.layerAssets.category, "aspect"));
-              const matches = el === "fire" ? [] : birthableAspects(pool as any[], el);
-              if (matches.length) {
-                const pick = matches[Math.floor(Math.random() * matches.length)];
-                await db.insert(schema.aspectInventory)
-                  .values({ ownerKey, aspectAssetId: pick.id, createdAt: new Date() });
-                await db.update(schema.aspectAttunement)
-                  .set({ points: newPoints - ASPECT_THRESHOLD })
-                  .where(and(
-                    eq(schema.aspectAttunement.ownerKey, ownerKey),
-                    eq(schema.aspectAttunement.element, el as any)
-                  ));
-              }
-            }
-          }
-        } catch { /* skip malformed composition */ }
-      }
-    }
+    // FIX THE CLOCKS — THE MAP-OPEN CHANNELING, FOLDED
+    // (Nigel, 2026-10-28: "standing pays only for the time
+    // actually stood"): this settle used to pay every
+    // standing binder one full point per map READ, split by
+    // its composition — a point for the reading itself, not
+    // for any time stood. Under the ruling the channeling
+    // folds into the same time law as the accrual: a map
+    // read still SETTLES the standing intervals (as every
+    // settle does), but it pays for the standing, never for
+    // the read. A binder's map-side gathering is now exactly
+    // its interval, reckoned by settleAspectAccrual — the
+    // same reckoning the attunement tab's read performs.
+    // (This reading of his sentence is the Keeper's, flagged
+    // in the build report; it stands in its own commit so it
+    // can be struck cleanly if he rules otherwise.)
+    await settleAspectAccrual(ownerKey, Date.now());
 
     const buildings = await db.select().from(schema.territoryBuildings).where(eq(schema.territoryBuildings.ownerKey, ownerKey));
     const mood = await getWorldMood();
