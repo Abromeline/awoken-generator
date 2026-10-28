@@ -683,17 +683,45 @@ body.defeat-flash {
    stood before it are struck — see the stripped ledger. */
 .pieces-menu { margin-top: 14px; border-top: 1px solid rgba(201,162,39,0.35); padding-top: 10px; }
 .pieces-menu-title { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.04em; color: #e8c766; }
-.piece-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.piece-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* THE SMALLER EXAMPLES (Nigel, 2026-10-28, amending the faces
+   build the same morning: "I was hoping for much smaller
+   images for the examples still my art just much smaller"):
+   the SAME drawn faces, unchanged — rendered at thumbnail
+   scale beside each piece's name, so the choices read as one
+   tight, compact set instead of big sprawling cards. */
 .piece-choice {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px;
   background: rgba(184,155,94,0.10); color: #f0e6cc; border: 1px solid #8a6d3b;
-  border-radius: 10px; padding: 8px 6px; font-size: 12.5px; cursor: pointer;
+  border-radius: 8px; padding: 5px 8px; font-size: 12.5px; cursor: pointer; text-align: left;
 }
-.piece-choice img { width: 100%; height: 64px; object-fit: contain; pointer-events: none; }
+.piece-choice img { width: 42px; height: 34px; flex: 0 0 auto; object-fit: contain; pointer-events: none; }
 .piece-choice.in-hand { background: rgba(232,199,102,0.28); border-color: #ffd700; }
 .pieces-menu-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .piece-choice.plain { flex-direction: row; justify-content: center; flex: 1 1 auto; padding: 8px 10px; font-size: 13px; }
 .pieces-menu-note { margin: 8px 0 0; font-size: 13px; line-height: 1.45; }
+/* THE BUILDING ABILITY TAB (THE STONE CAST, 2026-10-28): the
+   pieces menu's new seat — a side panel on the lead builder's
+   name, in the building panel's own posture. */
+.pieces-seat-closed { margin: 14px 0 0; border-top: 1px solid rgba(201,162,39,0.35); padding-top: 10px; font-size: 13px; line-height: 1.45; color: #cbbd93; }
+.ability-side-panel {
+  position: fixed; right: 0; top: 0; bottom: 0;
+  width: 340px; max-width: 92vw; overflow-y: auto;
+  background: rgba(10,10,25,0.97); border-left: 2px solid #b89b5e;
+  padding: 16px; z-index: 40; color: #f0e6cc;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.5);
+}
+.ability-side-panel .pieces-menu { margin-top: 10px; }
+.ability-list { margin-top: 10px; }
+.ability-entry { border: 1px solid #8a6d3b; border-radius: 8px; padding: 7px 10px; font-size: 13.5px; background: rgba(184,155,94,0.10); }
+.ability-entry.active { background: rgba(232,199,102,0.22); border-color: #ffd700; }
+.ability-crew { font-size: 12.5px; line-height: 1.5; color: #cbbd93; margin: 10px 0 0; }
+.ability-strike { margin-top: 12px; border-top: 1px solid rgba(201,162,39,0.35); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.ability-strike select { background: rgba(20,16,30,0.95); color: #f0e6cc; border: 1px solid #8a6d3b; border-radius: 6px; padding: 4px 6px; font-size: 13px; max-width: 200px; }
+.ability-strike-note { flex: 1 1 100%; font-size: 12.5px; color: #cbbd93; }
+.ability-work { margin-top: 12px; border-top: 1px solid rgba(201,162,39,0.35); padding-top: 10px; }
+.ability-work h4 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.04em; color: #e8c766; }
+.ability-work-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px solid rgba(201,162,39,0.14); }
 /* The marching layer (War-Ground, 2026-10-16): a patrolling Awoken
    bobs as it walks; the patrol bar rides the screen's foot. */
 @keyframes march-bob {

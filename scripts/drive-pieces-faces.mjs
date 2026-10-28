@@ -11,8 +11,12 @@
 //      protection reads the ground beneath, like every piece.
 //   §F2 THE FACES, IN A REAL BROWSER: the struck door is gone
 //      from the DOM and from the source (no construction
-//      toggle, no build bar); the building menu's pieces menu
-//      is the door and its six choices are buttons made from
+//      toggle, no build bar); the pieces menu seats in the
+//      BUILDING ABILITY TAB on a Stone Awoken's wheel — the
+//      one door since the Stone Cast (2026-10-28, Nigel's
+//      rulings of 2026-10-27 20:23–21:00), the free-standing
+//      pieces seat in the building panel closed — and its six
+//      choices are buttons made from
 //      the pieces' own drawn faces (the shipped assets are
 //      matched byte for byte); the laid square wears HIS SLAB
 //      (Build 1.psd L19) — the served image is that very file;
@@ -97,6 +101,30 @@ async function servedPieces() {
   land = await callOk("getTerritory", {}, token);
   return land.buildPieces ?? [];
 }
+/* THE STONE CAST, RESTATED (2026-10-28): every cast in this
+ * drive names its LEAD BUILDER — a fielded Awoken holding 3
+ * Rock, "Faces Mason" — because the cast's gate refuses a
+ * cast with no qualified lead, and the pieces menu's one door
+ * is now that Awoken's building ability tab (Nigel's rulings
+ * of 2026-10-27 20:23–21:00). Pieces laid here BEGIN RISING;
+ * finishRises walks their clocks to the top where a witness
+ * is the law of standing work (the faces' portraits, the
+ * taking-away cascade) — drive-stone-cast proves the rise. */
+const LEAD = (() => {
+  const insA = db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, ?, ?, 'image/png', ?)");
+  const parts = [["Mason Body", "body", 3, 3], ["Mason Arms", "arms", 3, 3], ["Mason Crown", "head", 3, 3]]
+    .map(([n, c, p, t]) => ({ id: Number(insA.run(n, c, p, t, "stone", `faces-mason/${n}.png`, now).lastInsertRowid), name: n, category: c, power: p, toughness: t, element: "stone" }));
+  const composition = JSON.stringify(parts.map(p => ({ source_id: `db:${p.id}`, name: p.name, category: p.category, rarity: "common", power: p.power, toughness: p.toughness, element: p.element })));
+  const id = Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES ('Faces Mason', 'Faces Mason', 'faces-mason/mason.png', ?, 'tender', 'Faces Tender', ?, ?)").run(composition, ownerKey, now).lastInsertRowid);
+  const t00 = land.tiles.find(t => t.q === 0 && t.r === 0);
+  db.prepare(`INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, stance, follow, hp, pos_q, pos_r, shield, shield_max, stance_ordered)
+    VALUES (?, ?, ?, ?, ?, 'defense', 0, 99, ?, ?, NULL, NULL, 0)`).run(ownerKey, id, t00.id, now, now, t00.q, t00.r);
+  return id;
+})();
+async function finishRises() {
+  db.prepare("UPDATE build_pieces SET rise_updated_at = ? WHERE owner_key = ?").run(Date.now() - 30 * 60000, ownerKey);
+  return servedPieces();
+}
 
 /* ── protection re-reckoning (the same witness §B keeps) ──── */
 function axialRound(q, r) {
@@ -150,29 +178,29 @@ const lineAngle0 = (e) => {
 const edgeDistToHeart = (e) => Math.hypot((e[0][0] + e[1][0]) / 2 - HEX_HEART0[0], (e[0][1] + e[1][1]) / 2 - HEX_HEART0[1]);
 const seamOf = (sq) => [...sqEdgesOf(sq)].sort((a, b) => edgeDistToHeart(a) - edgeDistToHeart(b))[0];
 const square0 = hex00.filter(p => p.kind === "square").find(sq => Math.abs(lineAngle0(seamOf(sq))) <= 10);
-const layS = await callOk("placeBuildPiece", { kind: "square", verts: square0.verts }, token);
+const layS = await callOk("placeBuildPiece", { leadId: LEAD, kind: "square", verts: square0.verts }, token);
 ok("§F1 a square foundation is laid", layS.ok === true && layS.piece.kind === "square");
 const sqEdges = sqEdgesOf(square0);
 const longEdge = sqEdges.filter(e => Math.abs(lineAngle0(e)) <= 10).sort((a, b) => edgeDistToHeart(b) - edgeDistToHeart(a))[0];
 const seamEdge = seamOf(square0);
 const sideEdge = sqEdges.find(e => e !== longEdge && e !== seamEdge);
-const layHalf = await callOk("placeBuildPiece", { kind: "halfwall", verts: longEdge }, token);
+const layHalf = await callOk("placeBuildPiece", { leadId: LEAD, kind: "halfwall", verts: longEdge }, token);
 ok("§F1 a half wall stands on the square's far edge", layHalf.ok === true && layHalf.piece.kind === "halfwall");
 const halfSegs = collisionSegments("halfwall", layHalf.piece.footprint);
 ok("§F1 the half wall's collision is its whole edge, one segment end to end (walkers stopped; a leap crosses it as it crosses every wall)",
   halfSegs.length === 1 && JSON.stringify(halfSegs[0]) === JSON.stringify(layHalf.piece.footprint),
   JSON.stringify(halfSegs));
-const layNarrow = await callOk("placeBuildPiece", { kind: "narrow", verts: sideEdge }, token);
+const layNarrow = await callOk("placeBuildPiece", { leadId: LEAD, kind: "narrow", verts: sideEdge }, token);
 ok("§F1 a narrow wall stands on the square's side edge, its own piece beside the full wall", layNarrow.ok === true && layNarrow.piece.kind === "narrow");
 const narrowSegs = collisionSegments("narrow", layNarrow.piece.footprint);
 ok("§F1 the narrow wall's collision is its whole edge, one segment end to end",
   narrowSegs.length === 1 && JSON.stringify(narrowSegs[0]) === JSON.stringify(layNarrow.piece.footprint),
   JSON.stringify(narrowSegs));
-const dupHalf = await call("placeBuildPiece", { kind: "halfwall", verts: longEdge }, token);
+const dupHalf = await call("placeBuildPiece", { leadId: LEAD, kind: "halfwall", verts: longEdge }, token);
 ok("§F1 a second half wall on the same edge refuses", dupHalf.status >= 400, `status ${dupHalf.status}`);
-const crossKind = await call("placeBuildPiece", { kind: "wall", verts: longEdge }, token);
+const crossKind = await call("placeBuildPiece", { leadId: LEAD, kind: "wall", verts: longEdge }, token);
 ok("§F1 a full wall on the half wall's edge refuses too (one wall of any kind per edge)", crossKind.status >= 400, `status ${crossKind.status}`);
-const strayHalf = await call("placeBuildPiece", { kind: "halfwall", verts: [[9, 9], [10, 9]] }, token);
+const strayHalf = await call("placeBuildPiece", { leadId: LEAD, kind: "halfwall", verts: [[9, 9], [10, 9]] }, token);
 ok("§F1 a half wall on no floor's edge refuses", strayHalf.status >= 400, `status ${strayHalf.status}`);
 {
   const served = await servedPieces();
@@ -210,12 +238,13 @@ for (const cand of hex00.filter(p => p.kind === "square")) {
 ok("§F1 a square standing on a slant edge, with a shallow side edge, stands in the tiling", !!slantSquare && !!shallowEdge);
 let layWallShallow = null;
 if (slantSquare) {
-  await callOk("placeBuildPiece", { kind: "square", verts: slantSquare.verts }, token);
-  layWallShallow = await callOk("placeBuildPiece", { kind: "wall", verts: shallowEdge }, token);
+  await callOk("placeBuildPiece", { leadId: LEAD, kind: "square", verts: slantSquare.verts }, token);
+  layWallShallow = await callOk("placeBuildPiece", { leadId: LEAD, kind: "wall", verts: shallowEdge }, token);
   ok("§F1 a wall stands on the square's shallow side edge", layWallShallow.ok === true && layWallShallow.piece.kind === "wall");
 }
 
 /* ── §F2 THE FACES, IN A REAL BROWSER ──────────────────────── */
+await finishRises(); // the faces are photographed standing, at full height (the Stone Cast note above)
 console.log("§F2 the faces — the menu is the door; the square wears his slab; the shallow wall seats true");
 const territorySrc = readFileSync("client/src/Territory.tsx", "utf8");
 const themeSrc = readFileSync("client/src/theme.css", "utf8");
@@ -263,13 +292,55 @@ async function clearOverlays() {
   });
   await sleep(500);
 }
-const openBuildingPanel = async () => {
-  const open = await page.evaluate(() => !!document.querySelector(".building-side-panel"));
-  if (!open) { await page.evaluate(() => document.querySelector(".castle-toggle")?.click()); await sleep(400); }
+// THE DOOR, RESTATED (2026-10-28, THE STONE CAST): the
+// pieces menu stands in the building ability tab on the
+// mason's wheel — tap his figure, tap the wheel's Abilities
+// door, pick in the tab. The tab stays open while the piece
+// is worked (the map's presses beside it belong to the work).
+const openAbilityTab = async () => {
+  const open = await page.evaluate(() => !!document.querySelector(".ability-side-panel"));
+  if (open) return;
+  // On a heavy first entry the figures can take a while to
+  // stand on the land — wait for them before sweeping.
+  await page.waitForFunction(() => document.querySelectorAll("g.field-drifter, g.field-patroller").length > 0, { timeout: 25000 }).catch(() => {});
+  for (let sweep = 0; sweep < 3; sweep++) {
+    // The return report's ceremony card can land over the map
+    // a breath after entry and swallow every tap — clear
+    // overlays inside the sweep, not only before it.
+    await clearOverlays();
+    const figs = await page.evaluate(() => {
+      const out = [];
+      for (const g of document.querySelectorAll("g.field-drifter, g.field-patroller")) {
+        const r = g.getBoundingClientRect();
+        if (r.width) out.push({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+      }
+      return out;
+    });
+    for (const f of figs) {
+      await page.touchscreen.tap(f.cx, f.cy);
+      await sleep(700);
+      const s = await page.evaluate(() => ({
+        wheel: !!document.querySelector(".gw-wheel"),
+        caption: document.querySelector(".gw-caption")?.textContent ?? "",
+      }));
+      if (s.wheel && s.caption.includes("Faces Mason")) {
+        const box = await page.evaluate(() => {
+          const d = [...document.querySelectorAll(".gw-disc")].find((x) => (x.textContent ?? "").includes("Abilities"));
+          if (!d) return null;
+          const r = d.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        if (box) { await page.touchscreen.tap(box.x, box.y); await sleep(800); }
+        return;
+      }
+      if (s.wheel) { await page.touchscreen.tap(1350, 40); await sleep(500); }
+    }
+    await sleep(500);
+  }
 };
 const pickPiece = async (tool) => {
-  await openBuildingPanel();
-  await page.evaluate((t) => { document.querySelector(`.pieces-menu .piece-choice[data-tool="${t}"]`)?.click(); }, tool);
+  await openAbilityTab();
+  await page.evaluate((t) => { document.querySelector(`.ability-side-panel .pieces-menu .piece-choice[data-tool="${t}"]`)?.click(); }, tool);
   await sleep(300);
 };
 await enterTerritory();
@@ -323,10 +394,11 @@ if (shallow && shallow.nums && shallow.line) {
 }
 
 /* The menu, photographed wearing his artwork: the menu seats
- * at the panel's foot, below the buildings list — bring it
- * into view and take its own portrait. */
-await openBuildingPanel();
-await page.evaluate(() => document.querySelector(".pieces-menu")?.scrollIntoView({ block: "center" }));
+ * in the Stone Awoken's ability tab (the Stone Cast,
+ * 2026-10-28) — open the tab on the mason's wheel and take
+ * the menu's own portrait. */
+await openAbilityTab();
+await page.evaluate(() => document.querySelector(".ability-side-panel .pieces-menu")?.scrollIntoView({ block: "center" }));
 await sleep(400);
 const panelRect = await page.evaluate(() => {
   const r = document.querySelector(".pieces-menu")?.getBoundingClientRect();
@@ -342,8 +414,8 @@ if (panelRect) {
     },
   });
 }
-ok("§F2 the pieces menu stands in the building panel for its photograph", !!panelRect);
-const menuImgs = await page.evaluate(() => [...document.querySelectorAll(".pieces-menu .piece-choice")].map(b => ({
+ok("§F2 the pieces menu stands in the Stone Awoken's ability tab for its photograph", !!panelRect);
+const menuImgs = await page.evaluate(() => [...document.querySelectorAll(".ability-side-panel .pieces-menu .piece-choice")].map(b => ({
   tool: b.getAttribute("data-tool"), img: b.querySelector("img")?.getAttribute("src") ?? "",
 })));
 ok("§F2 every piece choice in the menu is a button made from the piece's own drawn face",

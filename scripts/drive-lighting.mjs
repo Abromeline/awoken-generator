@@ -164,6 +164,24 @@ let tiles = await tilesOf(A);
 const seedTileId = db.prepare("SELECT tile_id AS id FROM star_seeds WHERE owner_key = ?").get(A.ownerKey).id;
 const seedTile = tiles.find((t) => t.id === seedTileId);
 ok("§H1 the seed's tile stands on the land", !!seedTile);
+/* THE STONE CAST, RESTATED (2026-10-28): every cast in this
+ * drive names its LEAD BUILDER — a fielded Awoken holding 3
+ * Rock, "Lamp Mason" — because the cast's gate refuses a cast
+ * with no qualified lead (Nigel's rulings of 2026-10-27
+ * 20:28–21:00). The wall and the door below are read while
+ * still RISING: a rising piece carries its collision
+ * throughout the rise, and so bars (and threads) the light —
+ * the cast's own law; drive-stone-cast proves the rise. */
+const LEAD_A = (() => {
+  const insA = db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, ?, ?, 'image/png', ?)");
+  const parts = [["Mason Body", "body", 3, 3], ["Mason Arms", "arms", 3, 3], ["Mason Crown", "head", 3, 3]]
+    .map(([n, c, p, t]) => ({ id: Number(insA.run(n, c, p, t, "stone", `lighting-mason/${n}.png`, now).lastInsertRowid), name: n, category: c, power: p, toughness: t, element: "stone" }));
+  const composition = JSON.stringify(parts.map(p => ({ source_id: `db:${p.id}`, name: p.name, category: p.category, rarity: "common", power: p.power, toughness: p.toughness, element: p.element })));
+  const id = Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES ('Lamp Mason', 'Lamp Mason', 'lighting-mason/mason.png', ?, 'tender', 'Light Tender', ?, ?)").run(composition, A.ownerKey, now).lastInsertRowid);
+  db.prepare(`INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, stance, follow, hp, pos_q, pos_r, shield, shield_max, stance_ordered)
+    VALUES (?, ?, ?, ?, ?, 'defense', 0, 99, ?, ?, NULL, NULL, 0)`).run(A.ownerKey, id, seedTile.id, now, now, seedTile.q, seedTile.r);
+  return id;
+})();
 const ring1 = DIRS.map(([dq, dr]) => tileAt(tiles, seedTile.q + dq, seedTile.r + dr)).filter(Boolean);
 ok("§H1 the seed's own hex reads FIGHTING (2)", seedTile.light === 2, `light=${seedTile.light}`);
 ok("§H1 all six hexes around the beacon read FIGHTING (2)", ring1.length === 6 && ring1.every((t) => t.light === 2),
@@ -188,7 +206,7 @@ async function wallAcrossThrow(fromAx, toAx) {
     const centroid = [c.verts.reduce((s, v) => s + v[0], 0) / c.verts.length, c.verts.reduce((s, v) => s + v[1], 0) / c.verts.length];
     if (Math.hypot(centroid[0] - plateMid[0], centroid[1] - plateMid[1]) > 1.6) continue;
     if (placedKeys.has(c.key)) { floors.push({ cand: c }); continue; }
-    const r = await call("placeBuildPiece", { kind: c.kind, verts: c.verts }, A.token);
+    const r = await call("placeBuildPiece", { leadId: LEAD_A, kind: c.kind, verts: c.verts }, A.token);
     if (r.status === 200) floors.push({ cand: c });
   }
   let best = null;
@@ -218,7 +236,7 @@ const across = await wallAcrossThrow([seedTile.q, seedTile.r], [X.q, X.r]);
 ok("§H2 floors stand along the throw and one of their edges crosses it near its middle",
   !!across && across.tPar > 0.3 && across.tPar < 0.7, across ? `t=${across.tPar}` : "no edge");
 if (across) {
-  const wallPiece = await callOk("placeBuildPiece", { kind: "wall", verts: across.edge }, A.token);
+  const wallPiece = await callOk("placeBuildPiece", { leadId: LEAD_A, kind: "wall", verts: across.edge }, A.token);
   freezeBattle(A.ownerKey);
   tiles = await tilesOf(A);
   const xWalled = tiles.find((t) => t.id === X.id);
@@ -226,7 +244,7 @@ if (across) {
   const othersLit = ring1.filter((t) => t.id !== X.id).every((rt) => (tiles.find((t) => t.id === rt.id)?.light ?? -1) === 2);
   ok("§H2 the beacon's other five hexes stay FIGHTING behind no wall", othersLit);
   await callOk("removeBuildPiece", { id: wallPiece.piece.id }, A.token);
-  await callOk("placeBuildPiece", { kind: "door", verts: across.edge }, A.token);
+  await callOk("placeBuildPiece", { leadId: LEAD_A, kind: "door", verts: across.edge }, A.token);
   freezeBattle(A.ownerKey);
   tiles = await tilesOf(A);
   const xDoored = tiles.find((t) => t.id === X.id);
