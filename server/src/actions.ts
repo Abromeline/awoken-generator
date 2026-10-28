@@ -40,9 +40,9 @@ import { castModFor, partyBattleSeatFor } from "./table.js";
 // binding above (rooms.ts already imports this module; the
 // bindings are only ever called at request time, long after
 // both modules stand).
-import { roomSeatsOnLand, moveRoomSeatStand } from "./rooms.js";
+import { roomSeatsOnLand, moveRoomSeatStand, roomPackForLand, nextRoomPackSeat, roomPackSetMode, noteRoomTale, type RoomPackMode } from "./rooms.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
-import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, inventoryCanHold, recordDropEvent, drainDropEvents, type FellDrop } from "./drops.js";
+import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, takeHomelandPackAmount, takeFromInventory, inventoryCanHold, itemDisplayName, recordDropEvent, drainDropEvents, type FellDrop, type PackEntryView } from "./drops.js";
 import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_EMPOWERMENT_BONUS } from "./reagentSets.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
@@ -1179,6 +1179,77 @@ export async function payFellDrip(ownerKey: string, groundElement?: string | nul
   await addAspectPoints(ownerKey, element as AttunementElement, 0.1);
 }
 
+/* ── THE ROOM'S PACK — THE DEALING (Nigel, ruled
+ * 2026-10-28 12:54: "the pack should have three modes.
+ * Manual.. as it is with the split function added,
+ * round robin, and dealers choice") ──────────────────
+ * The Pack a fell fills is the LAND's Pack; where a
+ * room stands on the land, the room's dealing law
+ * rides it (rooms.ts holds the mode). In MANUAL and in
+ * DEALER'S CHOICE the take rests in the Pack whole, as
+ * it always has, and hands move it from there. In
+ * ROUND ROBIN each lot is dealt at once to the next
+ * seat in turn — into that seat's own keeping, under
+ * the same caps a claim answers to — and only what
+ * that seat cannot carry rests in the Pack. The
+ * dealing binds the land while the room stands on it,
+ * as the room's body and seed laws do: the settle that
+ * fills the Pack may be any seat's read, or the host's
+ * own read at home with the room standing behind them. */
+
+/** Land one drop with a seat (the round robin's
+ *  dealing): goods into their inventory, energy into
+ *  their purse, attunement into their pools — each
+ *  under its standing cap. Returns the measure that
+ *  could NOT land; it rests in the Pack. */
+async function landDropWithSeat(seatKey: string, drop: FellDrop): Promise<number> {
+  if (drop.kind === "item") {
+    if (!drop.itemKey) return drop.qty;
+    return addToInventory(seatKey, drop.itemKey, drop.qty).left;
+  }
+  if (drop.kind === "energy") {
+    const maxEnergy = await calculateMaxEnergy(seatKey);
+    const current = await getEnergyFor(seatKey);
+    const lands = Math.max(0, Math.min(drop.qty, maxEnergy - current));
+    if (lands > 0) await gainEnergy(seatKey, lands, maxEnergy);
+    return drop.qty - lands;
+  }
+  await addAspectPoints(seatKey, (drop.element ?? "root") as AttunementElement, drop.qty);
+  return 0;
+}
+
+interface DealtShare { seatKey: string; seatName: string; drop: FellDrop }
+
+/** Settle a take into a land's Pack under the room's
+ *  dealing law. The RESTED lots are landed in the Pack
+ *  here; the DEALT shares are spoken by the caller (a
+ *  notice under each dealt seat's own key). With no
+ *  room on the land, or a mode that lets the Pack
+ *  rest, this is landHomelandPack whole, as it always
+ *  was. */
+async function settlePackDrops(ownerKey: string, drops: FellDrop[]): Promise<{ rested: FellDrop[]; dealt: DealtShare[] }> {
+  const info = roomPackForLand(ownerKey);
+  if (!info || info.mode !== "roundrobin") {
+    landHomelandPack(ownerKey, drops);
+    return { rested: drops, dealt: [] };
+  }
+  const rested: FellDrop[] = [];
+  const dealt: DealtShare[] = [];
+  for (const drop of drops) {
+    const seat = nextRoomPackSeat(ownerKey);
+    if (!seat) { landHomelandPack(ownerKey, [drop]); rested.push(drop); continue; }
+    const seatKey = tenderOwnerKey(seat.tenderId);
+    const left = await landDropWithSeat(seatKey, drop);
+    if (left > 0) {
+      const rest = { ...drop, qty: left };
+      landHomelandPack(ownerKey, [rest]);
+      rested.push(rest);
+    }
+    if (left < drop.qty) dealt.push({ seatKey, seatName: seat.name, drop: { ...drop, qty: drop.qty - left } });
+  }
+  return { rested, dealt };
+}
+
 /** THE DRIP AS A DROP (the loot table fix, Nigel, ruled
  *  2026-10-25 18:46): on the homeland's own fell roads
  *  the drizzle no longer settles silently into the
@@ -1195,7 +1266,15 @@ export async function payDripAsDrop(ownerKey: string, groundElement?: string | n
   const element = rollDrip(groundElement);
   if (!element) return;
   const drop: FellDrop = { kind: "attunement", element, qty: 0.1 };
-  landHomelandPack(ownerKey, [drop]);
+  // The drizzle settles through the Pack's dealing law,
+  // like every lot that falls on the land: in a round
+  // robin room it is dealt to the seat whose turn
+  // stands, and that seat is told under their own key.
+  const { dealt } = await settlePackDrops(ownerKey, [drop]);
+  for (const share of dealt) {
+    sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+      .run(share.seatKey, `A drizzle of ${element} attunement settles on you — dealt by the Pack's turn.`, Date.now());
+  }
   if (fx && Number.isFinite(fx.q) && Number.isFinite(fx.r)) {
     recordDropEvent(ownerKey, { at: Date.now(), fromQ: fx.q, fromR: fx.r, drops: [drop] });
   }
@@ -5811,10 +5890,22 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
   try {
     const drops = rollFellTake(kind, groundElement);
     if (drops.length) {
-      landHomelandPack(ownerKey, drops);
       const kindName = kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : "dark";
-      sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
-        .run(ownerKey, `The felled ${kindName} leaves behind: ${describeDrops(drops)} — gathered in your Pack.`, Date.now());
+      // The take settles through the Pack's dealing law
+      // (settlePackDrops): what rests is gathered in the
+      // Pack and spoken on the land's ledger, as before;
+      // what the round robin deals is spoken under each
+      // dealt seat's own key, so the seat it fell to
+      // hears of it on their own read.
+      const { rested, dealt } = await settlePackDrops(ownerKey, drops);
+      if (rested.length) {
+        sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+          .run(ownerKey, `The felled ${kindName} leaves behind: ${describeDrops(rested)} — gathered in your Pack.`, Date.now());
+      }
+      for (const share of dealt) {
+        sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+          .run(share.seatKey, `The felled ${kindName} leaves behind: ${describeDrops([share.drop])} — dealt to you by the Pack's turn.`, Date.now());
+      }
       if (fx && Number.isFinite(fx.q) && Number.isFinite(fx.r)) {
         recordDropEvent(ownerKey, { at: Date.now(), fromQ: fx.q, fromR: fx.r, drops });
       }
@@ -7660,6 +7751,66 @@ async function reinforcementDeckFor(ownerKey: string, landKey: string = ownerKey
     });
   }
   return out;
+}
+
+/** THE SPLIT'S MEASURE (THE ROOM'S PACK, Nigel, ruled
+ *  2026-10-28 12:54): a named amount against a standing
+ *  Pack entry — goods and energy in whole measures, the
+ *  drizzle in tenths (its own smallest coin). No name
+ *  reads as the whole entry. Null when the name is no
+ *  measure the entry holds. */
+function packAmountOf(entry: PackEntryView, raw: unknown): number | null {
+  if (raw === undefined || raw === null) return entry.qty;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (entry.kind === "attunement") {
+    const tenths = Math.round(n * 10);
+    if (tenths < 1 || tenths > Math.round(entry.qty * 10)) return null;
+    return tenths / 10;
+  }
+  if (!Number.isInteger(n) || n < 1 || n > entry.qty) return null;
+  return n;
+}
+
+/** PROVE A PACK AMOUNT LANDS with a Tender (the split
+ *  and the dealing share this proof): goods under the
+ *  inventory's caps, energy under the purse's. A named
+ *  amount is EXACT — it must land whole, or the act is
+ *  refused in words and the entry stands. (An unnamed
+ *  whole claim keeps the standing road's own proofs,
+ *  in the claim handler below.) Nothing is landed
+ *  here; the caller takes from the Pack, then lands. */
+async function assertPackAmountLands(targetKey: string, entry: PackEntryView, amount: number, carrier: string): Promise<void> {
+  if (entry.kind === "item") {
+    if (!entry.itemKey || !inventoryCanHold(targetKey, entry.itemKey, amount)) {
+      badRequest(`${carrier} inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in the Pack.`);
+    }
+    return;
+  }
+  if (entry.kind === "energy") {
+    const maxEnergy = await calculateMaxEnergy(targetKey);
+    const current = await getEnergyFor(targetKey);
+    if (current >= maxEnergy) badRequest(`${carrier} energy stands full — spend some, and the orb will wait in the Pack.`);
+    if (current + amount > maxEnergy) {
+      badRequest(`${carrier} purse has room for ${maxEnergy - current} more energy, not ${amount} — name a smaller split, and it lands.`);
+    }
+  }
+}
+
+/** LAND A PROVEN PACK AMOUNT with a Tender: goods
+ *  into the inventory, energy into the purse,
+ *  attunement through the pools' one writer — the
+ *  claim's own landings, aimed at any seat. */
+async function landPackAmount(targetKey: string, entry: PackEntryView, amount: number): Promise<void> {
+  if (entry.kind === "item") {
+    addToInventory(targetKey, entry.itemKey!, amount);
+    return;
+  }
+  if (entry.kind === "energy") {
+    await gainEnergy(targetKey, amount, await calculateMaxEnergy(targetKey));
+    return;
+  }
+  await addAspectPoints(targetKey, (entry.element ?? "root") as AttunementElement, amount);
 }
 
 export const handlers = {
@@ -16199,32 +16350,185 @@ export const handlers = {
    *  inventory or purse cannot hold is refused in words
    *  and the entry stands in the Pack. */
   async claimPackDrop(args: unknown, ctx?: ActionContext) {
-    const ownerKey = ownerKeyFor(ctx);
-    const parsed = z.object({ entryId: z.number().int().positive() }).safeParse(args);
+    const actorKey = ownerKeyFor(ctx);
+    // THE ROOM'S PACK (2026-10-28): in a room, the Pack
+    // a seat takes from is the LAND's Pack — the shared
+    // pile every seat reads in the territory serve —
+    // while the taking lands with the ACTOR, as it
+    // always has. (Push 48 served the land's pile to
+    // every seat, but this road still read the claimer's
+    // own Pack: a guest could see the pile and not take
+    // from it.) At home the two keys are one, and every
+    // road below is the standing road.
+    const packKey = ctx?.room ? landKeyFor(ctx) : actorKey;
+    const parsed = z.object({ entryId: z.number().int().positive(), amount: z.number().positive().optional() }).safeParse(args);
     if (!parsed.success) badRequest("Name the drop you would claim.");
-    const entry = peekHomelandPackEntry(ownerKey, parsed.data.entryId);
+    // DEALER'S CHOICE (Nigel, 2026-10-28): the host
+    // deals this Pack — another seat's hand takes
+    // nothing from it. Giving still stands open to
+    // every seat (givePackDrop).
+    if (ctx?.room) {
+      const info = roomPackForLand(packKey);
+      if (info?.mode === "dealer" && (!ctx.tender || info.hostTenderId !== ctx.tender.id)) {
+        badRequest("Dealer's choice — the host deals this Pack, and the loot waits for the host's hand. You may still give to it.");
+      }
+    }
+    const entry = peekHomelandPackEntry(packKey, parsed.data.entryId);
     if (!entry) badRequest("That drop is no longer in your Pack — it may already have been claimed.");
+    const named = parsed.data.amount !== undefined;
+    if (!named) {
+      // THE STANDING ROAD, WHOLE (the loot table fix,
+      // 2026-10-25): one standing entry, clicked, lands
+      // where it belongs, the landing proven BEFORE the
+      // entry is spent — word for word as it stood, with
+      // the room's two keys (the land's pile, the actor's
+      // keeping) where the one key stood at home.
+      let line = "";
+      if (entry.kind === "item") {
+        if (!entry.itemKey || !inventoryCanHold(actorKey, entry.itemKey, entry.qty)) {
+          badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in your Pack.`);
+        }
+        if (!takeHomelandPackEntry(packKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+        addToInventory(actorKey, entry.itemKey!, entry.qty);
+        line = `The ${entry.name} is yours — it rests in your inventory.`;
+      } else if (entry.kind === "energy") {
+        const maxEnergy = await calculateMaxEnergy(actorKey);
+        const current = await getEnergyFor(actorKey);
+        if (current >= maxEnergy) badRequest("Your energy stands full — spend some, and the orb will wait in your Pack.");
+        if (!takeHomelandPackEntry(packKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+        await gainEnergy(actorKey, entry.qty, maxEnergy);
+        line = `The orb breaks — ${entry.qty} energy is yours.`;
+      } else {
+        if (!takeHomelandPackEntry(packKey, entry.id)) badRequest("That drop is no longer in your Pack.");
+        await addAspectPoints(actorKey, (entry.element ?? "root") as AttunementElement, entry.qty);
+        line = `The drizzle settles — ${Math.round(entry.qty * 10) / 10} points of ${entry.element} attunement join your pools.`;
+      }
+      return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+    }
+    // THE SPLIT (Nigel, ruled 2026-10-28 12:54): a named
+    // amount, exact — it must land whole or the act is
+    // refused in words; what is not taken never leaves
+    // the Pack.
+    const amount = packAmountOf(entry, parsed.data.amount);
+    if (amount == null) badRequest(`Name a measure the ${entry.name} holds — a part of it, or its whole.`);
+    await assertPackAmountLands(actorKey, entry, amount!, "Your");
+    if (!takeHomelandPackAmount(packKey, entry.id, amount!)) badRequest("That drop is no longer in your Pack.");
+    await landPackAmount(actorKey, entry, amount!);
     let line = "";
     if (entry.kind === "item") {
-      if (!entry.itemKey || !inventoryCanHold(ownerKey, entry.itemKey, entry.qty)) {
-        badRequest(`Your inventory cannot carry the ${entry.name} — a stack holds 100, and thirty stacks are all it holds. Make room, and it will wait in your Pack.`);
-      }
-      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
-      addToInventory(ownerKey, entry.itemKey!, entry.qty);
-      line = `The ${entry.name} is yours — it rests in your inventory.`;
+      line = amount! >= entry.qty
+        ? `The ${entry.name} is yours — it rests in your inventory.`
+        : `You take ${amount} of the ${entry.name} — it rests in your inventory, and the rest waits in the Pack.`;
     } else if (entry.kind === "energy") {
-      const maxEnergy = await calculateMaxEnergy(ownerKey);
-      const current = await getEnergyFor(ownerKey);
-      if (current >= maxEnergy) badRequest("Your energy stands full — spend some, and the orb will wait in your Pack.");
-      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
-      await gainEnergy(ownerKey, entry.qty, maxEnergy);
-      line = `The orb breaks — ${entry.qty} energy is yours.`;
+      line = amount! >= entry.qty
+        ? `The orb breaks — ${amount} energy is yours.`
+        : `The orb breaks — ${amount} energy is yours, and the rest waits in the Pack.`;
     } else {
-      if (!takeHomelandPackEntry(ownerKey, entry.id)) badRequest("That drop is no longer in your Pack.");
-      await addAspectPoints(ownerKey, (entry.element ?? "root") as AttunementElement, entry.qty);
-      line = `The drizzle settles — ${Math.round(entry.qty * 10) / 10} points of ${entry.element} attunement join your pools.`;
+      line = `The drizzle settles — ${Math.round(amount! * 10) / 10} points of ${entry.element} attunement join your pools.`;
     }
-    return { ok: true as const, line, loot: homelandPackView(ownerKey), pack: inventoryView(ownerKey) };
+    return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+  },
+
+  /** GIVE TO THE ROOM'S PACK (THE ROOM'S PACK — THE
+   *  SPLIT, Nigel, ruled 2026-10-28 12:54): a seat puts
+   *  a chosen amount of a carried stack into the land's
+   *  Pack — the giving half of the split. A room's
+   *  road: at home the Pack and the bag are one Tender's
+   *  keeping, and there is nothing to give across.
+   *  While the wheel turns (round robin), a gift is
+   *  dealt at once to the seat whose turn stands, like
+   *  anything that falls here; what that seat cannot
+   *  carry rests in the Pack. In dealer's choice a gift
+   *  simply rests, for the host to deal. */
+  async givePackDrop(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.room) badRequest("Giving to the Pack is a room's road — at home, your Pack and your bag are one Tender's keeping.");
+    const actorKey = ownerKeyFor(ctx);
+    const packKey = landKeyFor(ctx);
+    const parsed = z.object({ itemKey: z.string().min(1), amount: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("Name the good, and how much of it you give.");
+    const { itemKey, amount } = parsed.data;
+    const name = itemDisplayName(itemKey);
+    const held = inventoryView(actorKey).stacks.find(s => s.key === itemKey);
+    if (!held || held.qty < amount) {
+      badRequest(`Your bag holds ${held ? held.qty : 0} of the ${name} — name a gift it can make.`);
+    }
+    if (!takeFromInventory(actorKey, itemKey, amount)) badRequest("Your bag would not give it up.");
+    const drop: FellDrop = { kind: "item", itemKey, qty: amount };
+    const { dealt } = await settlePackDrops(packKey, [drop]);
+    const dealtQty = dealt.reduce((a, d) => a + d.drop.qty, 0);
+    const line = dealtQty >= amount
+      ? `Your gift of ${name} ×${amount} is dealt at once — the wheel turns, and it rests with ${dealt[0].seatName}.`
+      : dealtQty > 0
+        ? `Your gift of ${name} ×${amount} is dealt to ${dealt[0].seatName} as far as their keeping holds — the rest rests in the Pack.`
+        : `Your gift of ${name} ×${amount} rests in the Pack.`;
+    noteRoomTale(ctx.room.code, `gives ${name} ×${amount} to the Pack.`, ctx.tender?.tenderName ?? undefined);
+    return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+  },
+
+  /** THE HOST DEALS (THE ROOM'S PACK — DEALER'S CHOICE,
+   *  Nigel, ruled 2026-10-28 12:54: "dealers choice -
+   *  host decides loot only"): in a dealer's-choice
+   *  room the host alone takes from the Pack — or
+   *  ASSIGNS a chosen amount of a standing entry to a
+   *  chosen seat, landed with that seat under the same
+   *  caps a claim answers to. An assignment never
+   *  burns: what the seat cannot carry is refused in
+   *  words and the entry stands, for a smaller split
+   *  to be named. */
+  async assignPackDrop(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.room) badRequest("Dealing the Pack is the host's road in a room — at home the Pack is yours alone.");
+    const actorKey = ownerKeyFor(ctx);
+    const packKey = landKeyFor(ctx);
+    const info = roomPackForLand(packKey);
+    if (!info || info.mode !== "dealer") {
+      badRequest("The Pack is not dealt by a host's hand here — Dealer's choice is not its mode. The host may set the mode at the Pack.");
+    }
+    if (!ctx.tender || info.hostTenderId !== ctx.tender.id) badRequest("Only the host deals this Pack.");
+    const parsed = z.object({
+      entryId: z.number().int().positive(),
+      amount: z.number().positive().optional(),
+      targetTenderId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name the drop, the seat it goes to, and the measure you deal.");
+    const target = roomSeatsOnLand(packKey).find(s => !s.watcher && s.tenderId === parsed.data.targetTenderId);
+    if (!target) badRequest("That seat does not stand at this Table.");
+    const targetRow = sqlite.prepare("SELECT tender_name AS name FROM tenders WHERE id = ?").get(parsed.data.targetTenderId) as { name: string | null } | undefined;
+    const targetName = targetRow?.name ?? "That seat";
+    const targetKey = tenderOwnerKey(parsed.data.targetTenderId);
+    const entry = peekHomelandPackEntry(packKey, parsed.data.entryId);
+    if (!entry) badRequest("That drop is no longer in the Pack — it may already have been dealt.");
+    const amount = packAmountOf(entry, parsed.data.amount);
+    if (amount == null) badRequest(`Name a measure the ${entry!.name} holds — a part of it, or its whole.`);
+    await assertPackAmountLands(targetKey, entry, amount!, `${targetName}'s`);
+    if (!takeHomelandPackAmount(packKey, entry.id, amount!)) badRequest("That drop is no longer in the Pack.");
+    await landPackAmount(targetKey, entry, amount!);
+    const line = entry.kind === "energy"
+      ? `Dealt — ${targetName}'s purse takes ${amount} energy from the Pack.`
+      : entry.kind === "attunement"
+        ? `Dealt — ${Math.round(amount! * 10) / 10} points of ${entry.element} attunement settle on ${targetName}.`
+        : `Dealt — ${amount} of the ${entry.name} rests with ${targetName}.`;
+    noteRoomTale(ctx.room.code, `deals ${entry.name} to ${targetName}.`, ctx.tender.tenderName ?? "The host");
+    return { ok: true as const, line, loot: homelandPackView(packKey), pack: inventoryView(actorKey) };
+  },
+
+  /** SET THE ROOM'S PACK MODE (THE ROOM'S PACK, Nigel,
+   *  ruled 2026-10-28 12:54): the host's hand alone —
+   *  Manual, Round robin, or Dealer's choice. The
+   *  switch binds lots landing after it; what already
+   *  rests in the Pack is not dealt backwards. */
+  async setRoomPackMode(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.room) badRequest("The Pack's modes belong to a room — at home the Pack is dealt by your own hand, as it stands.");
+    const parsed = z.object({ mode: z.enum(["manual", "roundrobin", "dealer"]) }).safeParse(args);
+    if (!parsed.success) badRequest("Name the mode: Manual, Round robin, or Dealer's choice.");
+    const refusal = roomPackSetMode(ctx.room.code, parsed.data.mode as RoomPackMode, ctx.tender?.id ?? null);
+    if (refusal) badRequest(refusal);
+    const words: Record<RoomPackMode, string> = {
+      manual: "dealt by hand — seats take and give as they choose",
+      roundrobin: "dealt in turn around the seats",
+      dealer: "the host's to deal — Dealer's choice",
+    };
+    noteRoomTale(ctx.room.code, `sets the Pack ${words[parsed.data.mode as RoomPackMode]}.`, ctx.tender?.tenderName ?? "The host");
+    return { ok: true as const, mode: parsed.data.mode as RoomPackMode };
   },
 
   /** Twenty rune shards turn into ONE attunement point,

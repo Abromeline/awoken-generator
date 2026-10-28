@@ -373,6 +373,43 @@ export function takeHomelandPackEntry(ownerKey: string, entryId: number): boolea
   return r.changes > 0;
 }
 
+/** Take a CHOSEN AMOUNT out of one Pack entry (THE
+ *  ROOM'S PACK — THE SPLIT, Nigel, ruled 2026-10-28
+ *  12:54: "people... need to be able to split the
+ *  amount they are taking or giving"): exactly the
+ *  amount leaves; the remainder stands in the Pack,
+ *  the entry itself spent only when its last measure
+ *  is taken. Amounts are reckoned in tenths, as the
+ *  Pack's own measures are (a drizzle's 0.1 is the
+ *  smallest coin). False — and nothing taken — when
+ *  the entry is gone or holds less than the amount. */
+export function takeHomelandPackAmount(ownerKey: string, entryId: number, amount: number): boolean {
+  const row = sqlite.prepare("SELECT qty FROM tender_pack WHERE owner_key = ? AND id = ?").get(ownerKey, entryId) as { qty: number } | undefined;
+  if (!row) return false;
+  const held = Math.round(Number(row.qty) * 10);
+  const want = Math.round(amount * 10);
+  if (want <= 0 || want > held) return false;
+  if (want >= held) {
+    sqlite.prepare("DELETE FROM tender_pack WHERE owner_key = ? AND id = ?").run(ownerKey, entryId);
+  } else {
+    sqlite.prepare("UPDATE tender_pack SET qty = ? WHERE owner_key = ? AND id = ?").run((held - want) / 10, ownerKey, entryId);
+  }
+  return true;
+}
+
+/** Take a chosen amount OUT of a Tender's own inventory
+ *  stack (the giving hand of the split, above): false —
+ *  and nothing taken — when the stack holds less. The
+ *  inventory's caps bind what lands in it, never what
+ *  leaves it. */
+export function takeFromInventory(ownerKey: string, itemKey: string, qty: number): boolean {
+  const row = sqlite.prepare("SELECT qty FROM tender_inventory WHERE owner_key = ? AND item_key = ?").get(ownerKey, itemKey) as { qty: number } | undefined;
+  if (!row || Math.floor(Number(row.qty) || 0) < qty) return false;
+  sqlite.prepare("UPDATE tender_inventory SET qty = qty - ?, updated_at = ? WHERE owner_key = ? AND item_key = ?")
+    .run(qty, Date.now(), ownerKey, itemKey);
+  return true;
+}
+
 /* ── DROP EVENTS (the homeland's spring-and-fly) ──────── */
 
 /** A fell's visible moment on the homeland: where the

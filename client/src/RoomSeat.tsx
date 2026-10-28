@@ -208,6 +208,7 @@ function SeatedRoom({ enter }: { enter: RoomEnterResult }) {
   const [roomState, setRoomState] = useState<RoomStateView | null>(null);
   const [loadError, setLoadError] = useState("");
   const [rollLabel, setRollLabel] = useState("");
+  const [packMsg, setPackMsg] = useState("");
   const [rollSides, setRollSides] = useState(20);
   const [tellText, setTellText] = useState("");
   const [doorWord, setDoorWord] = useState("");
@@ -277,6 +278,11 @@ function SeatedRoom({ enter }: { enter: RoomEnterResult }) {
             onUpdate={() => void loadStudio()}
             roomSeats={others.map(s => ({ tenderId: s.tenderId, name: s.name, classKey: s.classKey, tileId: s.tileId, away: s.away }))}
             roomSelfStand={myStand}
+            roomPack={roomState ? {
+              mode: roomState.pack.mode,
+              isHost: roomState.pack.hostTenderId != null && roomState.pack.hostTenderId === enter.you.tenderId,
+              seats: (roomState.seats ?? []).filter(s => !s.watcher && s.tenderId != null).map(s => ({ tenderId: s.tenderId!, name: s.name })),
+            } : null}
           />
         ) : (
           <div className="table-door-wrap"><div className="table-door">
@@ -308,6 +314,42 @@ function SeatedRoom({ enter }: { enter: RoomEnterResult }) {
             <p className="quiet small">
               Stage: <strong>{String(roomState.seed.stage)}</strong> · level {roomState.seed.level} · fed ✦{roomState.seed.fedEnergy}
             </p>
+          </>
+        )}
+
+        {/* THE ROOM'S PACK (Nigel, ruled 2026-10-28 12:54):
+            its dealing law, spoken plainly; the host's hand
+            alone sets it, and the switch binds what falls
+            after it. The Pack itself — the pile, the split,
+            the giving — is the bag on the map. */}
+        {roomState?.pack && (
+          <>
+            <h3>🎒 The room's Pack</h3>
+            <p className="quiet small">
+              {roomState.pack.mode === "manual" && <>Dealt <strong>by hand</strong> — every seat takes and gives as they choose, in whole or in part.</>}
+              {roomState.pack.mode === "roundrobin" && <>Dealt <strong>in turn</strong> — what falls goes to the next seat{roomState.pack.next ? <>: <strong>{roomState.pack.next.name}</strong></> : ""}. What rests in the Pack may be taken by hand.</>}
+              {roomState.pack.mode === "dealer" && <>Dealt by <strong>{roomState.pack.hostName}</strong> alone — Dealer's choice. It waits in the Pack for the host's hand; guests may still give.</>}
+            </p>
+            {enter.isHost ? (
+              <div className="room-dice">
+                {([["manual", "By hand"], ["roundrobin", "In turn"], ["dealer", "Dealer's choice"]] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    className="table-btn small"
+                    disabled={roomState.pack.mode === mode}
+                    onClick={() => void api.setRoomPackMode({ mode }).then(async () => {
+                      setPackMsg(mode === "manual" ? "The Pack is dealt by hand now." : mode === "roundrobin" ? "The Pack turns now — what falls is dealt in turn." : "Dealer's choice — the Pack waits for your hand.");
+                      try { setRoomState(await roomApi.state()); } catch { /* the heartbeat carries it */ }
+                    }).catch(() => setPackMsg("The Pack would not change its dealing."))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="quiet small">The host sets how the Pack is dealt.</p>
+            )}
+            {packMsg && <p className="quiet small">{packMsg}</p>}
           </>
         )}
 

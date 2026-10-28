@@ -54,6 +54,25 @@ export interface TaleEntry {
   text: string;
 }
 
+/** THE ROOM'S PACK — ITS THREE MODES (Nigel, ruled
+ *  2026-10-28 12:54: "the pack should have three modes.
+ *  Manual.. as it is with the split function added,
+ *  round robin, and dealers choice - host decides loot
+ *  only"). The mode is a property of the room's pack —
+ *  the land's Pack as the room shares it — held here,
+ *  on the room's own record, and served to every seat:
+ *    manual     — seats take and give freely, in chosen
+ *                 amounts (the split).
+ *    roundrobin — what falls is dealt in turn around
+ *                 the seats as it lands; packDealt counts
+ *                 the deals, so the next seat is served
+ *                 state, surviving reads.
+ *    dealer     — the loot waits in the Pack for the
+ *                 host's hand alone: the host takes, or
+ *                 assigns a chosen amount to a chosen
+ *                 seat; the other seats may still give. */
+export type RoomPackMode = "manual" | "roundrobin" | "dealer";
+
 export interface RoomRecord {
   code: string;
   door: "instance" | "homeland";
@@ -63,6 +82,10 @@ export interface RoomRecord {
   createdAt: number;
   seats: Map<string, RoomSeat>;
   tale: TaleEntry[];
+  /** The room's Pack mode, and how many lots the round
+   *  robin has dealt (the turn is reckoned from it). */
+  packMode: RoomPackMode;
+  packDealt: number;
 }
 
 const rooms = new Map<string, RoomRecord>();
@@ -168,21 +191,23 @@ async function roomOnHomeland(hostTenderId: number, hostName: string): Promise<R
     landOwnerKey: tenderOwnerKey(hostTenderId),
     hostTenderId, hostName,
     createdAt: Date.now(), seats: new Map(), tale: [],
+    packMode: "manual", packDealt: 0,
   };
   rooms.set(code, room);
   tell(room, "door", `${hostName} opens their homeland at this Table.`);
   return room;
 }
 
-async function roomOnInstance(code: string, creatorName: string): Promise<RoomRecord> {
+async function roomOnInstance(code: string, creatorName: string, creatorTenderId?: number | null): Promise<RoomRecord> {
   const existing = rooms.get(code);
   if (existing) return existing;
   const landOwnerKey = `roomland:${code}`;
   await dealInstanceLand(landOwnerKey);
   const room: RoomRecord = {
     code, door: "instance", landOwnerKey,
-    hostTenderId: null, hostName: creatorName,
+    hostTenderId: creatorTenderId ?? null, hostName: creatorName,
     createdAt: Date.now(), seats: new Map(), tale: [],
+    packMode: "manual", packDealt: 0,
   };
   rooms.set(code, room);
   tell(room, "door", `${creatorName} hunts a new starseed — a fresh table is dealt.`);
@@ -270,6 +295,100 @@ export function moveRoomSeatStand(landOwnerKey: string, tenderId: number, tileId
   return false;
 }
 
+// ── The room's Pack (the engine's road in, the face's
+// road out) ─────────────────────────────────────────────
+// THE ROOM'S PACK (Nigel, 2026-10-28): the Pack is the
+// LAND's Pack as the room shares it — its mode stands on
+// the room's record, and the engine reads it through
+// these doors, exactly as it reads the seats above.
+
+/** The seats the round robin deals around: seated
+ *  Tenders (never watchers), in the order they stand in
+ *  the room — the order the party panel serves. */
+function packSeats(room: RoomRecord): RoomSeat[] {
+  return [...room.seats.values()].filter(s => !s.watcher && s.tenderId != null);
+}
+
+/** The room standing on a land, by its Pack facts. Null
+ *  when no room stands on the land (the land's Pack is
+ *  then one Tender's own, and its roads are the solo
+ *  roads). */
+export function roomPackForLand(landOwnerKey: string): {
+  code: string; mode: RoomPackMode; hostTenderId: number | null;
+} | null {
+  for (const room of rooms.values()) {
+    if (room.landOwnerKey === landOwnerKey) {
+      return { code: room.code, mode: room.packMode, hostTenderId: room.hostTenderId };
+    }
+  }
+  return null;
+}
+
+/** The seat the round robin deals to NEXT on a land —
+ *  and the turn is spent in the naming: each call deals
+ *  one lot and advances the count, so consecutive lots
+ *  fall to consecutive seats and the wheel cycles.
+ *  Null when no seat stands to be dealt to. */
+export function nextRoomPackSeat(landOwnerKey: string): { tenderId: number; name: string } | null {
+  for (const room of rooms.values()) {
+    if (room.landOwnerKey !== landOwnerKey) continue;
+    const seats = packSeats(room);
+    if (!seats.length) return null;
+    const seat = seats[room.packDealt % seats.length];
+    room.packDealt += 1;
+    return { tenderId: seat.tenderId!, name: seat.name };
+  }
+  return null;
+}
+
+/** The room's Pack as the face serves it: the mode, the
+ *  host, and whose turn stands next (reckoned from the
+ *  deal count, so it survives every read). The next seat
+ *  is served whenever seats stand: while the wheel turns
+ *  it is the seat the next lot falls to, and in the hand
+ *  and dealer modes it is the count round robin will
+ *  pick up the moment the host turns the Pack. */
+export function roomPackView(room: RoomRecord): {
+  mode: RoomPackMode; hostTenderId: number | null; hostName: string;
+  next: { tenderId: number; name: string } | null;
+} {
+  const seats = packSeats(room);
+  const hostSeat = room.hostTenderId != null ? seats.find(s => s.tenderId === room.hostTenderId) : undefined;
+  return {
+    mode: room.packMode,
+    hostTenderId: room.hostTenderId,
+    hostName: hostSeat?.name ?? room.hostName,
+    next: seats.length
+      ? { tenderId: seats[room.packDealt % seats.length].tenderId!, name: seats[room.packDealt % seats.length].name }
+      : null,
+  };
+}
+
+/** Set the room's Pack mode — THE HOST'S HAND ALONE
+ *  (the Keeper's reading of his ruling, 2026-10-28:
+ *  dealer's choice names the host the dealer; the mode
+ *  is the room's dealing law, and the room is the
+ *  host's). Returns a refusal in plain words, or null
+ *  when the mode stands set. A switch binds lots
+ *  landing after it; what already rests in the Pack
+ *  is not dealt backwards. */
+export function roomPackSetMode(code: string, mode: RoomPackMode, tenderId: number | null): string | null {
+  const room = rooms.get(code);
+  if (!room) return "That table has folded — its Pack keeps no mode.";
+  if (room.hostTenderId == null) return "No host stands at this Table — the Pack's mode waits for a host's hand.";
+  if (tenderId == null || room.hostTenderId !== tenderId) return "Only the host sets the Pack's mode.";
+  room.packMode = mode;
+  return null;
+}
+
+/** Write a line in a room's Tale from outside this
+ *  module (the engine's pack acts speak there: a mode
+ *  set, a lot assigned). No room, no line. */
+export function noteRoomTale(code: string, text: string, name?: string): void {
+  const room = rooms.get(code);
+  if (room) tell(room, "line", text, name);
+}
+
 // ── Routes ──────────────────────────────────────────────────
 export function registerRoomRoutes(app: Express): void {
   const fail = (res: Response, status: number, error: string) => { res.status(status).json({ error }); };
@@ -300,7 +419,7 @@ export function registerRoomRoutes(app: Express): void {
         room = await roomOnHomeland(tender.id, tender.tenderName ?? "A Tender");
       } else if (door === "starseed") {
         if (!tender) { fail(res, 401, "Watchers cannot hunt a starseed."); return; }
-        room = await roomOnInstance(freshRoomCode(), tender.tenderName ?? "A Tender");
+        room = await roomOnInstance(freshRoomCode(), tender.tenderName ?? "A Tender", tender.id);
       } else if (door === "room" || door === "join") {
         const code = String(body.room ?? "").trim();
         if (!code) { fail(res, 400, "Name the room to enter."); return; }
@@ -313,15 +432,28 @@ export function registerRoomRoutes(app: Express): void {
           if (!host) { fail(res, 404, "That homeland's Tender is not to be found."); return; }
           room = await roomOnHomeland(hostId, host.name ?? "A Tender");
         } else if (door === "room") {
-          room = await roomOnInstance(code, tender?.tenderName ?? String(body.name ?? "A watcher"));
+          room = await roomOnInstance(code, tender?.tenderName ?? String(body.name ?? "A watcher"), tender?.id ?? null);
         } else {
           fail(res, 404, "That table has folded — hunt a new starseed, or open a homeland."); return;
         }
       } else { fail(res, 400, "Name the door: homeland, starseed, room, or join."); return; }
 
+      // AN INSTANCE ROOM'S HOST (THE ROOM'S PACK,
+      // 2026-10-28): the Tender who dealt the table hosts
+      // it — the starseed hunter, named at the dealing. A
+      // table a watcher named by its code, with no Tender
+      // standing as its dealer, takes its first seated
+      // Tender as host, so the room's dealing law (the
+      // Pack's mode, the dealer's choice) always has the
+      // hand his ruling names.
+      if (room.door === "instance" && room.hostTenderId == null && tender) {
+        room.hostTenderId = tender.id;
+        room.hostName = tender.tenderName ?? room.hostName;
+      }
+
       // The host's word: a homeland kept by a password asks it
       // of every guest (the host never asks their own word).
-      const isHost = !!tender && room.door === "homeland" && room.hostTenderId === tender.id;
+      const isHost = !!tender && room.hostTenderId === tender.id;
       if (room.door === "homeland" && !isHost) {
         const landDoor = loadLandDoor(room.landOwnerKey);
         if (landDoor.privacy === "password" && landDoor.passwordHash) {
@@ -434,6 +566,10 @@ export function registerRoomRoutes(app: Express): void {
       ok: true, code: room.code, door: room.door, hostName: room.hostName,
       seats, seed, tale: room.tale.slice(-60),
       landDoor: { privacy: landDoor.privacy, hasPassword: !!landDoor.passwordHash },
+      // THE ROOM'S PACK (2026-10-28): its mode, its host,
+      // and the round robin's next seat — served to every
+      // seat alike, so the Pack face reads one law.
+      pack: roomPackView(room),
     });
   });
 

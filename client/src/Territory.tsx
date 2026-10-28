@@ -38,7 +38,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn, LootEntry, DropEventView } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
   axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
@@ -329,6 +329,17 @@ interface Props {
    *  stand is the host's). The viewer's figure stands where
    *  their seat stands. */
   roomSelfStand?: { tileId: number; classKey: string; weaponKey?: string | null } | null;
+  /** THE ROOM'S PACK (Nigel, ruled 2026-10-28 12:54): in a
+   *  room, the Pack on this face is the LAND's shared pile
+   *  and its dealing law rides it — the mode, whether the
+   *  viewer is the host, and the seats a host may deal to.
+   *  Absent at home: the solo face stands exactly as it
+   *  always has. */
+  roomPack?: {
+    mode: RoomPackMode;
+    isHost: boolean;
+    seats: { tenderId: number; name: string }[];
+  } | null;
 }
 
 
@@ -418,7 +429,7 @@ function useClampedAnchor(desired: { xPct: number; yPct: number } | null) {
   return { ref, xPct: eff.xPct as number | null, yPct: eff.yPct as number | null };
 }
 
-export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, onToggleDeck, deckOpen, roomSeats, roomSelfStand }: Props) {
+export default function Territory({ tenderItems, assets, onUpdate, initialPatrolIds, onOpenZodiac, onToggleDeck, deckOpen, roomSeats, roomSelfStand, roomPack }: Props) {
   const queryClient = useQueryClient();
   // The attunement panel works from this query's cache; the moment an
   // aspect is spent (applied or combined away), the cache must die —
@@ -618,6 +629,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // their way from the dark's standing place to her.
   const [loot, setLoot] = useState<LootEntry[]>([]);
   const [bagOpen, setBagOpen] = useState(false);
+  // THE ROOM'S PACK — THE SPLIT (2026-10-28): the measures
+  // a seat names at this face, keyed by what they measure —
+  // a take by its Pack entry, a give by its stack, a dealing
+  // by its entry; and the seat a host's dealing goes to.
+  // An unnamed measure claims the whole, as the Pack always
+  // stood; choosing the amount IS the act (no gate, no
+  // confirm — his standing law).
+  const [packTakeAmt, setPackTakeAmt] = useState<Record<number, string>>({});
+  const [packGiveAmt, setPackGiveAmt] = useState<Record<string, string>>({});
+  const [packAssignTo, setPackAssignTo] = useState<Record<number, number>>({});
   const [dropFx, setDropFx] = useState<{ id: number; fromQ: number; fromR: number; drops: DropLike[]; born: number }[]>([]);
   const dropFxSeq = useRef(0);
   const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]>([]);
@@ -7516,31 +7537,104 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <div className="pack-head">🎒 The Pack
           <button className="loot-x" onClick={() => setBagOpen(false)} aria-label="Close the Pack">✕</button>
         </div>
+        {/* THE ROOM'S PACK (2026-10-28): in a room this pile is
+            the LAND's, shared by every seat, and its dealing
+            law is spoken at its head. At home there is no line:
+            the solo face stands exactly as it always has. */}
+        {roomPack && (
+          <div className="pack-mode-line">
+            {roomPack.mode === "manual" && "Dealt by hand — take what you choose, give what you choose."}
+            {roomPack.mode === "roundrobin" && "Round robin — what falls is dealt in turn around the seats; what rests here may be taken."}
+            {roomPack.mode === "dealer" && (roomPack.isHost
+              ? "Dealer's choice — you deal this Pack: take from it, or deal a measure to a seat."
+              : "Dealer's choice — the host deals this Pack. You may still give to it.")}
+          </div>
+        )}
         {loot.length === 0 ? (
           <div className="pack-empty">Nothing waits — fell the dark, and what it leaves gathers here.</div>
         ) : (
-          loot.map((e) => (
+          loot.map((e) => {
+            const canTake = !roomPack || roomPack.mode !== "dealer" || roomPack.isHost;
+            const canSplit = e.kind === "attunement" ? e.qty > 0.1 : e.qty > 1;
+            const takeRaw = (packTakeAmt[e.id] ?? "").trim();
+            const takeAmount = takeRaw === "" ? undefined : Number(takeRaw);
+            return (
             <div key={e.id} className="loot-row">
               <img className="loot-face" src={faceForDrop(e)} alt="" style={{ width: dropSize(e), height: dropSize(e), filter: filterForDrop(e) }} />
               <span className="loot-name">{e.name}</span>
               <span className="pack-qty">{e.kind === "attunement" ? Math.round(e.qty * 10) / 10 : `×${e.qty}`}</span>
-              <button
-                className="abtn small"
-                onClick={async () => {
-                  try {
-                    const r = await api.claimPackDrop({ entryId: e.id });
-                    setLoot(r.loot);
-                    setPack(r.pack);
-                    showHexNotice(r.line);
-                  } catch (err) {
-                    showHexNotice(refusalText(err, "The Pack would not yield it."));
-                  }
-                }}
-              >
-                Claim
-              </button>
+              {!canTake ? (
+                <span className="quiet small">Waits for the host</span>
+              ) : (
+                <>
+                  {canSplit && (
+                    <input
+                      className="pack-amt"
+                      type="number"
+                      min={e.kind === "attunement" ? 0.1 : 1}
+                      max={e.qty}
+                      step={e.kind === "attunement" ? 0.1 : 1}
+                      placeholder={String(e.kind === "attunement" ? Math.round(e.qty * 10) / 10 : e.qty)}
+                      value={packTakeAmt[e.id] ?? ""}
+                      onChange={(ev) => setPackTakeAmt(m => ({ ...m, [e.id]: ev.target.value }))}
+                      aria-label={`How much of the ${e.name} to take`}
+                    />
+                  )}
+                  <button
+                    className="abtn small"
+                    onClick={async () => {
+                      try {
+                        const r = await api.claimPackDrop({ entryId: e.id, amount: takeAmount });
+                        setLoot(r.loot);
+                        setPack(r.pack);
+                        setPackTakeAmt(m => { const n = { ...m }; delete n[e.id]; return n; });
+                        showHexNotice(r.line);
+                      } catch (err) {
+                        showHexNotice(refusalText(err, "The Pack would not yield it."));
+                      }
+                    }}
+                  >
+                    Claim
+                  </button>
+                  {roomPack?.mode === "dealer" && roomPack.isHost && roomPack.seats.length > 0 && (
+                    <>
+                      <select
+                        className="pack-seat-pick"
+                        value={packAssignTo[e.id] ?? roomPack.seats[0].tenderId}
+                        onChange={(ev) => setPackAssignTo(m => ({ ...m, [e.id]: Number(ev.target.value) }))}
+                        aria-label="Deal to which seat"
+                      >
+                        {roomPack.seats.map(s => (
+                          <option key={s.tenderId} value={s.tenderId}>{s.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        className="abtn small"
+                        onClick={async () => {
+                          try {
+                            const r = await api.assignPackDrop({
+                              entryId: e.id,
+                              amount: takeAmount,
+                              targetTenderId: packAssignTo[e.id] ?? roomPack.seats[0].tenderId,
+                            });
+                            setLoot(r.loot);
+                            setPack(r.pack);
+                            setPackTakeAmt(m => { const n = { ...m }; delete n[e.id]; return n; });
+                            showHexNotice(r.line);
+                          } catch (err) {
+                            showHexNotice(refusalText(err, "The dealing would not land."));
+                          }
+                        }}
+                      >
+                        Deal
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </div>
-          ))
+            );
+          })
         )}
         <div className="loot-carried-head">Your inventory</div>
         {pack.stacks.length === 0 ? (
@@ -7551,6 +7645,38 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               <img className="loot-face small" src={faceForDrop({ kind: "item", itemKey: s.key, qty: s.qty })} alt="" />
               <span>{s.name}</span>
               <span className="pack-qty">×{s.qty}</span>
+              {roomPack && (
+                <>
+                  <input
+                    className="pack-amt"
+                    type="number"
+                    min={1}
+                    max={s.qty}
+                    step={1}
+                    placeholder={String(s.qty)}
+                    value={packGiveAmt[s.key] ?? ""}
+                    onChange={(ev) => setPackGiveAmt(m => ({ ...m, [s.key]: ev.target.value }))}
+                    aria-label={`How much of the ${s.name} to give to the Pack`}
+                  />
+                  <button
+                    className="abtn small"
+                    onClick={async () => {
+                      try {
+                        const raw = (packGiveAmt[s.key] ?? "").trim();
+                        const r = await api.givePackDrop({ itemKey: s.key, amount: raw === "" ? s.qty : Number(raw) });
+                        setLoot(r.loot);
+                        setPack(r.pack);
+                        setPackGiveAmt(m => { const n = { ...m }; delete n[s.key]; return n; });
+                        showHexNotice(r.line);
+                      } catch (err) {
+                        showHexNotice(refusalText(err, "The Pack would not take it."));
+                      }
+                    }}
+                  >
+                    Give to the Pack
+                  </button>
+                </>
+              )}
             </div>
           ))
         )}
