@@ -582,12 +582,16 @@ export function seatWallAffine(
   A: { x: number; y: number },
   B: { x: number; y: number },
   seat: "shallow" | "upright" | "slantAffine",
+  frac = 1,
 ): string | null {
   const panelH = face.panelH ?? face.h;
   const baseLen = Math.hypot(face.x2 - face.x1, face.y2 - face.y1);
   if (baseLen < 1 || panelH < 1) return null;
   const edgeLen = Math.hypot(B.x - A.x, B.y - A.y);
-  const rise = edgeLen * (panelH / baseLen) * RISE_K[seat];
+  // THE STONE CAST: a rising wall stands at the emerged share
+  // of its rise — the frame's top edge sits frac of the way up,
+  // the base never leaves its edge.
+  const rise = edgeLen * (panelH / baseLen) * RISE_K[seat] * frac;
   const src: [number, number][] = [
     [face.x1, face.y1], [face.x2, face.y2], [face.x1, face.y1 - panelH],
   ];
@@ -621,12 +625,27 @@ export function wallSeatFor(
   kind: string,
   A: { x: number; y: number },
   B: { x: number; y: number },
+  frac = 1,
 ): { transform: string; stance: string; drawn: boolean; face: WallFace } {
   const p = wallPerspectiveFor(kind, A.x, A.y, B.x, B.y);
   if (p.seat === "similarity") {
-    return { transform: seatWallFace(p.face, A, B), stance: p.stance, drawn: p.drawn, face: p.face };
+    let transform = seatWallFace(p.face, A, B);
+    if (frac < 1) {
+      // THE STONE CAST: the face emerges — within its own frame,
+      // the panel's height shrinks to the emerged share while
+      // both base corners stay exactly where the seat put them
+      // (the frame affine fixes the base line and carries the
+      // top toward it), then the seat stands what remains.
+      const panelH = p.face.panelH ?? p.face.h;
+      const shrink = affineFor(
+        [[p.face.x1, p.face.y1], [p.face.x2, p.face.y2], [p.face.x1, p.face.y1 - panelH]],
+        [[p.face.x1, p.face.y1], [p.face.x2, p.face.y2], [p.face.x1, p.face.y1 - panelH * frac]],
+      );
+      if (shrink) transform = `${transform} ${shrink}`;
+    }
+    return { transform, stance: p.stance, drawn: p.drawn, face: p.face };
   }
-  const transform = seatWallAffine(p.face, A, B, p.seat) ?? seatWallFace(p.face, A, B);
+  const transform = seatWallAffine(p.face, A, B, p.seat, frac) ?? seatWallFace(p.face, A, B);
   return { transform, stance: p.stance, drawn: p.drawn, face: p.face };
 }
 

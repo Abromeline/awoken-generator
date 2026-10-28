@@ -17,7 +17,20 @@
  *  (PIECE_MENU_FACES in buildingFaces.ts) — never a glyph icon
  *  or a text-only row. Taking away is not a piece and carries
  *  no face; it keeps its plain button, as does the placing
- *  mode's switch. */
+ *  mode's switch.
+ *
+ *  THE SMALLER EXAMPLES (Nigel, 2026-10-28, his amendment of
+ *  this build, spoken over the faces build's screenshot: "I
+ *  was hoping for much smaller images for the examples still
+ *  my art just much smaller"): the same faces, unchanged,
+ *  rendered SMALL — thumbnail examples beside each name, the
+ *  buttons compact (theme.css .piece-choice), so the menu
+ *  sits tightly in the ability tab.
+ *
+ *  THE STONE CAST (2026-10-28): this menu's seat is now the
+ *  building ability tab on a fielded Stone Awoken's action
+ *  wheel; the free-standing seat it kept in the building
+ *  panel is closed (one door, and the door is the Awoken). */
 import { PIECE_MENU_FACES } from "./buildingFaces";
 
 export type PieceTool = "triangle" | "square" | "wall" | "door" | "halfwall" | "narrow" | "remove";

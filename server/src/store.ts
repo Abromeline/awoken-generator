@@ -1062,9 +1062,27 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS build_pieces (
   verts TEXT NOT NULL,
   footprint TEXT NOT NULL,
   created_at INTEGER NOT NULL,
+  hp REAL NOT NULL DEFAULT 100,
+  state TEXT NOT NULL DEFAULT 'standing',
+  frac REAL NOT NULL DEFAULT 1,
+  lead_id INTEGER,
+  rise_updated_at INTEGER NOT NULL DEFAULT 0,
+  energy_bank REAL NOT NULL DEFAULT 0,
   UNIQUE(owner_key, piece_key)
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_build_pieces_owner ON build_pieces (owner_key);`);
+// THE STONE CAST (2026-10-28): existing tables gain the rise's
+// columns — guarded, idempotent, in the house pattern.
+{
+  const cols = new Set((sqlite.prepare(`PRAGMA table_info(build_pieces)`).all() as any[]).map(r => r.name));
+  const add = (name: string, ddl: string) => { if (!cols.has(name)) sqlite.exec(`ALTER TABLE build_pieces ADD COLUMN ${ddl}`); };
+  add("hp", "hp REAL NOT NULL DEFAULT 100");
+  add("state", "state TEXT NOT NULL DEFAULT 'standing'");
+  add("frac", "frac REAL NOT NULL DEFAULT 1");
+  add("lead_id", "lead_id INTEGER");
+  add("rise_updated_at", "rise_updated_at INTEGER NOT NULL DEFAULT 0");
+  add("energy_bank", "energy_bank REAL NOT NULL DEFAULT 0");
+}
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -799,6 +799,20 @@ export const buildPieces = sqliteTable("build_pieces", {
   verts: text("verts").notNull(),
   footprint: text("footprint").notNull(),
   createdAt: integer("created_at").notNull(),
+  // THE STONE CAST (2026-10-28): a piece is raised, not placed.
+  // hp — every piece stands at 100 and falls at 0. state —
+  // 'rising' | 'standing' | 'cemented' | 'settling'. frac — how
+  // far out of the ground the piece stands (0..1; standing work
+  // is 1). leadId — the Awoken whose ability tab began the rise.
+  // riseUpdatedAt — the lazy settle's clock (ms). energyBank —
+  // fractional builder-minutes of energy accrued toward the
+  // next whole point the purse must pay.
+  hp: real("hp").notNull().default(100),
+  state: text("state").notNull().default("standing"),
+  frac: real("frac").notNull().default(1),
+  leadId: integer("lead_id"),
+  riseUpdatedAt: integer("rise_updated_at").notNull().default(0),
+  energyBank: real("energy_bank").notNull().default(0),
 });
 
 // Hall of Champions residents: one Awoken per room, freely swappable.

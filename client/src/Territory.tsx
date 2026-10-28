@@ -1121,9 +1121,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // getTerritory with their footprints and derived protection;
   // build mode's own state — the tool in hand, the ghost the
   // scaffolding shows, and the menu's spoken line. (The mode is
-  // entered from the building menu's pieces menu since
-  // 2026-10-28; the construction toggle and bar that once
-  // carried these are struck, whole — see the stripped ledger.)
+  // entered from the pieces menu; the construction toggle and
+  // bar that once carried these are struck, whole — see the
+  // stripped ledger. THE STONE CAST, 2026-10-28: the pieces
+  // menu's seat is the building ability tab on a Stone Awoken's
+  // wheel, and pieces laid from it RISE instead of appearing.)
   const [buildPieces, setBuildPieces] = useState<BuildPiece[]>([]);
   const buildPiecesRef = useRef<BuildPiece[]>([]);
   useEffect(() => { buildPiecesRef.current = buildPieces; }, [buildPieces]);
@@ -1155,6 +1157,37 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [buildGhost, setBuildGhost] = useState<BuildGhost>(null);
   const [buildNote, setBuildNote] = useState<string>("");
   const buildDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
+  // ── THE STONE CAST (2026-10-28): the building ABILITY TAB ──
+  // Building is reached through a fielded Awoken's ability tab
+  // — an abilities section on the individual Awoken's action
+  // wheel (buildOrdersEntries), gated on that Awoken holding
+  // at least 2 Rock in its element sum. abilityLeadId is the
+  // Awoken whose tab stands open: the lead builder, named in
+  // every cast. The free-standing pieces seat in the building
+  // panel is CLOSED — one door, and the door is the Awoken.
+  const [abilityLeadId, setAbilityLeadId] = useState<number | null>(null);
+  const abilityLeadIdRef = useRef<number | null>(null);
+  useEffect(() => { abilityLeadIdRef.current = abilityLeadId; }, [abilityLeadId]);
+  // Strike the work, armed from the tab: the next taps on
+  // pieces strike them with the chosen fielded Awoken's hand —
+  // a Stone hand mends, another hand breaks.
+  const [strikeArmed, setStrikeArmed] = useState(false);
+  const strikeArmedRef = useRef(false);
+  useEffect(() => { strikeArmedRef.current = strikeArmed; }, [strikeArmed]);
+  const [strikeStrikerId, setStrikeStrikerId] = useState<number | null>(null);
+  const strikeStrikerIdRef = useRef<number | null>(null);
+  useEffect(() => { strikeStrikerIdRef.current = strikeStrikerId; }, [strikeStrikerId]);
+  // The tab stands on its lead: if the lead leaves the field,
+  // the tab closes and the hand empties with it.
+  useEffect(() => {
+    if (abilityLeadId != null && !placements.some(p => p.awakenedId === abilityLeadId)) {
+      setAbilityLeadId(null);
+      setBuildMode(false);
+      setBuildGhost(null);
+      setStrikeArmed(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abilityLeadId, placements]);
   // ── The Written Light on the land (the Grimoire, Nigel 2026-10-17) ──
   // The Tender's own castings from the book: standings served by
   // getTerritory, the book itself by getGrimoire, the Lv 3 gate by
@@ -2755,6 +2788,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     entries.push({ key: "ord-binding", sigil: "binding", label: "Binding", lit: p.stance === "binding", act: () => { void handleSetStance(id, "binding"); } } as WheelEntry);
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
     entries.push({ key: "ord-patrol", sigil: "arrow", label: p.patrolPath ? "Re-lay patrol" : "Patrol", lit: !!p.patrolPath, act: () => { setPatrolDraft(patrolRoadOf(p)); setPatrolSettingFor(id); } } as WheelEntry);
+    // THE ABILITIES SECTION (THE STONE CAST, 2026-10-28): the
+    // wheel gains an abilities door, built to hold more
+    // abilities later; its first ability is BUILDING, and the
+    // door stands only on an Awoken holding at least 2 Rock in
+    // its element sum — the gate Nigel ruled ("an awoken with
+    // build ability 2 rock energy must be available to raise
+    // stone form the ground"). Opening it seats the pieces
+    // menu in this Awoken's ability tab, with this Awoken as
+    // the lead builder of every cast begun there.
+    if (((p as any).stone ?? 0) >= 2) {
+      entries.push({ key: "ord-abilities", sigil: "ability", label: "Abilities", act: () => {
+        setSelectedAwoken(id);
+        setAbilityLeadId(id);
+        setStrikeStrikerId(id);
+        setStrikeArmed(false);
+        setBuildGhost(null);
+        setBuildMode(true);
+        setBuildNote(`Building — ${p.name} leads the cast, and every fielded Awoken with 2 Rock or more builds beside them. Choose a piece, then tap the land: the piece RISES from the ground — it does not appear. Walls and doors rise on a floor's edge.`);
+      } } as WheelEntry);
+    }
     const inParty = !!partyQ.data?.members.some(m => m.awakenedId === id);
     if (!inParty) entries.push({ key: "ord-join", sigil: "ability", label: "Join party", act: () => { void (async () => { try { await api.addFieldToParty({ awakenedId: id }); await partyQ.refetch(); showHexNotice(`${p.name} comes off the field into your party.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The party would not take them."); } })(); } } as WheelEntry);
     return entries;
@@ -3124,9 +3177,60 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     return null;
   };
 
+  /** The piece under a plate-plane point, for the strike: a
+   *  wall by its line first (the thinner target), then the
+   *  topmost floor the point falls in — take-away's own aim. */
+  const pieceAtPlatePt = (platePt: Pt): BuildPiece | null => {
+    const pieces = buildPiecesRef.current;
+    for (const p of pieces) {
+      if (!isWallKind(p.kind)) continue;
+      if (pointSegmentDistance(platePt, p.verts[0], p.verts[1]) <= 0.2) return p;
+    }
+    for (let i = pieces.length - 1; i >= 0; i--) {
+      const p = pieces[i];
+      if (p.kind !== "triangle" && p.kind !== "square") continue;
+      if (pointInPolygon(platePt, p.verts)) return p;
+    }
+    return null;
+  };
+
   const buildTap = async (screenPt: { x: number; y: number }) => {
     const axial = screenToAxial(screenPt.x, screenPt.y, pan, zoom);
     const platePt = axialToPlate(axial.q, axial.r);
+    // THE GATE AT THE HAND (the Stone Cast): build mode is the
+    // ability tab's ground — without a lead builder standing
+    // open, no tap lays, takes, or strikes anything.
+    const leadId = abilityLeadIdRef.current;
+    if (leadId == null) {
+      setBuildNote("The construction is raised from a Stone Awoken's ability tab — open the wheel of a fielded Awoken holding at least 2 Rock.");
+      return;
+    }
+    // STRIKE THE WORK, armed from the tab: the tap strikes the
+    // piece under it with the chosen Awoken's hand.
+    if (strikeArmedRef.current) {
+      const piece = pieceAtPlatePt(platePt);
+      if (!piece) { setBuildNote("No piece of the work stands there to strike."); return; }
+      const strikerId = strikeStrikerIdRef.current ?? leadId;
+      const striker = placements.find(p => p.awakenedId === strikerId);
+      try {
+        const r = await api.strikeBuildPiece({ awakenedId: strikerId, pieceId: piece.id });
+        if (r.fell) {
+          setBuildPieces(prev => prev.filter(p => !r.removed.includes(p.id)));
+          setBuildNote(`${striker?.name ?? "The blow"} fells the ${piece.kind} — and what stood on its foundation alone came down with it.`);
+        } else {
+          setBuildPieces(prev => prev.map(p => p.id === piece.id ? { ...p, hp: r.hp } : p));
+          setBuildNote(r.repaired
+            ? `${striker?.name ?? "The Stone hand"} mends the ${piece.kind} — ${Math.round(r.hp)}/100. Stone repairs the work it strikes.`
+            : `${striker?.name ?? "The blow"} strikes the ${piece.kind} — ${Math.round(r.hp)}/100. At 0 it falls.`);
+        }
+        setBuildGhost(null);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "The strike was refused.";
+        setBuildNote(msg);
+        showHexNotice(msg);
+      }
+      return;
+    }
     const target = pickBuildTarget(platePt);
     if (!target) {
       setBuildNote(isWallKind(buildToolRef.current)
@@ -3140,30 +3244,40 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setBuildNote("That piece would lie across one already standing — pieces may not overlap.");
       return;
     }
+    // The crew raising this cast, for the spoken line: every
+    // fielded Awoken at 2 Rock or more, and the anchor's pace
+    // their Stone buys (minutes ≈ 36 / the crew's Stone power).
+    const crew = placements.filter(p => ((p as any).stone ?? 0) >= 2);
+    const crewPower = crew.reduce((s, p) => s + ((p as any).stone ?? 0), 0);
+    const riseLine = crewPower > 0
+      ? `begins to rise — the crew of ${crew.length} raises it in about ${Math.max(1, Math.round(36 / crewPower))} minutes`
+      : "begins to rise";
     try {
       if (target.type === "floor") {
-        const r = await api.placeBuildPiece({ kind: target.kind, verts: target.verts });
+        const r = await api.placeBuildPiece({ kind: target.kind, verts: target.verts, leadId });
         setBuildPieces(prev => [...prev, r.piece]);
         const joined = target.snapped ? ", joined edge to edge with the work beside it" : "";
         setBuildNote(r.piece.protected
-          ? `The ${target.kind} stands${joined} — protected: purified ground lies beneath all of it.`
-          : `The ${target.kind} stands${joined} — UNPROTECTED: cursed ground or the void lies beneath part of it.`);
+          ? `The ${target.kind} ${riseLine}${joined} — protected: purified ground lies beneath all of it.`
+          : `The ${target.kind} ${riseLine}${joined} — UNPROTECTED: cursed ground or the void lies beneath part of it.`);
       } else if (target.type === "wall") {
-        const r = await api.placeBuildPiece({ kind: target.kind, verts: target.edge });
+        const r = await api.placeBuildPiece({ kind: target.kind, verts: target.edge, leadId });
         setBuildPieces(prev => [...prev, r.piece]);
         setBuildNote(target.kind === "door"
-          ? "The door stands — its middle is open, and the field passes through the gap."
+          ? `The door ${riseLine} — its middle stands open, and the field passes through the gap.`
           : target.kind === "halfwall"
-            ? "The half wall stands — waist high: the field collides against its line, and a leap crosses it."
+            ? `The half wall ${riseLine} — waist high: the field collides against its line, and a leap crosses it.`
             : target.kind === "narrow"
-              ? "The narrow wall stands — the field collides against its line."
-              : "The wall stands — the field collides against its line.");
+              ? `The narrow wall ${riseLine} — the field collides against its line.`
+              : `The wall ${riseLine} — the field collides against its line.`);
       } else {
         const r = await api.removeBuildPiece({ id: target.piece.id });
         setBuildPieces(prev => prev.filter(p => !r.removed.includes(p.id)));
         setBuildNote(r.removed.length > 1
           ? "Taken away — and what stood on its foundation alone came down with it."
-          : "Taken away.");
+          : (r.settling && r.settling.length > 0)
+            ? "Taken away — a piece still rising on it has nothing left to rise onto, and settles back into the ground."
+            : "Taken away.");
       }
       setBuildGhost(null);
     } catch (e) {
@@ -5590,6 +5704,36 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     };
     const polyPts = (poly: Pt[]): string =>
       poly.map(([q, r]) => { const s = landPt(q, r); return `${s.x.toFixed(1)},${s.y.toFixed(1)}`; }).join(" ");
+    // THE STONE CAST's drawing measures, and BUILDING RIDES
+    // THE TILE: a piece stands on its tile's own lift — the
+    // tray steps and the floating isle's hover, read by the
+    // very formula the tiles draw themselves by (tilePos
+    // above) — so when the tile rises, the piece rises with
+    // it. A piece not yet fully risen also sits SUNK by the
+    // un-emerged share of the wall's rise (BUILD_WALL_H): it
+    // is coming up out of the ground, not appearing.
+    const axialRoundForPiece = (q: number, r: number): { q: number; r: number } => {
+      const y = -q - r;
+      let rq = Math.round(q), ry = Math.round(y), rr = Math.round(r);
+      const dq = Math.abs(rq - q), dy = Math.abs(ry - y), dr = Math.abs(rr - r);
+      if (dq > dy && dq > dr) rq = -ry - rr; else if (dy > dr) ry = -rq - rr; else rr = -rq - ry;
+      return { q: rq, r: rr };
+    };
+    const pieceTileOf = (p: BuildPiece): any | null => {
+      if (!p.footprint.length) return null;
+      const cq = p.footprint.reduce((s, v) => s + v[0], 0) / p.footprint.length;
+      const cr = p.footprint.reduce((s, v) => s + v[1], 0) / p.footprint.length;
+      const h = axialRoundForPiece(cq, cr);
+      const at = tiles.filter(t => t.q === h.q && t.r === h.r);
+      if (!at.length) return null;
+      return at.find(t => (t.z ?? 0) === (p.z ?? 0)) ?? at.reduce((a, b) => ((a.z ?? 0) >= (b.z ?? 0) ? a : b));
+    };
+    const pieceLiftY = (p: BuildPiece): number => {
+      const t = pieceTileOf(p);
+      if (!t) return 0;
+      return -(Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
+    };
+    const BUILD_WALL_H = 30; // the wall's rise, in land units — and a floor's emergence depth: the Stone Cast sinks an unrisen piece by the un-emerged share of this same measure
     const buildFloorsLayer = (
       <g key="build-floors" className="build-floors" pointerEvents="none">
         {buildPieces.filter(p => p.kind === "triangle" || p.kind === "square").map(p => {
@@ -5607,8 +5751,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const s = landPt(p.footprint[idx][0], p.footprint[idx][1]);
             return [s.x, s.y] as [number, number];
           })) : null;
+          // THE RISE, DRAWN: the floor emerges — sunk by the
+          // un-emerged share of the rise, riding its tile's
+          // lift (pieceLiftY) the whole way.
+          const frac = p.frac ?? 1;
+          const sinkY = (1 - frac) * BUILD_WALL_H + pieceLiftY(p);
           return (
-            <g key={p.id}>
+            <g key={p.id} data-state={p.state ?? "standing"} data-frac={frac}
+              transform={sinkY ? `translate(0 ${sinkY.toFixed(1)})` : undefined}>
               {face && matrix && (
                 <g transform={matrix}>
                   <image href={face.src} x={0} y={0} width={face.w ?? FLOOR_FRAME_W} height={face.h ?? FLOOR_FRAME_H} />
@@ -5624,7 +5774,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
-    const BUILD_WALL_H = 30; // the wall's rise, in land units
     // THE DEPTH PASS (2026-10-26): the construction's walls are
     // standing things — their drawings are collected here as
     // loose nodes and handed to the pass below (each wall's
@@ -5632,7 +5781,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // longer painted as one fixed stratum.
     const buildWallNodes = buildPieces.filter(p => isWallKind(p.kind)).map(p => {
           const [fa, fb] = p.footprint;
-          const A = landPt(fa[0], fa[1]), B = landPt(fb[0], fb[1]);
+          // BUILDING RIDES THE TILE: the wall's edge stands on
+          // its tile's lift, like everything else standing.
+          const liftY = pieceLiftY(p);
+          const A0 = landPt(fa[0], fa[1]), B0 = landPt(fb[0], fb[1]);
+          const A = { x: A0.x, y: A0.y + liftY }, B = { x: B0.x, y: B0.y + liftY };
           // HIS FACE (2026-10-26): the wall wears the face drawn
           // for its edge's PERSPECTIVE — the stance × facing row
           // of the table in buildingFaces.ts: the frontal pair on
@@ -5653,10 +5806,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // the Tender's own. The node names its stance
           // (data-perspective) so a proof can read which
           // perspective stands on each edge.
-          const seat = wallSeatFor(p.kind, A, B);
+          // THE RISE, DRAWN: the seat takes the emerged share
+          // of the wall's height — the wall grows out of its
+          // edge, it does not appear.
+          const seat = wallSeatFor(p.kind, A, B, p.frac ?? 1);
           const face = seat.face;
           return (
-            <g key={p.id} className="build-wall-piece" data-perspective={seat.stance} data-kind={p.kind}>
+            <g key={p.id} className="build-wall-piece" data-perspective={seat.stance} data-kind={p.kind}
+              data-state={p.state ?? "standing"} data-frac={p.frac ?? 1} data-hp={p.hp ?? 100}>
               <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={p.protected ? "#e8c766" : "#4a3a20"} strokeWidth={1.4 / zoom} opacity={0.6} />
               <g transform={seat.transform}>
                 <image href={face.src} x={0} y={0} width={face.w} height={face.h} />
@@ -6008,12 +6165,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // motion, not a borrowed drawing).
       const jh = tenderFig.jh ?? 0;
       const flipDeg = tenderFig.flipU != null && tenderFig.flipU > 0 && tenderFig.flipU < 1 ? tenderFig.flipU * 360 : 0;
+      // RIDING THE RISE (the Stone Cast, Nigel 2026-10-27: "a
+      // rising piece carries its collision throughout the rise;
+      // a Tender standing on a rising piece rides it up"): when
+      // the ground under his feet is a floor still rising, his
+      // figure sits at the floor's own sunk depth — the same
+      // un-emerged share the floor itself is drawn by — and
+      // climbs with it as the piece rises.
+      const rideSinkPx = (() => {
+        const pt = screenToAxial(tenderFig.x, tenderFig.y, pan, zoom);
+        for (const p of buildPieces) {
+          if (p.kind !== "triangle" && p.kind !== "square") continue;
+          const f = p.frac ?? 1;
+          if (f >= 1) continue;
+          if (pointInPolygon([pt.q, pt.r], p.footprint)) return (1 - f) * 30 * zoom;
+        }
+        return 0;
+      })();
+      const figY = tenderFig.y + rideSinkPx;
       const img = (
-        <image href={pose.src} x={tenderFig.x - h / 2} y={tenderFig.y + 4 - h - jh} width={h} height={h}
+        <image href={pose.src} x={tenderFig.x - h / 2} y={figY + 4 - h - jh} width={h} height={h}
           preserveAspectRatio="xMidYMax meet" opacity={tenderStand.down ? 0.5 : 1} />
       );
       const imgTurned = flipDeg
-        ? <g transform={`rotate(${flipDeg} ${tenderFig.x} ${tenderFig.y - h / 2 - jh})`}>{img}</g>
+        ? <g transform={`rotate(${flipDeg} ${tenderFig.x} ${figY - h / 2 - jh})`}>{img}</g>
         : img;
       // PHASE D: his body is real — the pool rides above his
       // figure, green to ember as it empties; a fallen Tender
@@ -6024,12 +6199,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         const frac = max > 0 ? hp / max : 0;
         return (
           <g pointerEvents="none">
-            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom - jh} width={36 * zoom} height={3.6 * zoom}
+            <rect x={tenderFig.x - 18 * zoom} y={figY - h - 10 * zoom - jh} width={36 * zoom} height={3.6 * zoom}
               fill="rgba(6,4,10,0.82)" stroke="rgba(201,162,39,0.55)" strokeWidth={0.5} />
-            <rect x={tenderFig.x - 18 * zoom} y={tenderFig.y - h - 10 * zoom - jh} width={36 * zoom * frac} height={3.6 * zoom}
+            <rect x={tenderFig.x - 18 * zoom} y={figY - h - 10 * zoom - jh} width={36 * zoom * frac} height={3.6 * zoom}
               fill={tenderStand.down ? "#8a2f26" : frac <= 0.35 ? "#d05a3a" : "#9dc08b"} />
             {tenderStand.down && (
-              <text x={tenderFig.x} y={tenderFig.y + 13 * zoom} textAnchor="middle" fontSize={6.5 * zoom} fontWeight={700} fill="#e8a49a"
+              <text x={tenderFig.x} y={figY + 13 * zoom} textAnchor="middle" fontSize={6.5 * zoom} fontWeight={700} fill="#e8a49a"
                 style={{ paintOrder: "stroke", stroke: "rgba(8,2,4,0.9)", strokeWidth: 3 }}>fallen — he wakes at the bastion</text>
             )}
           </g>
@@ -6058,7 +6233,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // The orbit's heart: the shoulder point the weapon
       // already haunts, riding the jump as it always has.
       const ocx = tenderFig.x;
-      const ocy = tenderFig.y - 34 * zoom - jh;
+      const ocy = figY - 34 * zoom - jh;
       const orbitA = 0.6 + wnow * 0.00075;
       const orbitX = ocx + Math.cos(orbitA) * 56 * WS;
       const orbitY = ocy + Math.sin(orbitA) * 13 * WS + Math.sin(wnow / 480) * 3 * WS;
@@ -6485,9 +6660,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     buildPieces.filter(p => isWallKind(p.kind)).forEach((p, i) => {
       const node = buildWallNodes[i];
       if (!node) return;
+      const liftY = pieceLiftY(p);
       const A = landPt(p.footprint[0][0], p.footprint[0][1]);
       const B = landPt(p.footprint[1][0], p.footprint[1][1]);
-      standingItems.push({ key: `standing-piece-${p.id}`, baseY: Math.max(A.y, B.y), node: <g key={`standing-piece-${p.id}`} className="build-walls" pointerEvents="none">{node}</g> });
+      standingItems.push({ key: `standing-piece-${p.id}`, baseY: Math.max(A.y, B.y) + liftY, node: <g key={`standing-piece-${p.id}`} className="build-walls" pointerEvents="none">{node}</g> });
     });
     mapSeeds.forEach((sd, i) => {
       const node = seedNodes[i];
@@ -8406,35 +8582,123 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             energy={energy}
             alwaysOpen
           />
-          {/* THE PIECES MENU (2026-10-28): the construction's
-              choosing seat, inside the one door — picking a
-              piece puts it in hand and closes the panel, so
-              the map's presses belong to the laying, exactly
-              as the struck toggle's entry did; the panel
-              reopens (the castle) to change the piece in hand
-              or to be Done. The menu is its own component —
-              the Stone Cast moves this same seat inside a
-              Stone Awoken's ability tab. */}
-          <PiecesMenu
-            tool={buildTool}
-            placeMode={buildPlaceMode}
-            note={buildNote}
-            active={buildMode}
-            onPick={(tool) => {
-              setBuildTool(tool);
-              setBuildGhost(null);
-              if (!buildMode) {
-                setBuildNote("Choose a piece, then tap the land to lay it — pieces snap to each other, edge to edge, never to the world; the menu's Free place switch turns the snapping off. Walls and doors stand on a floor's edge; a door's middle stands open. Drag pans the land, as ever.");
-              }
-              setBuildMode(true);
-              setBuildSel(null);
-              setShowBuildingMenu(false);
-            }}
-            onPlaceMode={(mode) => { setBuildPlaceMode(mode); setBuildGhost(null); }}
-            onDone={() => { setBuildMode(false); setBuildGhost(null); }}
-          />
+          {/* THE PIECES MENU'S OLD SEAT, CLOSED (THE STONE
+              CAST, 2026-10-28): the construction's choosing
+              seat stood here this morning — it stands now in
+              the building ability tab on a Stone Awoken's
+              wheel, and this free-standing seat is closed.
+              One door, and the door is the Awoken. Buildings
+              (the list above) are not the Stone Awoken's and
+              keep this road, untouched. */}
+          <p className="pieces-seat-closed">
+            The construction's pieces are raised from a Stone Awoken's ability tab — open the wheel of a fielded Awoken holding at least 2 Rock.
+          </p>
         </div>
       )}
+
+      {/* THE BUILDING ABILITY TAB (THE STONE CAST, 2026-10-28):
+          an abilities section on a fielded Awoken's action
+          wheel, built to hold more abilities later; BUILDING
+          is its first. The tab holds the stone build pieces
+          only — the masonry kit in the PiecesMenu, unchanged —
+          and every cast begun here names this Awoken as the
+          lead builder. The crew line speaks the anchor's law:
+          pace from the crew's Stone, energy per builder per
+          minute. Below the menu: the strike (a Stone hand
+          mends the work, another hand breaks it) and the work
+          in progress — each rise with its height and its Stop. */}
+      {abilityLeadId != null && (() => {
+        const lead = placements.find(p => p.awakenedId === abilityLeadId);
+        if (!lead) return null;
+        const crew = placements.filter(p => ((p as any).stone ?? 0) >= 2);
+        const crewPower = crew.reduce((s, p) => s + ((p as any).stone ?? 0), 0);
+        const riseMinutes = crewPower > 0 ? Math.max(1, Math.round(36 / crewPower)) : 0;
+        const workRows = buildPieces.filter(p => p.state === "rising" || p.state === "settling" || (p.hp ?? 100) < 100);
+        const striker = placements.find(p => p.awakenedId === (strikeStrikerId ?? abilityLeadId));
+        return (
+          <div className="ability-side-panel" data-lead={lead.awakenedId}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <h3 style={{ margin: 0, color: "#e8c766", fontSize: 16 }}>Abilities — {lead.name}</h3>
+              <button type="button" className="abtn small" onClick={() => { setAbilityLeadId(null); setBuildMode(false); setBuildGhost(null); setStrikeArmed(false); }}>✕</button>
+            </div>
+            <div className="ability-list">
+              <div className="ability-entry active">🪨 Building — the stone build pieces</div>
+            </div>
+            <p className="ability-crew">
+              Crew: {crew.map(p => `${p.name} (${(p as any).stone} Rock)`).join(" · ") || "—"}<br />
+              Together {crewPower} Stone — a piece rises in about {riseMinutes} minutes, and each builder draws 1 energy a minute while it rises.
+            </p>
+            <PiecesMenu
+              tool={buildTool}
+              placeMode={buildPlaceMode}
+              note={buildNote}
+              active={buildMode}
+              onPick={(tool) => {
+                setBuildTool(tool);
+                setBuildGhost(null);
+                setStrikeArmed(false);
+                setBuildMode(true);
+                setBuildSel(null);
+              }}
+              onPlaceMode={(mode) => { setBuildPlaceMode(mode); setBuildGhost(null); }}
+              onDone={() => { setBuildMode(false); setBuildGhost(null); }}
+            />
+            <div className="ability-strike">
+              <label>
+                Strike the work with{" "}
+                <select value={strikeStrikerId ?? abilityLeadId ?? ""}
+                  onChange={(e) => setStrikeStrikerId(Number(e.target.value))}>
+                  {placements.map(p => (
+                    <option key={p.awakenedId} value={p.awakenedId}>{p.name}{((p as any).stone ?? 0) >= 1 ? " — Stone hand (mends)" : ""}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className={`abtn small ${strikeArmed ? "active" : ""}`}
+                onClick={() => setStrikeArmed(v => !v)}>
+                {strikeArmed ? "⚒ Striking — tap a piece (tap to rest)" : "⚒ Strike the work"}
+              </button>
+              <span className="ability-strike-note">{striker
+                ? (((striker as any).stone ?? 0) >= 1
+                  ? `${striker.name}'s Stone hand mends what it strikes.`
+                  : `${striker.name}'s blows damage the work — at 0 HP a piece falls.`)
+                : ""}</span>
+            </div>
+            {workRows.length > 0 && (
+              <div className="ability-work">
+                <h4>The work</h4>
+                {workRows.map(p => (
+                  <div key={p.id} className="ability-work-row" data-piece={p.id} data-state={p.state}>
+                    <span>
+                      {p.kind === "triangle" ? "Triangle floor" : p.kind === "square" ? "Square foundation" : p.kind === "door" ? "Door wall" : p.kind === "halfwall" ? "Half wall" : p.kind === "narrow" ? "Narrow wall" : "Wall"}
+                      {" — "}
+                      {p.state === "rising" ? `rising, ${Math.round((p.frac ?? 0) * 100)}% up`
+                        : p.state === "settling" ? `settling, ${Math.round((p.frac ?? 0) * 100)}% left`
+                        : p.state === "cemented" ? `cemented at ${Math.round((p.frac ?? 1) * 100)}%`
+                        : "standing"}
+                      {` · ${Math.round(p.hp ?? 100)}/100 HP`}
+                    </span>
+                    {p.state === "rising" && (
+                      <button type="button" className="abtn small" onClick={() => { void (async () => {
+                        try {
+                          const r = await api.stopBuildPiece({ id: p.id });
+                          setBuildPieces(prev => prev.map(x => x.id === p.id ? r.piece : x));
+                          setBuildNote(r.cemented
+                            ? `The ${p.kind} is cemented at ${Math.round((r.piece.frac ?? 0) * 100)}% — final. It keeps that height.`
+                            : `The ${p.kind} has nothing to cement to — it is not kept; it settles back into the ground.`);
+                        } catch (e) {
+                          const msg = e instanceof Error ? e.message : "The stop was refused.";
+                          setBuildNote(msg);
+                          showHexNotice(msg);
+                        }
+                      })(); }}>Stop the rise</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* THE BUILD CARD (the Building System, 2026-10-19): the
           work's own face — its stage, its fill, the pool it

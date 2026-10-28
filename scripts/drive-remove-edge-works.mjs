@@ -115,6 +115,25 @@ for (const door of ["placeWall", "placeEdgeWork", "strengthenEdgeWork", "removeE
 /* ══ §B THE BOOK'S WORKINGS STAND ═════════════════════ */
 console.log("§B the book's workings still place, stand and cast");
 const seedTileId = db.prepare("SELECT tile_id AS id FROM star_seeds WHERE owner_key = ?").get(ownerKey).id;
+/* THE STONE CAST, RESTATED (2026-10-28): every cast in this
+ * drive names its LEAD BUILDER — a fielded Awoken holding 3
+ * Rock, "Edge Mason" — because the cast's gate refuses a cast
+ * with no qualified lead (Nigel's rulings of 2026-10-27
+ * 20:28–21:00). The floor, wall and door below are read while
+ * still RISING: a rising piece carries its collision
+ * throughout the rise, and so bars (and threads) the light —
+ * the cast's own law; drive-stone-cast proves the rise. */
+const LEAD = (() => {
+  const insA = db.prepare("INSERT INTO layer_assets (name, category, rarity, power, toughness, element, image_blob_key, mime_type, created_at) VALUES (?, ?, 'common', ?, ?, ?, ?, 'image/png', ?)");
+  const parts = [["Mason Body", "body", 3, 3], ["Mason Arms", "arms", 3, 3], ["Mason Crown", "head", 3, 3]]
+    .map(([n, c, p, t]) => ({ id: Number(insA.run(n, c, p, t, "stone", `edge-mason/${n}.png`, now).lastInsertRowid), name: n, category: c, power: p, toughness: t, element: "stone" }));
+  const composition = JSON.stringify(parts.map(p => ({ source_id: `db:${p.id}`, name: p.name, category: p.category, rarity: "common", power: p.power, toughness: p.toughness, element: p.element })));
+  const id = Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES ('Edge Mason', 'Edge Mason', 'edge-mason/mason.png', ?, 'tender', 'Edge Tender', ?, ?)").run(composition, ownerKey, now).lastInsertRowid);
+  const tSeed = land.tiles.find((t) => t.id === seedTileId);
+  db.prepare(`INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, stance, follow, hp, pos_q, pos_r, shield, shield_max, stance_ordered)
+    VALUES (?, ?, ?, ?, ?, 'defense', 0, 99, ?, ?, NULL, NULL, 0)`).run(ownerKey, id, seedTileId, now, now, tSeed.q, tSeed.r);
+  return id;
+})();
 const seedTile = land.tiles.find((t) => t.id === seedTileId);
 ok("§B the seed's hex stands on the land", !!seedTile);
 // A Seal ward on the seed hex's dir-5 edge, cast through
@@ -160,9 +179,9 @@ const edgeVerts = [2, 3].map((vi) => axialToPlate([S.q + VERT_FRAC[vi][0], S.r +
 // A wall stands on the edge of a floor the Tender owns —
 // so the beacon hex's own wedge floor is laid first, and
 // the wall and then the door stand on its outer edge.
-const layFloor = await callOk("placeBuildPiece", { kind: "triangle", verts: [axialToPlate([S.q, S.r]), ...edgeVerts] }, T.token);
+const layFloor = await callOk("placeBuildPiece", { leadId: LEAD, kind: "triangle", verts: [axialToPlate([S.q, S.r]), ...edgeVerts] }, T.token);
 ok("§C a triangle floor is laid through placeBuildPiece on the beacon hex", layFloor.ok === true && layFloor.piece?.kind === "triangle");
-const layWall = await callOk("placeBuildPiece", { kind: "wall", verts: edgeVerts }, T.token);
+const layWall = await callOk("placeBuildPiece", { leadId: LEAD, kind: "wall", verts: edgeVerts }, T.token);
 ok("§C a wall is laid through placeBuildPiece on the beacon's dir-2 edge", layWall.ok === true && layWall.piece?.kind === "wall");
 freezeBattle();
 land = await callOk("getTerritory", {}, T.token);
@@ -171,7 +190,7 @@ ok("§C the built wall stands in the served pieces", (land.buildPieces ?? []).so
 ok("§C the hex behind the built wall reads DARK (0) — its light is barred", xWalled.light === 0, `light=${xWalled.light}`);
 const rm = await callOk("removeBuildPiece", { id: layWall.piece.id }, T.token);
 ok("§D the wall comes down through removeBuildPiece", rm.ok === true);
-const layDoor = await callOk("placeBuildPiece", { kind: "door", verts: edgeVerts }, T.token);
+const layDoor = await callOk("placeBuildPiece", { leadId: LEAD, kind: "door", verts: edgeVerts }, T.token);
 ok("§D a door is laid on the same edge through placeBuildPiece", layDoor.ok === true && layDoor.piece?.kind === "door");
 freezeBattle();
 land = await callOk("getTerritory", {}, T.token);

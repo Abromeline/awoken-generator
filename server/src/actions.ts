@@ -326,9 +326,15 @@ function findRoad(tiles: { id: number; q: number; r: number; cursed: number; z?:
 interface BuildPieceRow {
   id: number; kind: string; pieceKey: string;
   verts: Pt[]; footprint: Pt[];
+  // THE STONE CAST (2026-10-28): the rise's record — hit points,
+  // the rise's state, how far out of the ground the piece stands,
+  // the lead builder who began it, the settle's clock, and the
+  // fractional energy accrued toward the purse's next whole point.
+  hp: number; state: string; frac: number;
+  leadId: number | null; riseUpdatedAt: number; energyBank: number;
 }
 function loadBuildPieces(ownerKey: string): BuildPieceRow[] {
-  const rows = sqlite.prepare("SELECT id, kind, piece_key AS pieceKey, verts, footprint FROM build_pieces WHERE owner_key = ? ORDER BY id")
+  const rows = sqlite.prepare("SELECT id, kind, piece_key AS pieceKey, verts, footprint, hp, state, frac, lead_id AS leadId, rise_updated_at AS riseUpdatedAt, energy_bank AS energyBank FROM build_pieces WHERE owner_key = ? ORDER BY id")
     .all(ownerKey) as any[];
   const out: BuildPieceRow[] = [];
   for (const r of rows) {
@@ -336,6 +342,11 @@ function loadBuildPieces(ownerKey: string): BuildPieceRow[] {
       out.push({
         id: Number(r.id), kind: String(r.kind), pieceKey: String(r.pieceKey),
         verts: JSON.parse(r.verts) as Pt[], footprint: JSON.parse(r.footprint) as Pt[],
+        hp: Number(r.hp ?? 100), state: String(r.state ?? "standing"),
+        frac: Number(r.frac ?? 1),
+        leadId: r.leadId == null ? null : Number(r.leadId),
+        riseUpdatedAt: Number(r.riseUpdatedAt ?? 0),
+        energyBank: Number(r.energyBank ?? 0),
       });
     } catch { /* a garbled row holds no ground — it is not served, blocks nothing */ }
   }
@@ -705,13 +716,40 @@ function buildPieceProtected(footprint: Pt[], tilesByKey: Map<string, any>): boo
   return true;
 }
 
+/** The plane a piece stands on: the highest tile at the hex
+ *  under the footprint's heart. BUILDING RIDES THE TILE (Nigel,
+ *  2026-10-27): when a tile is lifted by Air the piece standing
+ *  on it rises with it — its standing plane is the top tile at
+ *  its hex, for the risen tile is the one that keeps climbing
+ *  while the cursed hexes are born at the planes it vacates,
+ *  below it. */
+function pieceTopZ(p: BuildPieceRow, allTiles: any[]): number {
+  if (!p.footprint.length) return 0;
+  const c: Pt = [
+    p.footprint.reduce((s, v) => s + v[0], 0) / p.footprint.length,
+    p.footprint.reduce((s, v) => s + v[1], 0) / p.footprint.length,
+  ];
+  const h = axialRound(c[0], c[1]);
+  let z = 0;
+  for (const t of allTiles) {
+    if (t.q === h.q && t.r === h.r) z = Math.max(z, t.z ?? 0);
+  }
+  return z;
+}
+
 /** A build piece as getTerritory serves it: its record, its
- *  footprint, and its derived protection. */
-function buildPieceView(p: BuildPieceRow, tilesByKey: Map<string, any>) {
+ *  footprint, its derived protection — and, since the Stone
+ *  Cast, its hit points, its rise's state and height, and the
+ *  plane it stands on. */
+function buildPieceView(p: BuildPieceRow, tilesByKey: Map<string, any>, allTiles: any[] = []) {
   return {
     id: p.id, kind: p.kind, pieceKey: p.pieceKey,
     verts: p.verts, footprint: p.footprint,
     protected: buildPieceProtected(p.footprint, tilesByKey),
+    hp: Math.round(p.hp * 10) / 10, maxHp: 100,
+    state: p.state, frac: Math.round(p.frac * 1000) / 1000,
+    leadId: p.leadId,
+    z: pieceTopZ(p, allTiles),
   };
 }
 
@@ -777,6 +815,223 @@ function pieceStands(target: BuildPieceRow, pieces: BuildPieceRow[]): boolean {
   if (founded.has(target.id)) return true;
   const { supporters } = restsOn(target, pieces);
   return supporters.some(s => restsOn(s, pieces).supporters.some(t => founded.has(t.id)));
+}
+
+/* ── THE STONE CAST (Nigel, commissioned 2026-10-26; pulled
+ * forward 2026-10-27 20:15; access and gate ruled 2026-10-27
+ * 20:28–21:00) ───────────────────────────────────────────────
+ * Building is a fielded Stone Awoken's cast, reached through
+ * the BUILDING ABILITY TAB on that Awoken's own action wheel.
+ * The laws the machinery below keeps:
+ *   · THE GATE: the tab lives on an Awoken holding at least 2
+ *     ROCK (Stone) in its element sum, and that Awoken must be
+ *     AVAILABLE — fielded and present — to raise stone from
+ *     the ground. No available ≥2-Rock Awoken, no raising.
+ *   · THE RISE: a chosen piece RISES up out of the ground; it
+ *     does not appear. Foundations rise at the same rate as
+ *     walls. A rising piece is a piece from its first moment —
+ *     it stands in the support reckoning and carries its
+ *     collision (buildWallSegments reads every piece) through
+ *     the whole rise.
+ *   · PACE — THE ANCHOR (Nigel, 2026-10-26): a lone 3-power
+ *     Stone Awoken raises a piece in about 12 minutes. The
+ *     rate derives from the anchor alone: a rise takes
+ *     minutes ≈ 36 / (the crew's total Stone power), the crew
+ *     being the lead builder plus every other fielded,
+ *     available ≥2-Rock Awoken. At power 3: 36/3 = 12 minutes.
+ *   · COST: ENERGY, 1 per minute of building, drawn for EACH
+ *     Awoken on the crew for the rise's duration — there is no
+ *     separate building resource; adding builders raises the
+ *     total energy drawn and shortens the rise. Fractional
+ *     builder-minutes accrue in the piece's energy bank; whole
+ *     points are drawn from the purse as they accrue, and a
+ *     purse that cannot pay holds the rise where it stands.
+ *   · AVAILABILITY: the rise proceeds only while at least one
+ *     qualified Awoken is available; with none, the rise HOLDS
+ *     its height — it does not fall and does not advance —
+ *     until one is available again. (The build's reading of
+ *     "must be available to raise stone", flagged in the
+ *     build report for Nigel's correction.)
+ *   · THE PARTWAY STOP: a rise stopped partway is kept at that
+ *     height permanently IF the piece has structural support
+ *     to cement to (pieceStands, the reckoning above) —
+ *     cementing is final. Stopped with nothing to cement to,
+ *     it is not kept: it follows the settling law.
+ *   · THE SETTLING LAW: a piece raised with nothing to attach
+ *     to slowly settles — it sinks back toward the ground it
+ *     rose from, at the lone anchor builder's pace (its full
+ *     height in 12 minutes), needing no crew and no energy;
+ *     at the ground it is gone, settled back into the earth.
+ *     A STANDING piece that loses its support falls at once
+ *     (the cascade, as taking-away has always felled); a piece
+ *     still RISING when its support falls does not fall — it
+ *     was never snapped in — it settles.
+ *   · THE SNAP LAW: at the top of its rise a piece SNAPS IN
+ *     PLACE only if it stands by the foundation calculation;
+ *     a piece that reaches the top with nothing to attach to
+ *     follows the settling law instead.
+ *   · PIECES HAVE 100 HP; at 0 a piece falls, with the same
+ *     cascade. A Stone Awoken's attack on a piece REPAIRS it
+ *     (restores HP instead of harming it); any other Awoken's
+ *     attack damages it.
+ * The rise is a real state on the piece's record (begun at,
+ * lead, height) settled lazily at read, like the homeland
+ * battle — never by a timer. */
+const STONE_BUILD_MIN = 2;
+const RISE_ANCHOR_NUMERATOR = 36;
+const RISE_SETTLE_CAP_MIN = 60;
+const SETTLE_RATE_PER_MIN = 1 / 12;
+const PIECE_MAX_HP = 100;
+
+/** One Awoken's Rock: its Stone element sum, counted as the
+ *  terrain press counts the parts — a part is a point, an
+ *  aspect part is its level in points. */
+async function stoneSumOf(aw: any): Promise<number> {
+  let layers: any[] = [];
+  try { layers = JSON.parse(aw.compositionJson || "[]"); } catch { return 0; }
+  const layerEls = await compositionElements(layers);
+  let sum = 0;
+  layers.forEach((l, i) => {
+    if (layerEls[i] === "stone") sum += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
+  });
+  return sum;
+}
+
+interface BuildCrewMember { awakenedId: number; stone: number }
+/** The building crew: the lead builder and every other fielded,
+ *  available Awoken holding at least 2 Rock. */
+async function buildCrewFor(ownerKey: string): Promise<BuildCrewMember[]> {
+  const placements = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  if (!placements.length) return [];
+  const rows = await db.select().from(schema.awakened)
+    .where(inArray(schema.awakened.id, [...new Set(placements.map(p => p.awakenedId))]));
+  const byId = new Map(rows.map(r => [r.id, r]));
+  const crew: BuildCrewMember[] = [];
+  for (const p of placements) {
+    const aw = byId.get(p.awakenedId);
+    if (!aw || crew.some(c => c.awakenedId === p.awakenedId)) continue;
+    const stone = await stoneSumOf(aw);
+    if (stone >= STONE_BUILD_MIN) crew.push({ awakenedId: p.awakenedId, stone });
+  }
+  return crew;
+}
+
+/** Settle every rise and settling on the land against the
+ *  clock — the lazy reckoning, run at read like the battle's.
+ *  Rising pieces advance by the crew's present power and draw
+ *  their energy as it accrues; with no crew available (or a
+ *  purse that cannot pay) a rise holds its height. Settling
+ *  pieces sink at the settling pace and are removed at the
+ *  ground. A rise that tops out snaps in place if it stands,
+ *  and settles if it does not. */
+async function settleBuildRises(ownerKey: string): Promise<void> {
+  const pieces = loadBuildPieces(ownerKey);
+  const active = pieces.filter(p => p.state === "rising" || p.state === "settling");
+  if (!active.length) return;
+  const now = Date.now();
+  const crew = await buildCrewFor(ownerKey);
+  const crewPower = crew.reduce((s, c) => s + c.stone, 0);
+  const crewSize = crew.length;
+  const upd = sqlite.prepare("UPDATE build_pieces SET frac = ?, state = ?, energy_bank = ?, rise_updated_at = ? WHERE owner_key = ? AND id = ?");
+  const del = sqlite.prepare("DELETE FROM build_pieces WHERE owner_key = ? AND id = ?");
+  const byId = new Map(pieces.map(p => [p.id, p]));
+  // Support lost mid-rise: a rising piece whose foundation has
+  // fallen was never snapped in — it settles, it does not fall.
+  for (const p of active) {
+    if (p.state === "rising" && !pieceStands(p, pieces)) {
+      p.state = "settling";
+      p.riseUpdatedAt = now;
+      upd.run(p.frac, p.state, p.energyBank, p.riseUpdatedAt, ownerKey, p.id);
+    }
+  }
+  for (const p of active) {
+    if (p.state === "settling") {
+      const elapsedMin = Math.min(Math.max(0, (now - p.riseUpdatedAt) / 60000), RISE_SETTLE_CAP_MIN);
+      const frac = p.frac - elapsedMin * SETTLE_RATE_PER_MIN;
+      if (frac <= 0) { del.run(ownerKey, p.id); byId.delete(p.id); continue; }
+      p.frac = frac;
+      p.riseUpdatedAt = now;
+      upd.run(p.frac, p.state, p.energyBank, p.riseUpdatedAt, ownerKey, p.id);
+      continue;
+    }
+    // state === "rising"
+    if (crewSize === 0 || crewPower <= 0) {
+      // THE HOLD: no qualified Awoken is available — the rise
+      // keeps its height and the interval is spent standing
+      // still (no advance, no charge).
+      p.riseUpdatedAt = now;
+      upd.run(p.frac, p.state, p.energyBank, p.riseUpdatedAt, ownerKey, p.id);
+      continue;
+    }
+    let remainingMin = Math.min(Math.max(0, (now - p.riseUpdatedAt) / 60000), RISE_SETTLE_CAP_MIN);
+    let cursor = p.riseUpdatedAt;
+    let starved = false;
+    while (remainingMin > 0.0001 && p.frac < 1) {
+      // The last chunk is only as long as the rise has left:
+      // energy is drawn for the rise's duration, never past
+      // the moment the piece tops out.
+      const minutesToTop = ((1 - p.frac) * RISE_ANCHOR_NUMERATOR) / crewPower;
+      if (minutesToTop <= 0.0001) { p.frac = 1; break; }
+      const chunkMin = Math.min(remainingMin, 1, minutesToTop);
+      p.energyBank += crewSize * chunkMin;
+      const whole = Math.floor(p.energyBank + 1e-9);
+      if (whole >= 1) {
+        const paid = await spendEnergy(ownerKey, whole);
+        if (!paid) { p.energyBank -= crewSize * chunkMin; starved = true; break; }
+        p.energyBank -= whole;
+      }
+      p.frac += (crewPower / RISE_ANCHOR_NUMERATOR) * chunkMin;
+      cursor += chunkMin * 60000;
+      remainingMin -= chunkMin;
+    }
+    if (p.frac >= 1) {
+      p.frac = 1;
+      // THE SNAP: in place only if there is foundation for it.
+      p.state = pieceStands(p, [...byId.values()]) ? "standing" : "settling";
+      p.riseUpdatedAt = now;
+    } else if (!starved) {
+      p.riseUpdatedAt = now;
+    } else {
+      p.riseUpdatedAt = cursor;
+    }
+    upd.run(p.frac, p.state, p.energyBank, p.riseUpdatedAt, ownerKey, p.id);
+  }
+}
+
+/** Fell one piece and reckon the fall, whole: the piece goes;
+ *  standing and cemented pieces that thereby lose their
+ *  founded support come down with it (the cascade, reckoned to
+ *  a fixed point); pieces still rising on what fell do not
+ *  fall — they are marked to settle at their next reading.
+ *  The one road taking-away and the felling strike both walk. */
+function fellBuildPiece(ownerKey: string, targetId: number): { removed: number[]; settling: number[] } {
+  const pieces = loadBuildPieces(ownerKey);
+  const removed: number[] = [targetId];
+  let remaining = pieces.filter(p => p.id !== targetId);
+  let fell = true;
+  while (fell) {
+    fell = false;
+    for (const p of [...remaining]) {
+      if ((p.state === "standing" || p.state === "cemented") && !pieceStands(p, remaining)) {
+        removed.push(p.id);
+        remaining = remaining.filter(q => q.id !== p.id);
+        fell = true;
+      }
+    }
+  }
+  const settling: number[] = [];
+  const now = Date.now();
+  for (const p of remaining) {
+    if (p.state === "rising" && !pieceStands(p, remaining)) {
+      settling.push(p.id);
+      sqlite.prepare("UPDATE build_pieces SET state = 'settling', rise_updated_at = ? WHERE owner_key = ? AND id = ?")
+        .run(now, ownerKey, p.id);
+    }
+  }
+  const marks = removed.map(() => "?").join(",");
+  sqlite.prepare(`DELETE FROM build_pieces WHERE owner_key = ? AND id IN (${marks})`).run(ownerKey, ...removed);
+  return { removed, settling };
 }
 
 // --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
@@ -1094,9 +1349,18 @@ async function persistMixLedger(tile: any, ledger: MixLedger): Promise<{ turned:
  *  plane it leaves. The price is spent as it lifts (see
  *  MIX_LIFT_AIR_COST's pencil note). */
 async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Promise<boolean> {
+  // BUILDING RIDES THE TILE (Nigel, 2026-10-27): each building
+  // piece standing on the tile raises the Air price of lifting
+  // it by 1 — the pieces ride the tile as it climbs, so the
+  // count is taken once, before the first lift.
+  const allTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const pieceCount = loadBuildPieces(ownerKey).filter(p =>
+    pieceTopZ(p, allTiles as any[]) === (tile.z ?? 0) &&
+    footprintHexes(p.footprint).some(h => h.q === tile.q && h.r === tile.r)).length;
+  const liftCost = MIX_LIFT_AIR_COST + pieceCount;
   let lifted = false;
-  while (ledger.sky >= MIX_LIFT_AIR_COST) {
-    ledger.sky = roundMix(ledger.sky - MIX_LIFT_AIR_COST);
+  while (ledger.sky >= liftCost) {
+    ledger.sky = roundMix(ledger.sky - liftCost);
     const vacatedZ = tile.z ?? 0;
     tile.z = vacatedZ + 1;
     const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
@@ -10840,9 +11104,17 @@ export const handlers = {
     // NAMED, with where each one stands.
     const rosterRows = await db.select().from(schema.awakened).where(eq(schema.awakened.ownerKey, ownerKey));
     const nameById = new Map(rosterRows.map(r => [r.id, r.name]));
+    const rosterById = new Map(rosterRows.map(r => [r.id, r]));
     for (const p of placements) {
       const nm = nameById.get(p.awakenedId);
       if (nm != null) (p as any).name = nm;
+      // THE STONE CAST's GATE, served with the field: each
+      // placement carries its Awoken's Rock (Stone) element sum,
+      // so the wheel can seat the building ability tab on
+      // exactly the Awoken the server's gate would accept —
+      // the server still judges the cast itself, at the door.
+      const aw = rosterById.get(p.awakenedId);
+      (p as any).stone = aw ? await stoneSumOf(aw) : 0;
     }
     const placedIdSet = new Set(placements.map(p => p.awakenedId));
     const stagedIdSet = new Set(stagedIdsFor(ownerKey));
@@ -10887,7 +11159,11 @@ export const handlers = {
     // protection (buildPieceProtected: every hex beneath it the
     // Tender's own, and none of it cursed).
     const buildTilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
-    const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey));
+    // THE STONE CAST: rises and settlings reckon lazily at this
+    // read, against the crew standing now — then the pieces are
+    // served as they stand.
+    await settleBuildRises(ownerKey);
+    const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey, tiles as any[]));
     // THE LIGHTING SYSTEM (2026-10-26): every tile carries
     // its light — the one reckoning, stamped here at serve
     // time from the records as they stand, exactly as
@@ -11487,27 +11763,40 @@ export const handlers = {
 
 
   // ── THE HEX BUILDING SYSTEM (Nigel, 2026-10-25 — "IMPLEMENT") ──
-  // Lay and take away the construction's pieces. FREE PLACEMENT
-  // (Nigel, 2026-10-26): no piece is addressed by hex or tiling —
-  // the client names a floor by its plate-plane vertices, laid
-  // where the tap put it (snapped flush to a neighbour's edge,
-  // or free, by the mode the player chose), and the server
-  // PROVES the claim (proveKitPiece: a true kit shape on the one
-  // measure, its grain on the kit's turnings) and refuses any
-  // footprint lying across a piece already standing. The
-  // footprint is computed here, in axial map coordinates, never
-  // taken on the client's word. The ground law stands: some of
-  // the Tender's own land must lie beneath a floor; the
-  // foundation calculation stands over every piece.
+  // Raise and take away the construction's pieces. FREE
+  // PLACEMENT (Nigel, 2026-10-26): no piece is addressed by hex
+  // or tiling — the client names a floor by its plate-plane
+  // vertices, laid where the tap put it (snapped flush to a
+  // neighbour's edge, or free, by the mode the player chose),
+  // and the server PROVES the claim (proveKitPiece: a true kit
+  // shape on the one measure, its grain on the kit's turnings)
+  // and refuses any footprint lying across a piece already
+  // standing. The footprint is computed here, in axial map
+  // coordinates, never taken on the client's word. The ground
+  // law stands: some of the Tender's own land must lie beneath
+  // a floor; the foundation calculation stands over every piece.
+  // THE STONE CAST (2026-10-28): the cast names its LEAD
+  // BUILDER — the fielded Awoken whose building ability tab
+  // began the work. The gate is judged here, at the one door:
+  // the lead must stand on the field holding at least 2 Rock,
+  // or nothing rises. A piece BEGUN here does not appear — it
+  // is entered at the ground, frac 0, state 'rising', and the
+  // lazy settle (settleBuildRises) raises it from there.
   async placeBuildPiece(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
       kind: z.enum(["triangle", "square", "wall", "door", "halfwall", "narrow"]),
       verts: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(4),
+      leadId: z.number().int().positive(),
     }).safeParse(args);
-    if (!parsed.success) badRequest("The work needs a piece — a triangle, a square, a wall, a door, a half wall or a narrow wall, by its corners.");
+    if (!parsed.success) badRequest("The cast needs a piece — a triangle, a square, a wall, a door, a half wall or a narrow wall, by its corners — and the lead builder whose tab began the work.");
     const { kind } = parsed.data;
     const verts = parsed.data.verts as Pt[];
+    await settleBuildRises(ownerKey);
+    const crew = await buildCrewFor(ownerKey);
+    if (!crew.some(c => c.awakenedId === parsed.data.leadId)) {
+      badRequest("No stone rises: the building tab lives on a fielded Awoken holding at least 2 Rock, standing on your land and available — that builder is not on the field, or does not hold the Rock.");
+    }
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const tilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
     const pieces = loadBuildPieces(ownerKey);
@@ -11536,10 +11825,10 @@ export const handlers = {
       if (!hexes.some(h => tilesByKey.has(`${h.q},${h.r}`))) {
         badRequest("No land of yours lies beneath that piece — the construction stands on your ground.");
       }
-      const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(ownerKey, kind, pieceKey, JSON.stringify(seatVerts), JSON.stringify(footprint), Date.now());
-      const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: seatVerts, footprint };
-      return { ok: true as const, piece: buildPieceView(row, tilesByKey) };
+      const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at, hp, state, frac, lead_id, rise_updated_at, energy_bank) VALUES (?, ?, ?, ?, ?, ?, ?, 'rising', 0, ?, ?, 0)")
+        .run(ownerKey, kind, pieceKey, JSON.stringify(seatVerts), JSON.stringify(footprint), Date.now(), PIECE_MAX_HP, parsed.data.leadId, Date.now());
+      const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: seatVerts, footprint, hp: PIECE_MAX_HP, state: "rising", frac: 0, leadId: parsed.data.leadId, riseUpdatedAt: Date.now(), energyBank: 0 };
+      return { ok: true as const, piece: buildPieceView(row, tilesByKey, tiles as any[]) };
     }
 
     // Walls and doors stand on EDGES — of the Tender's own
@@ -11566,10 +11855,10 @@ export const handlers = {
     }
     const footprint = edge.map(v => plateToAxial(v));
     const pieceKey = `${kind}#${claimKey}`;
-    const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(ownerKey, kind, pieceKey, JSON.stringify(edge), JSON.stringify(footprint), Date.now());
-    const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: edge, footprint };
-    return { ok: true as const, piece: buildPieceView(row, tilesByKey) };
+    const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at, hp, state, frac, lead_id, rise_updated_at, energy_bank) VALUES (?, ?, ?, ?, ?, ?, ?, 'rising', 0, ?, ?, 0)")
+      .run(ownerKey, kind, pieceKey, JSON.stringify(edge), JSON.stringify(footprint), Date.now(), PIECE_MAX_HP, parsed.data.leadId, Date.now());
+    const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: edge, footprint, hp: PIECE_MAX_HP, state: "rising", frac: 0, leadId: parsed.data.leadId, riseUpdatedAt: Date.now(), energyBank: 0 };
+    return { ok: true as const, piece: buildPieceView(row, tilesByKey, tiles as any[]) };
   },
 
   /** Take a piece of the construction away. The FOUNDATION
@@ -11584,25 +11873,85 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
     if (!parsed.success) badRequest("The taking-away names the piece.");
+    await settleBuildRises(ownerKey);
     const pieces = loadBuildPieces(ownerKey);
     const target = pieces.find(p => p.id === parsed.data.id);
     if (!target) badRequest("That piece is not yours to take away — or it no longer stands.");
-    const removed: number[] = [target.id];
-    let remaining = pieces.filter(p => p.id !== target.id);
-    let fell = true;
-    while (fell) {
-      fell = false;
-      for (const p of [...remaining]) {
-        if (!pieceStands(p, remaining)) {
-          removed.push(p.id);
-          remaining = remaining.filter(q => q.id !== p.id);
-          fell = true;
-        }
-      }
+    // THE STONE CAST: the fall walks the one road (fellBuildPiece)
+    // — standing work cascades as it always has; a piece still
+    // rising on what was taken does not fall, it settles.
+    const { removed, settling } = fellBuildPiece(ownerKey, target.id);
+    return { ok: true as const, removed, settling };
+  },
+
+  /** THE PARTWAY STOP (the Stone Cast, Nigel 2026-10-27): halt
+   *  a piece's rise where it stands. If the piece has structural
+   *  support to cement to (pieceStands), it is CEMENTED at its
+   *  present height — final; it never rises or sinks again,
+   *  though it may still be struck or taken away. With nothing
+   *  to cement to it is not kept: it follows the settling law. */
+  async stopBuildPiece(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({ id: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The stop names the rising piece.");
+    await settleBuildRises(ownerKey);
+    const pieces = loadBuildPieces(ownerKey);
+    const piece = pieces.find(p => p.id === parsed.data.id);
+    if (!piece) badRequest("That piece no longer stands.");
+    if (piece.state === "settling") badRequest("That piece is already settling — it has nothing to cement to.");
+    if (piece.state !== "rising") badRequest("That piece's rise is finished — it stands.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tilesByKey = new Map<string, any>((tiles as any[]).map((t: any) => [`${t.q},${t.r}`, t]));
+    if (pieceStands(piece, pieces)) {
+      sqlite.prepare("UPDATE build_pieces SET state = 'cemented' WHERE owner_key = ? AND id = ?").run(ownerKey, piece.id);
+      piece.state = "cemented";
+      return { ok: true as const, cemented: true, piece: buildPieceView(piece, tilesByKey, tiles as any[]) };
     }
-    const marks = removed.map(() => "?").join(",");
-    sqlite.prepare(`DELETE FROM build_pieces WHERE owner_key = ? AND id IN (${marks})`).run(ownerKey, ...removed);
-    return { ok: true as const, removed };
+    sqlite.prepare("UPDATE build_pieces SET state = 'settling', rise_updated_at = ? WHERE owner_key = ? AND id = ?")
+      .run(Date.now(), ownerKey, piece.id);
+    piece.state = "settling";
+    return { ok: true as const, cemented: false, piece: buildPieceView(piece, tilesByKey, tiles as any[]) };
+  },
+
+  /** STRIKE THE WORK (the Stone Cast, Nigel 2026-10-26: pieces
+   *  have 100 HP; Stone Awoken attacks REPAIR pieces). A fielded
+   *  Awoken strikes a piece with its attack's full power: an
+   *  Awoken holding Rock in its sum mends the piece by that
+   *  power instead of harming it; any other Awoken's blow takes
+   *  that much HP, and a piece at 0 HP falls — by the one fall
+   *  road, cascade and settling reckoned as taking-away does. */
+  async strikeBuildPiece(args: unknown, ctx?: ActionContext) {
+    const ownerKey = ownerKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      pieceId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The strike names the Awoken and the piece.");
+    await settleBuildRises(ownerKey);
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    if (!placements.some(p => p.awakenedId === parsed.data.awakenedId)) {
+      badRequest("Only a fielded Awoken can strike the work.");
+    }
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (!awRows.length) badRequest("That Awoken is gone.");
+    const piece = loadBuildPieces(ownerKey).find(p => p.id === parsed.data.pieceId);
+    if (!piece) badRequest("That piece no longer stands.");
+    const payload = await awakenedPayloadById(parsed.data.awakenedId);
+    const power = Math.max(1, Math.round(payload?.power ?? 1));
+    const stone = await stoneSumOf(awRows[0]);
+    if (stone >= 1) {
+      const hp = Math.min(PIECE_MAX_HP, piece.hp + power);
+      sqlite.prepare("UPDATE build_pieces SET hp = ? WHERE owner_key = ? AND id = ?").run(hp, ownerKey, piece.id);
+      return { ok: true as const, repaired: true, pieceId: piece.id, hp, power, fell: false, removed: [] as number[], settling: [] as number[] };
+    }
+    const hp = piece.hp - power;
+    if (hp > 0) {
+      sqlite.prepare("UPDATE build_pieces SET hp = ? WHERE owner_key = ? AND id = ?").run(hp, ownerKey, piece.id);
+      return { ok: true as const, repaired: false, pieceId: piece.id, hp, power, fell: false, removed: [] as number[], settling: [] as number[] };
+    }
+    const { removed, settling } = fellBuildPiece(ownerKey, piece.id);
+    return { ok: true as const, repaired: false, pieceId: piece.id, hp: 0, power, fell: true, removed, settling };
   },
 
   // ── The Written Light on the land (the Grimoire, Nigel

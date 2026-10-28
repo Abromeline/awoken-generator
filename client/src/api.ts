@@ -92,6 +92,15 @@ export interface BuildPiece {
   verts: [number, number][];
   footprint: [number, number][];
   protected: boolean;
+  /** THE STONE CAST (2026-10-28): the piece's hit points (100
+   *  at its raising), its rise's state and height, the lead
+   *  builder who began it, and the plane it stands on. */
+  hp?: number;
+  maxHp?: number;
+  state?: "rising" | "standing" | "cemented" | "settling" | string;
+  frac?: number;
+  leadId?: number | null;
+  z?: number;
 }
 
 /** A Written Light working standing on the land (the Grimoire):
@@ -199,6 +208,10 @@ export interface FieldPlacement {
    *  Homeland surfaces read the name from here, never by
    *  joining the placement into another list in the browser. */
   name: string;
+  /** THE STONE CAST's gate, served with the field: this
+   *  Awoken's Rock (Stone) element sum. The building ability
+   *  tab lives on a placement whose stone is at least 2. */
+  stone?: number;
   tileId: number;
   placedAt: string;
   lastMovedAt: string;
@@ -923,11 +936,24 @@ export const api = {
   updateTrackPages: (value: { id: number; pages: string[] }) => post<{ ok: boolean }>("updateTrackPages", value),
   /** THE HEX BUILDING SYSTEM (Nigel, 2026-10-25): lay a piece of
    *  the construction — named by its plate-plane vertices; the
-   *  server re-derives the true piece and its footprint. */
-  placeBuildPiece: (args: { kind: "triangle" | "square" | "wall" | "door" | "halfwall" | "narrow"; verts: [number, number][] }) =>
+   *  server re-derives the true piece and its footprint.
+   *  THE STONE CAST (2026-10-28): the cast names its lead builder
+   *  — the fielded ≥2-Rock Awoken whose ability tab began the
+   *  work — and the piece BEGINS TO RISE; it does not appear. */
+  placeBuildPiece: (args: { kind: "triangle" | "square" | "wall" | "door" | "halfwall" | "narrow"; verts: [number, number][]; leadId: number }) =>
     post<{ ok: true; piece: BuildPiece }>("placeBuildPiece", args),
   removeBuildPiece: (args: { id: number }) =>
-    post<{ ok: true; removed: number[] }>("removeBuildPiece", args),
+    post<{ ok: true; removed: number[]; settling?: number[] }>("removeBuildPiece", args),
+  /** THE PARTWAY STOP (the Stone Cast): halt a rise — cemented
+   *  at its height if it has support to cement to, settling if
+   *  it has not. */
+  stopBuildPiece: (args: { id: number }) =>
+    post<{ ok: true; cemented: boolean; piece: BuildPiece }>("stopBuildPiece", args),
+  /** STRIKE THE WORK (the Stone Cast): a fielded Awoken strikes
+   *  a piece — a Stone Awoken's blow repairs it; any other blow
+   *  damages it, and at 0 HP the piece falls. */
+  strikeBuildPiece: (args: { awakenedId: number; pieceId: number }) =>
+    post<{ ok: true; repaired: boolean; pieceId: number; hp: number; power: number; fell: boolean; removed: number[]; settling: number[] }>("strikeBuildPiece", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   setMarch: (args: { awakenedId: number; tileId: number; posQ?: number; posR?: number }) =>
