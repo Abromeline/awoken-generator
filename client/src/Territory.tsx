@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
-import { triangleFaceFor, affineFor, wallPerspectiveFor, seatWallFace, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
+import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
+import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
@@ -1119,7 +1120,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // slice 1: the construction's pieces on this land, served by
   // getTerritory with their footprints and derived protection;
   // build mode's own state — the tool in hand, the ghost the
-  // scaffolding shows, and the bar's spoken line.
+  // scaffolding shows, and the menu's spoken line. (The mode is
+  // entered from the building menu's pieces menu since
+  // 2026-10-28; the construction toggle and bar that once
+  // carried these are struck, whole — see the stripped ledger.)
   const [buildPieces, setBuildPieces] = useState<BuildPiece[]>([]);
   const buildPiecesRef = useRef<BuildPiece[]>([]);
   useEffect(() => { buildPiecesRef.current = buildPieces; }, [buildPieces]);
@@ -1129,22 +1133,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // state exists to be read (see pillarsRef's filling effect).
   const pillarsRef = useRef<{ q: number; r: number; radius: number }[]>([]);
   const [buildMode, setBuildMode] = useState(false);
-  const [buildTool, setBuildTool] = useState<"triangle" | "square" | "wall" | "door" | "remove">("triangle");
+  const [buildTool, setBuildTool] = useState<PieceTool>("triangle");
   const buildToolRef = useRef(buildTool);
   useEffect(() => { buildToolRef.current = buildTool; }, [buildTool]);
   // THE TWO PLACING MODES (Nigel, 2026-10-26): SNAP is the
   // default — pieces click edge-to-edge onto the work already
   // standing, never onto the world. FREE PLACE is the player's
-  // own switch in the bar: pieces land exactly where the tap
-  // puts them and do not snap together at all. The palette is
-  // the same in both; only the floors' seating changes.
+  // own switch in the pieces menu: pieces land exactly where
+  // the tap puts them and do not snap together at all. The
+  // palette is the same in both; only the floors' seating
+  // changes.
   const [buildPlaceMode, setBuildPlaceMode] = useState<"snap" | "free">("snap");
   const buildPlaceModeRef = useRef(buildPlaceMode);
   useEffect(() => { buildPlaceModeRef.current = buildPlaceMode; }, [buildPlaceMode]);
   type BuildGhost =
     | { type: "floor"; kind: "triangle" | "square"; verts: Pt[]; snapped: boolean }
     | { type: "blocked"; verts: Pt[] }
-    | { type: "wall"; kind: "wall" | "door"; edge: [Pt, Pt] }
+    | { type: "wall"; kind: WallKind; edge: [Pt, Pt] }
     | { type: "remove"; piece: BuildPiece }
     | null;
   const [buildGhost, setBuildGhost] = useState<BuildGhost>(null);
@@ -3088,9 +3093,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (overlaps(freeVerts)) return { type: "blocked", verts: freeVerts };
       return { type: "floor", kind: tool, verts: freeVerts, snapped: false };
     }
-    if (tool === "wall" || tool === "door") {
+    if (isWallKind(tool)) {
       const walled = new Set(
-        pieces.filter(p => p.kind === "wall" || p.kind === "door")
+        pieces.filter(p => isWallKind(p.kind))
           .map(p => edgeKeyOf(p.verts[0], p.verts[1])),
       );
       let best: [Pt, Pt] | null = null; let bestD = Infinity;
@@ -3108,7 +3113,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // Take away: a wall under the hand first (it is the thinner
     // target), then the topmost floor the point falls in.
     for (const p of pieces) {
-      if (p.kind !== "wall" && p.kind !== "door") continue;
+      if (!isWallKind(p.kind)) continue;
       if (pointSegmentDistance(platePt, p.verts[0], p.verts[1]) <= 0.2) return { type: "remove", piece: p };
     }
     for (let i = pieces.length - 1; i >= 0; i--) {
@@ -3124,7 +3129,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const platePt = axialToPlate(axial.q, axial.r);
     const target = pickBuildTarget(platePt);
     if (!target) {
-      setBuildNote(buildToolRef.current === "wall" || buildToolRef.current === "door"
+      setBuildNote(isWallKind(buildToolRef.current)
         ? "No free edge of your floors stands there — walls rise on a floor's edge."
         : buildToolRef.current === "remove"
           ? "Nothing of the construction stands there to take away."
@@ -3148,7 +3153,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         setBuildPieces(prev => [...prev, r.piece]);
         setBuildNote(target.kind === "door"
           ? "The door stands — its middle is open, and the field passes through the gap."
-          : "The wall stands — the field collides against its line.");
+          : target.kind === "halfwall"
+            ? "The half wall stands — waist high: the field collides against its line, and a leap crosses it."
+            : target.kind === "narrow"
+              ? "The narrow wall stands — the field collides against its line."
+              : "The wall stands — the field collides against its line.");
       } else {
         const r = await api.removeBuildPiece({ id: target.piece.id });
         setBuildPieces(prev => prev.filter(p => !r.removed.includes(p.id)));
@@ -3178,7 +3187,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const buildWallScreenSegs = (): [Pt, Pt][] => {
     const out: [Pt, Pt][] = [];
     for (const p of buildPiecesRef.current) {
-      if (p.kind !== "wall" && p.kind !== "door") continue;
+      if (!isWallKind(p.kind)) continue;
       for (const [a, b] of collisionSegments(p.kind, p.footprint)) {
         out.push([axialToScreenPt(a[0], a[1]), axialToScreenPt(b[0], b[1])]);
       }
@@ -5045,7 +5054,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       type BlockSeg = { ax: number; ay: number; bx: number; by: number; key: string };
       const blockSegs: BlockSeg[] = [];
       for (const p of buildPieces) {
-        if (p.kind !== "wall" && p.kind !== "door") continue;
+        if (!isWallKind(p.kind)) continue;
         const fp = (pt: [number, number]) => { const { px, py } = isoOffset(pt[0], pt[1], size); return { x: originX + px, y: originY + py }; };
         collisionSegments(p.kind, p.footprint).forEach(([a, b], i) => {
           const A = fp(a), B = fp(b);
@@ -5571,9 +5580,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // and they will wear them when they come.
     // THE FACES CAME (2026-10-26): his drawn faces now wear the
     // triangles, the walls and the doors (buildingFaces.ts).
-    // The standing geometry remains for the squares — their face
-    // has not come yet — and as the rim that speaks the
-    // derivation over every face.
+    // THE SQUARE'S FACE CAME (2026-10-28): the square foundation
+    // wears his flat slab panel from "Build 1.psd" (L19), seated
+    // by the same affine law as the wedges; the rim still speaks
+    // the derivation over every face.
     const landPt = (q: number, r: number): { x: number; y: number } => {
       const { px, py } = isoOffset(q, r, size);
       return { x: originX + px, y: originY + py };
@@ -5587,10 +5597,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // orientation, seated by the exact affine of its three
           // corners (frame triangle onto footprint), so the six
           // wedges of one hex compose into his whole floor and
-          // can never drift from the tiling. The polygon remains
-          // as the rim over the face — and as the whole drawing
-          // for a square, whose face has not come yet.
-          const face = p.kind === "triangle" ? triangleFaceFor(p.verts) : null;
+          // can never drift from the tiling. A square wears his
+          // slab panel (Build 1.psd L19) by the same law — three
+          // of its corners carried onto the footprint's, the
+          // fourth following. The polygon remains as the rim
+          // over the face.
+          const face = p.kind === "triangle" ? triangleFaceFor(p.verts) : squareFaceFor(p.verts);
           const matrix = face ? affineFor(face.frame, face.order.map(idx => {
             const s = landPt(p.footprint[idx][0], p.footprint[idx][1]);
             return [s.x, s.y] as [number, number];
@@ -5599,7 +5611,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <g key={p.id}>
               {face && matrix && (
                 <g transform={matrix}>
-                  <image href={face.src} x={0} y={0} width={FLOOR_FRAME_W} height={FLOOR_FRAME_H} />
+                  <image href={face.src} x={0} y={0} width={face.w ?? FLOOR_FRAME_W} height={face.h ?? FLOOR_FRAME_H} />
                 </g>
               )}
               <polygon points={polyPts(p.footprint)}
@@ -5618,31 +5630,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // loose nodes and handed to the pass below (each wall's
     // base anchor is the front point of its footprint), no
     // longer painted as one fixed stratum.
-    const buildWallNodes = buildPieces.filter(p => p.kind === "wall" || p.kind === "door").map(p => {
+    const buildWallNodes = buildPieces.filter(p => isWallKind(p.kind)).map(p => {
           const [fa, fb] = p.footprint;
           const A = landPt(fa[0], fa[1]), B = landPt(fb[0], fb[1]);
           // HIS FACE (2026-10-26): the wall wears the face drawn
           // for its edge's PERSPECTIVE — the stance × facing row
           // of the table in buildingFaces.ts: the frontal pair on
           // the long edges, the leaning twins on the slants with
-          // the near jamb seated on the edge's southern end, and
-          // the flagged nearest-honest faces on the side lines no
-          // drawing serves yet — seated by similarity on its base
-          // line, corner to corner, at his drawn height. A door
-          // wears its arch face across the whole edge: the opening
-          // is the drawing's own transparency, while the door's
+          // the near jamb seated on the edge's southern end, at
+          // his drawn height. THE TRUE SEAT (2026-10-28): on the
+          // side lines no drawing serves yet, the face is no
+          // longer the frontal picture ROTATED to the edge — it
+          // is carried by the affine law into the draw sheet's
+          // frame for the stance (base on the edge, jambs
+          // vertical; edge-on, the narrow strip), flagged in the
+          // table and in the node's stance name. A door wears its
+          // arch face across the whole edge: the opening is the
+          // drawing's own transparency, while the door's
           // collision keeps its two standing parts in
           // collisionSegments, untouched. The ground line speaks
           // the derivation now — gold while the ground beneath is
           // the Tender's own. The node names its stance
           // (data-perspective) so a proof can read which
           // perspective stands on each edge.
-          const perspective = wallPerspectiveFor(p.kind, A.x, A.y, B.x, B.y);
-          const face = perspective.face;
+          const seat = wallSeatFor(p.kind, A, B);
+          const face = seat.face;
           return (
-            <g key={p.id} className="build-wall-piece" data-perspective={perspective.stance} data-kind={p.kind}>
+            <g key={p.id} className="build-wall-piece" data-perspective={seat.stance} data-kind={p.kind}>
               <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={p.protected ? "#e8c766" : "#4a3a20"} strokeWidth={1.4 / zoom} opacity={0.6} />
-              <g transform={seatWallFace(face, A, B)}>
+              <g transform={seat.transform}>
                 <image href={face.src} x={0} y={0} width={face.w} height={face.h} />
               </g>
             </g>
@@ -5668,14 +5684,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           return <line key={i} x1={P.x} y1={P.y - BUILD_WALL_H / 2} x2={Q.x} y2={Q.y - BUILD_WALL_H / 2}
             stroke="#ffe9a8" strokeWidth={5 / zoom} opacity={0.75} strokeLinecap="round" />;
         })}
-        {buildGhost.type === "remove" && (buildGhost.piece.kind === "wall" || buildGhost.piece.kind === "door") && (
+        {buildGhost.type === "remove" && isWallKind(buildGhost.piece.kind) && (
           <line x1={landPt(buildGhost.piece.footprint[0][0], buildGhost.piece.footprint[0][1]).x}
             y1={landPt(buildGhost.piece.footprint[0][0], buildGhost.piece.footprint[0][1]).y - BUILD_WALL_H / 2}
             x2={landPt(buildGhost.piece.footprint[1][0], buildGhost.piece.footprint[1][1]).x}
             y2={landPt(buildGhost.piece.footprint[1][0], buildGhost.piece.footprint[1][1]).y - BUILD_WALL_H / 2}
             stroke="#ff7a6b" strokeWidth={5 / zoom} opacity={0.8} strokeLinecap="round" />
         )}
-        {buildGhost.type === "remove" && buildGhost.piece.kind !== "wall" && buildGhost.piece.kind !== "door" && (
+        {buildGhost.type === "remove" && !isWallKind(buildGhost.piece.kind) && (
           <polygon points={polyPts(buildGhost.piece.footprint)}
             fill="rgba(255,90,70,0.18)" stroke="#ff7a6b" strokeWidth={1.6 / zoom} strokeLinejoin="round" />
         )}
@@ -6466,7 +6482,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const node = awokenElements[i];
       if (node) standingItems.push({ key: `standing-fig-${row.placement.id}`, baseY: row.fy, node });
     });
-    buildPieces.filter(p => p.kind === "wall" || p.kind === "door").forEach((p, i) => {
+    buildPieces.filter(p => isWallKind(p.kind)).forEach((p, i) => {
       const node = buildWallNodes[i];
       if (!node) return;
       const A = landPt(p.footprint[0][0], p.footprint[0][1]);
@@ -8355,69 +8371,16 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <svg viewBox="0 0 32 32"><path d="M10 27 V5"/><path d="M10 6 C13.5 4.6 16.5 7 21.5 5.4 V12.4 C16.5 14 13.5 11.4 10 12.8"/><path d="M6 27 H14"/></svg>
       </button>
 
-      {/* THE CONSTRUCTION toggle (the Hex Building System,
-          Nigel 2026-10-25): build mode's door — the same wax
-          family as the War-Grounds and the castle, above them
-          in their stack. Entering it closes the building panel
-          and any open build card: the map's presses belong to
-          the construction while the mode stands. */}
-      <button
-        className={`buildmode-toggle ${buildMode ? "open" : ""}`}
-        onClick={() => {
-          const next = !buildMode;
-          setBuildMode(next);
-          if (next) {
-            setShowBuildingMenu(false);
-            setBuildSel(null);
-            setBuildNote("Choose a piece, then tap the land to lay it — pieces snap to each other, edge to edge, never to the world; the bar's Free place switch turns the snapping off. Walls and doors stand on a floor's edge; a door's middle stands open. Drag pans the land, as ever.");
-          } else {
-            setBuildGhost(null);
-          }
-        }}
-        title="Build — the construction: triangle floors, square foundations, walls and doors on their edges"
-      >
-        <svg viewBox="0 0 32 32"><path d="M5 25 L12 9 L19 25 Z"/><path d="M21 25 h7 v-7 h-7 Z"/><path d="M3 25 H29"/></svg>
-      </button>
-
-      {/* THE BUILD BAR: the tool in hand and the work's spoken
-          line — every lay and taking-away answers here, with
-          the protection the ground gives the piece just laid. */}
-      {buildMode && (
-        <div className="build-bar" role="toolbar" aria-label="The construction — build tools">
-          <div className="build-bar-tools">
-            {([
-              ["triangle", "△", "Triangle floor"],
-              ["square", "▢", "Square foundation"],
-              ["wall", "▦", "Wall"],
-              ["door", "🚪", "Door wall"],
-              ["remove", "⌫", "Take away"],
-            ] as const).map(([tool, glyph, label]) => (
-              <button key={tool} type="button"
-                className={`build-tool ${buildTool === tool ? "in-hand" : ""}`}
-                aria-pressed={buildTool === tool}
-                onClick={() => { setBuildTool(tool); setBuildGhost(null); }}>
-                <span className="build-tool-glyph">{glyph}</span> {label}
-              </button>
-            ))}
-            {/* THE PLACING MODE (Nigel, 2026-10-26): the
-                player's own switch. Snap together — pieces click
-                edge-to-edge onto the standing work, never onto
-                the world. Free place — pieces land exactly where
-                the tap puts them and do not snap together. */}
-            <button type="button"
-              className={`build-tool place-mode ${buildPlaceMode === "free" ? "in-hand" : ""}`}
-              aria-pressed={buildPlaceMode === "free"}
-              title={buildPlaceMode === "snap"
-                ? "Pieces snap to each other, edge to edge — never to the world. Tap to place freely instead: no snapping at all."
-                : "Free place: pieces land exactly where you tap and do not snap together. Tap to return to snapping pieces together."}
-              onClick={() => { setBuildPlaceMode(m => (m === "snap" ? "free" : "snap")); setBuildGhost(null); }}>
-              {buildPlaceMode === "snap" ? "🧲 Snap together" : "✥ Free place"}
-            </button>
-            <button type="button" className="build-tool done" onClick={() => { setBuildMode(false); setBuildGhost(null); }}>Done</button>
-          </div>
-          {buildNote && <p className="build-bar-note">{buildNote}</p>}
-        </div>
-      )}
+      {/* THE CONSTRUCTION'S DOOR IS THE BUILDING MENU NOW
+          (2026-10-28, Nigel: "give it one door and but keep the
+          pieces menu but use my artwork for the pieces ui" —
+          and of the toggle and bar that stood here: "i also
+          never asked for the triangle and square button,, we
+          allready ahda build menue..."): the construction toggle
+          and the build bar are STRUCK, whole — the pieces are
+          chosen in the building panel's pieces menu below (the
+          PiecesMenu component), each choice a button made from
+          the piece's own drawn face. See the stripped ledger. */}
 
       {/* Right-side building panel. THE OLD TUTORIAL STOOD
           HERE (the tutorial redo, 2026-10-23 23:23 + shape
@@ -8442,6 +8405,33 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             selected={selectedBuilding}
             energy={energy}
             alwaysOpen
+          />
+          {/* THE PIECES MENU (2026-10-28): the construction's
+              choosing seat, inside the one door — picking a
+              piece puts it in hand and closes the panel, so
+              the map's presses belong to the laying, exactly
+              as the struck toggle's entry did; the panel
+              reopens (the castle) to change the piece in hand
+              or to be Done. The menu is its own component —
+              the Stone Cast moves this same seat inside a
+              Stone Awoken's ability tab. */}
+          <PiecesMenu
+            tool={buildTool}
+            placeMode={buildPlaceMode}
+            note={buildNote}
+            active={buildMode}
+            onPick={(tool) => {
+              setBuildTool(tool);
+              setBuildGhost(null);
+              if (!buildMode) {
+                setBuildNote("Choose a piece, then tap the land to lay it — pieces snap to each other, edge to edge, never to the world; the menu's Free place switch turns the snapping off. Walls and doors stand on a floor's edge; a door's middle stands open. Drag pans the land, as ever.");
+              }
+              setBuildMode(true);
+              setBuildSel(null);
+              setShowBuildingMenu(false);
+            }}
+            onPlaceMode={(mode) => { setBuildPlaceMode(mode); setBuildGhost(null); }}
+            onDone={() => { setBuildMode(false); setBuildGhost(null); }}
           />
         </div>
       )}

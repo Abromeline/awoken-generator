@@ -37,11 +37,18 @@
  *  not the placeholder's 30. Nothing is squashed or redrawn: one
  *  uniform scale per face, anchored on its base line.
  *
- *  NOT HERE: the square foundation's face (not among the pieces
- *  he sent — squares keep their standing geometry until it
- *  comes), and any placement for the whole-hex floor: the
- *  construction carries no whole-hex piece kind, so the face
- *  ships in the registry below and waits for its kind. */
+ *  THE SQUARE'S FACE CAME (2026-10-28, the pieces-faces-menu
+ *  build): the square foundation's face is in his "Build 1.psd"
+ *  — the flat square panel of stone slabs seated directly
+ *  beneath the whole-hex floor on his canvas (L19 'Layer 24';
+ *  the intake first misread it as a wall panel in a second
+ *  style, and Nigel's word corrected it: "The square is right
+ *  under the hex in the pieces I sent you"). It is cut below
+ *  and seated like the wedges — by the exact affine of its
+ *  corners onto the footprint. Still awaited: any placement
+ *  for the whole-hex floor: the construction carries no
+ *  whole-hex piece kind, so the face ships in the registry
+ *  below and waits for its kind. */
 import type { Pt } from "./buildGeometry";
 import { HEX_CORNERS, hexCenter, centerAddress } from "./buildGeometry";
 
@@ -58,6 +65,11 @@ import wallDownRight from "./assets/building-faces/wall-slant-down-right.png";
 import doorDownRight from "./assets/building-faces/doorway-slant-down-right.png";
 import wallDownLeft from "./assets/building-faces/wall-slant-down-left.png";
 import doorDownLeft from "./assets/building-faces/doorway-slant-down-left.png";
+import squareFoundation from "./assets/building-faces/square-foundation.png";
+import wallNarrow from "./assets/building-faces/wall-narrow.png";
+import halfLongImg from "./assets/building-faces/half-wall-long-edge.png";
+import halfDownRightImg from "./assets/building-faces/half-wall-slant-down-right.png";
+import halfDownLeftImg from "./assets/building-faces/half-wall-slant-down-left.png";
 
 /** The floor frame: every triangle face PNG is this size, sharing
  *  the one registration. */
@@ -85,6 +97,10 @@ export const WHOLE_HEX_FLOOR_FACE = { src: wholeHexFloor, w: FLOOR_FRAME_W, h: F
 
 export interface FloorFaceRender {
   src: string;
+  /** The face's own frame size in px, when it does not share
+   *  the floor frame (the square's face is its own cut). */
+  w?: number;
+  h?: number;
   /** The face's triangle in frame px, in the order of `order`. */
   frame: [number, number][];
   /** Which of the piece's stored footprint points the frame
@@ -148,6 +164,46 @@ export function triangleFaceFor(verts: Pt[]): FloorFaceRender | null {
     }
   }
   return null;
+}
+
+/** THE SQUARE FOUNDATION'S FACE (2026-10-28): cut from L19
+ *  'Layer 24' of his "Build 1.psd" — the flat square panel of
+ *  stone slabs that sits beneath the whole-hex floor on his
+ *  canvas — by its own layer's raw pixels, the panel's own
+ *  region only (its any-alpha bounds are inflated by a stray
+ *  speck and strays, per the intake; the black plate beneath
+ *  it on L18 is not part of the cut — whether the plate and
+ *  the strip below are part of the piece is Nigel's open
+ *  question, and the face ships without them). The panel's
+ *  four corners, measured off the drawing in the cut's own
+ *  pixels (hand-drawn, a breath off true): TL (13,5),
+ *  TR (342,23), BR (333,332), BL (2,332) of the 353×342 cut.
+ *  A placed square seats the face by the exact affine of
+ *  three corners onto its footprint's — the fourth follows,
+ *  both being parallelograms — the same law as the wedges:
+ *  drawn once, the grid turns it, and it can never drift
+ *  from the construction's geometry. The footprint keeps
+ *  the stored winding (cyclic, in both the tiling's and the
+ *  free seats' records), and the drawing's corners answer
+ *  in the same cyclic order. */
+export const SQUARE_FACE = {
+  src: squareFoundation, w: 353, h: 342,
+  corners: [[13, 5], [342, 23], [333, 332], [2, 332]] as [number, number][],
+};
+
+/** The drawn face for a placed square piece, read from its
+ *  stored plate vertices (canonical — the server re-derives
+ *  them): the panel's corners TL, TR, BL carried onto the
+ *  footprint's corners 0, 1, 3. Null when the shape is not
+ *  a square's four corners (the standing geometry serves). */
+export function squareFaceFor(verts: Pt[]): FloorFaceRender | null {
+  if (!Array.isArray(verts) || verts.length !== 4) return null;
+  const [tl, tr, , bl] = SQUARE_FACE.corners;
+  return {
+    src: SQUARE_FACE.src, w: SQUARE_FACE.w, h: SQUARE_FACE.h,
+    frame: [tl, tr, bl],
+    order: [0, 1, 3],
+  };
 }
 
 /** The exact affine carrying a source triangle onto a target
@@ -228,53 +284,129 @@ export function affineFor(src: [number, number][], dst: [number, number][]): str
  * edge presents them — but NO drawing among his pieces is their
  * perspective, and no mirror of a drawn face supplies one (a
  * mirror keeps the drawing's own lean; these lines lean at
- * angles he has not drawn). Their rows say drawn: false and name
- * the nearest honest seating the game uses meanwhile: the frontal
- * elevation on the shallow lines (≈20° off true), a slant twin
- * turned ≈43° on the upright line — the stance of the tap-built
- * wall that stood turned against its edge in Nigel's example.
- * The template sheet (hex-building-pieces/make-draw-sheet.cjs,
- * sheet v4) carries a frame for every stance in this table, the
- * undrawn ones marked as frames awaiting his hand; sheet and
- * table agree stance for stance. When he draws them, their rows
- * take the new faces and the flags come off. */
+ * angles he has not drawn). Their rows say drawn: false.
+ *
+ * THE TRUE SEAT FOR AN UNDRAWN STANCE (2026-10-28, Nigel's
+ * word over his own screenshot — "that wall is an angle that
+ * you missed and is not sitting at the right perspective",
+ * and: the template he was given never carried a wall at that
+ * angle): the first wiring seated these stances with the
+ * frontal elevation ROTATED RIGIDLY to the edge — the leaning
+ * wall of his screenshot, a borrowed picture turned, wearing
+ * the name of a perspective it is not. That seat is struck.
+ * What stands now is the draw sheet's own frames for these
+ * stances, drawn as the sheet draws them: on a shallow line
+ * the wall's panel is the parallelogram the sheet sketches —
+ * its base ON the edge, its sides rising straight up, its
+ * courses running with the base — the frontal drawing carried
+ * into that frame by the exact affine, never a rigid turn;
+ * on the upright line the wall is seen edge-on, the sheet's
+ * narrow upright strip standing on the edge's southern end.
+ * Both seats are flagged in code (drawn: false, the seat
+ * named) until he draws the stances' own faces — his full-
+ * size template for exactly these angles was cut for him
+ * 2026-10-27 — and when the drawings come, their rows take
+ * the true faces and the flags come off, the way the drawn
+ * stances' rows read today. The narrow wall's slant stances
+ * ride the same affine law: he drew that piece frontally
+ * only, and its panel rises from a slant edge in the sheet's
+ * parallelogram frame, flagged the same way. */
 export interface WallFace {
   src: string; w: number; h: number;
   /** The base segment in the face's own pixels. */
   x1: number; y1: number; x2: number; y2: number;
+  /** The panel's height in its own pixels (base line to the
+   *  panel's top), for the seats that rise from the base —
+   *  the frontal faces declare it; the slant twins seat by
+   *  similarity and never need it. */
+  panelH?: number;
 }
 
 /* The six drawings, each named for the run of its base line in its
  * own frame, with the PSD layer each was cut from. */
-const WALL_LONG: WallFace = { src: wallLong, w: 347, h: 441, x1: 3, y1: 440, x2: 344, y2: 440 }; // PSD layer L07 — the frontal wall
+const WALL_LONG: WallFace = { src: wallLong, w: 347, h: 441, x1: 3, y1: 440, x2: 344, y2: 440, panelH: 440 }; // PSD layer L07 — the frontal wall
 const WALL_DOWN_RIGHT: WallFace = { src: wallDownRight, w: 200, h: 621, x1: 3, y1: 421, x2: 176, y2: 615 }; // PSD layer L04 — base descends to the right; near jamb at its END
 const WALL_DOWN_LEFT: WallFace = { src: wallDownLeft, w: 200, h: 621, x1: 23, y1: 615, x2: 199, y2: 419 }; // PSD layer L03 — base descends to the left; near jamb at its START
-const DOOR_LONG: WallFace = { src: doorLong, w: 347, h: 440, x1: 3, y1: 439, x2: 344, y2: 439 }; // PSD layer L08 — the frontal doorway
+const DOOR_LONG: WallFace = { src: doorLong, w: 347, h: 440, x1: 3, y1: 439, x2: 344, y2: 439, panelH: 439 }; // PSD layer L08 — the frontal doorway
 const DOOR_DOWN_RIGHT: WallFace = { src: doorDownRight, w: 215, h: 621, x1: 3, y1: 421, x2: 189, y2: 615 }; // PSD layer L05 — near jamb at its END
 const DOOR_DOWN_LEFT: WallFace = { src: doorDownLeft, w: 215, h: 621, x1: 15, y1: 630, x2: 195, y2: 425 }; // PSD layer L06 — near jamb at its START
+
+/* THE NEW FACES (2026-10-28, the pieces-faces-menu build), each
+ * cut from its own layer of his "Build 1.psd" by the layer's raw
+ * pixels, base segments measured off the drawing:
+ *   · THE HALF WALL in all three stances he drew it — the
+ *     frontal (L16 'Layer 6', the solid body only: the layer
+ *     carries faint residue beyond it, excluded as the slant
+ *     twins' ghost strokes were) and the two slant twins
+ *     (L09/L10 'Layer 11', their solid cores — the same layers
+ *     carry ghost strokes of the unpainted full-height
+ *     remainder below the solid piece). The twins answer to
+ *     the same grammar as the full walls': the descending
+ *     twin's base descends to the right with its lower end at
+ *     its END; the ascending twin's lower end is its START.
+ *   · THE NARROW WALL (L03 'Layer 10') — a frontal wall panel
+ *     narrower than the full wall, with its end returns drawn
+ *     at both sides: its own piece beside the full wall. He
+ *     drew it frontally only; its slant and side stances are
+ *     NOT DRAWN and seat by the affine law below, flagged. */
+const HALF_LONG: WallFace = { src: halfLongImg, w: 339, h: 220, x1: 4, y1: 219, x2: 334, y2: 212, panelH: 216 }; // Build 1.psd layer L16 — the frontal half wall
+const HALF_DOWN_RIGHT: WallFace = { src: halfDownRightImg, w: 279, h: 375, x1: 6, y1: 219, x2: 170, y2: 371 }; // Build 1.psd layer L10 — base descends to the right; near jamb at its END
+const HALF_DOWN_LEFT: WallFace = { src: halfDownLeftImg, w: 201, h: 375, x1: 15, y1: 372, x2: 190, y2: 224 }; // Build 1.psd layer L09 — base descends to the left; near jamb at its START
+const NARROW_LONG: WallFace = { src: wallNarrow, w: 352, h: 449, x1: 17, y1: 447, x2: 323, y2: 447, panelH: 447 }; // Build 1.psd layer L03 — the narrow frontal wall
 
 /** One row of the perspective table. */
 export interface WallPerspective {
   /** the stance's name — the template sheet labels its frames
    *  with these same names */
   stance: string;
-  /** the drawing that dresses this stance (the nearest honest
-   *  seating while `drawn` is false) */
+  /** the drawing that dresses this stance (on an undrawn
+   *  stance, the kind's frontal face, which the affine seat
+   *  carries into the stance's frame) */
   face: WallFace;
   /** the drawing's name and the PSD layer it was cut from */
   drawing: string;
   /** true when `face` IS this stance's own perspective among the
    *  pieces Nigel has drawn; false marks a stance he has not
-   *  drawn yet — the row seats the nearest honest face and says so */
+   *  drawn yet — the row seats the frontal face by the affine
+   *  law and says so */
   drawn: boolean;
+  /** how the face is seated: by similarity on its base (a drawn
+   *  stance), or by the affine law into the sheet's frame for
+   *  an undrawn one */
+  seat: "similarity" | "shallow" | "upright" | "slantAffine";
   /** the edges that present this stance, in plain words */
   edges: string;
 }
 
-const WALL_PERSPECTIVES: Record<"long" | "slantDescending" | "slantAscending", { wall: WallFace; door: WallFace; drawing: string }> = {
-  long: { wall: WALL_LONG, door: DOOR_LONG, drawing: "the frontal pair (wall: PSD layer L07; doorway: L08)" },
-  slantDescending: { wall: WALL_DOWN_RIGHT, door: DOOR_DOWN_RIGHT, drawing: "the descending twin (wall: PSD layer L04; doorway: L05)" },
-  slantAscending: { wall: WALL_DOWN_LEFT, door: DOOR_DOWN_LEFT, drawing: "the ascending twin (wall: PSD layer L03; doorway: L06)" },
+/** The perspective rows by piece kind: each kind's own drawings,
+ *  stance for stance. A null twin means he has not drawn that
+ *  kind in that stance (the narrow wall, drawn frontally only). */
+const KIND_ROWS: Record<string, {
+  long: WallFace; desc: WallFace | null; asc: WallFace | null;
+  longName: string; descName?: string; ascName?: string;
+}> = {
+  wall: {
+    long: WALL_LONG, desc: WALL_DOWN_RIGHT, asc: WALL_DOWN_LEFT,
+    longName: "the frontal wall (PSD layer L07)",
+    descName: "the descending twin (PSD layer L04)",
+    ascName: "the ascending twin (PSD layer L03)",
+  },
+  door: {
+    long: DOOR_LONG, desc: DOOR_DOWN_RIGHT, asc: DOOR_DOWN_LEFT,
+    longName: "the frontal doorway (PSD layer L08)",
+    descName: "the descending doorway twin (PSD layer L05)",
+    ascName: "the ascending doorway twin (PSD layer L06)",
+  },
+  halfwall: {
+    long: HALF_LONG, desc: HALF_DOWN_RIGHT, asc: HALF_DOWN_LEFT,
+    longName: "the frontal half wall (Build 1.psd layer L16)",
+    descName: "the descending half-wall twin (Build 1.psd layer L10)",
+    ascName: "the ascending half-wall twin (Build 1.psd layer L09)",
+  },
+  narrow: {
+    long: NARROW_LONG, desc: null, asc: null,
+    longName: "the narrow frontal wall (Build 1.psd layer L03)",
+  },
 };
 
 /** The perspective answering to an edge. Keys on the edge's LINE
@@ -284,8 +416,7 @@ const WALL_PERSPECTIVES: Record<"long" | "slantDescending" | "slantAscending", {
  *  to a wedge's; the stance is a fact about the edge on screen,
  *  not about its floor). */
 export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: number, by: number): WallPerspective {
-  const isDoor = kind === "door";
-  const pick = (row: { wall: WallFace; door: WallFace }) => (isDoor ? row.door : row.wall);
+  const rows = KIND_ROWS[kind] ?? KIND_ROWS.wall;
   // the edge's undirected line angle on screen, folded to (−90, 90]
   let line = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
   if (line > 90) line -= 180;
@@ -294,26 +425,29 @@ export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: num
     // The long line. Both facings — the hex's back (top) edge and
     // its front (bottom) edge — take the frontal elevation: the
     // one flat front he drew, reading the same from either edge.
-    const row = WALL_PERSPECTIVES.long;
     return {
       stance: "long (back and front edges)",
-      face: pick(row),
-      drawing: row.drawing,
+      face: rows.long,
+      drawing: rows.longName,
       drawn: true,
+      seat: "similarity",
       edges: "the hex's top and bottom edges; a square's or shoulder's edge lying on the same level line",
     };
   }
   if (Math.abs(line) <= 35) {
     // FLAGGED — NOT DRAWN: the shallow side lines of squares and
     // shoulders (±20.2°, along the hex's edge normals). No drawing
-    // is this perspective and no mirror supplies it; the frontal
-    // elevation is the nearest honest seating (≈20° off true).
-    const row = WALL_PERSPECTIVES.long;
+    // is this perspective and no mirror supplies it. The seat is
+    // the affine law (seatWallAffine): the frontal panel carried
+    // into the sheet's parallelogram frame — base on the edge,
+    // sides rising straight up — never the rigid turn of the
+    // first wiring, which stood the elevation leaning.
     return {
       stance: "shallow side line — NOT DRAWN",
-      face: pick(row),
-      drawing: `${row.drawing} — nearest honest seating only; this stance's own perspective is not among his drawings`,
+      face: rows.long,
+      drawing: `${rows.longName} — carried into the stance's frame by the affine seat; this stance's own perspective is not among his drawings`,
       drawn: false,
+      seat: "shallow",
       edges: "the side edges of a square or shoulder piece standing on a slanted hex edge (the sides run along the edge normals, ±20.2° on screen)",
     };
   }
@@ -323,13 +457,28 @@ export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: num
     // ascending to the right takes the ascending twin, and
     // seatWallFace lays each twin's lower (near-jamb) base end on
     // the edge's southern end — the facing is answered in the seat.
+    // A kind he drew frontally only (the narrow wall) has no twin:
+    // its slant stances are NOT DRAWN and ride the affine law.
     const descending = line > 0;
-    const row = descending ? WALL_PERSPECTIVES.slantDescending : WALL_PERSPECTIVES.slantAscending;
+    const twin = descending ? rows.desc : rows.asc;
+    if (twin) {
+      return {
+        stance: descending ? "slant descending right" : "slant ascending right",
+        face: twin,
+        drawing: (descending ? rows.descName : rows.ascName) ?? "",
+        drawn: true,
+        seat: "similarity",
+        edges: descending
+          ? "the hex edges E–NE and W–SW (and any square or shoulder edge on the same descending line)"
+          : "the hex edges NW–W and SE–E (and any square or shoulder edge on the same ascending line)",
+      };
+    }
     return {
-      stance: descending ? "slant descending right" : "slant ascending right",
-      face: pick(row),
-      drawing: row.drawing,
-      drawn: true,
+      stance: descending ? "slant descending right — NOT DRAWN" : "slant ascending right — NOT DRAWN",
+      face: rows.long,
+      drawing: `${rows.longName} — carried into the stance's frame by the affine seat; this kind was drawn frontally only`,
+      drawn: false,
+      seat: "slantAffine",
       edges: descending
         ? "the hex edges E–NE and W–SW (and any square or shoulder edge on the same descending line)"
         : "the hex edges NW–W and SE–E (and any square or shoulder edge on the same ascending line)",
@@ -338,18 +487,16 @@ export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: num
   // FLAGGED — NOT DRAWN: the upright side line (90°) — the side
   // edges of a square or shoulder piece standing on a long edge run
   // straight up on screen, the wall seen edge-on. No drawing is
-  // this perspective; the nearest by angle is a slant twin turned
-  // ≈43°, seated by the same south-end law — on an upright line the
-  // two twins differ only in which end carries the near jamb, and
-  // the law puts this twin's near jamb at the southern end, as
-  // everywhere. A wall standing thus is the turned wall of Nigel's
-  // example; its own drawing is awaited, not invented.
-  const row = WALL_PERSPECTIVES.slantDescending;
+  // this perspective. The seat is the affine law's edge-on strip:
+  // the sheet's own frame for the stance — a narrow upright strip
+  // standing on the edge's southern end — in place of the first
+  // wiring's slant twin turned ≈43° against its edge.
   return {
     stance: "upright side line (edge-on) — NOT DRAWN",
-    face: pick(row),
-    drawing: `${row.drawing} — nearest honest seating only; this stance's own perspective is not among his drawings`,
+    face: rows.long,
+    drawing: `${rows.longName} — carried into the stance's edge-on frame by the affine seat; this stance's own perspective is not among his drawings`,
     drawn: false,
+    seat: "upright",
     edges: "the side edges of a square or shoulder piece standing on a long (level) hex edge — the sides run straight up on screen",
   };
 }
@@ -397,3 +544,103 @@ export function seatWallFace(face: WallFace, A: { x: number; y: number }, B: { x
   const sc = Math.hypot(Q.x - P.x, Q.y - P.y) / Math.hypot(face.x2 - face.x1, face.y2 - face.y1);
   return `translate(${P.x.toFixed(2)} ${P.y.toFixed(2)}) rotate(${(rot * 180 / Math.PI).toFixed(2)}) scale(${sc.toFixed(4)}) translate(${(-face.x1).toFixed(1)} ${(-face.y1).toFixed(1)})`;
 }
+
+/* ── THE AFFINE SEAT FOR AN UNDRAWN STANCE (2026-10-28) ────────
+ * The draw sheet's frames for the stances no drawing serves,
+ * built as geometry: a wall's panel in these stances is a
+ * parallelogram (or, edge-on, a narrow strip) whose BASE is the
+ * edge itself and whose sides rise STRAIGHT UP on screen. The
+ * frontal drawing is carried into the frame by the exact affine
+ * of three corners — base start, base end, and the top above
+ * the base start — so its courses run with the base and its
+ * jambs stand vertical: the wall sits IN the land's perspective
+ * instead of leaning against it. The drawing is never rotated
+ * rigidly and never mirrored.
+ *
+ * THE RISE: a wall stands at the same height on every edge of
+ * the construction — the height its frontal face takes on a
+ * long edge of the same measure. Each line of the plate
+ * projects to its own screen length per measure (the map's
+ * basis, Territory's ISO_E/ISO_SE over ISO_DEN, through the
+ * slant): long 1.0821, shallow 0.9973, slant 0.8058, upright
+ * 0.6877. The affine seat's rise is therefore the edge's screen
+ * length × the face's own height-to-base ratio × the line's
+ * correction back to the long line's measure. */
+const RISE_K: Record<"shallow" | "upright" | "slantAffine", number> = {
+  shallow: 1.0821 / 0.9973,
+  slantAffine: 1.0821 / 0.8058,
+  upright: 1.0821 / 0.6877,
+};
+/** The sheet's edge-on strip: 60 wide against 230 of height in
+ *  its frame — the strip's width as a share of its rise. */
+const EDGE_ON_STRIP_SHARE = 60 / 230;
+
+/** Seat a frontal face into an undrawn stance's frame by the
+ *  affine law. A and B are the edge's ends on screen. */
+export function seatWallAffine(
+  face: WallFace,
+  A: { x: number; y: number },
+  B: { x: number; y: number },
+  seat: "shallow" | "upright" | "slantAffine",
+): string | null {
+  const panelH = face.panelH ?? face.h;
+  const baseLen = Math.hypot(face.x2 - face.x1, face.y2 - face.y1);
+  if (baseLen < 1 || panelH < 1) return null;
+  const edgeLen = Math.hypot(B.x - A.x, B.y - A.y);
+  const rise = edgeLen * (panelH / baseLen) * RISE_K[seat];
+  const src: [number, number][] = [
+    [face.x1, face.y1], [face.x2, face.y2], [face.x1, face.y1 - panelH],
+  ];
+  let dst: [number, number][];
+  if (seat === "upright") {
+    // Edge-on: the strip stands on the edge's SOUTHERN end (the
+    // end lower on screen — the front end, as the sheet frames
+    // it), its base a short level run of the sheet's proportion,
+    // rising straight up.
+    const S = A.y >= B.y ? A : B;
+    const w = rise * EDGE_ON_STRIP_SHARE;
+    dst = [
+      [S.x - w / 2, S.y], [S.x + w / 2, S.y], [S.x - w / 2, S.y - rise],
+    ];
+  } else {
+    // The parallelogram frame: base on the edge, the top edge
+    // directly above the base — jambs vertical, courses with
+    // the base.
+    dst = [
+      [A.x, A.y], [B.x, B.y], [A.x, A.y - rise],
+    ];
+  }
+  return affineFor(src, dst);
+}
+
+/** One wall piece's seat, whole: its perspective row and the
+ *  transform that stands its face on its edge — by similarity
+ *  for a drawn stance, by the affine law for an undrawn one.
+ *  The one door the map's wall drawing walks through. */
+export function wallSeatFor(
+  kind: string,
+  A: { x: number; y: number },
+  B: { x: number; y: number },
+): { transform: string; stance: string; drawn: boolean; face: WallFace } {
+  const p = wallPerspectiveFor(kind, A.x, A.y, B.x, B.y);
+  if (p.seat === "similarity") {
+    return { transform: seatWallFace(p.face, A, B), stance: p.stance, drawn: p.drawn, face: p.face };
+  }
+  const transform = seatWallAffine(p.face, A, B, p.seat) ?? seatWallFace(p.face, A, B);
+  return { transform, stance: p.stance, drawn: p.drawn, face: p.face };
+}
+
+/** THE PIECES MENU'S FACES (2026-10-28, Nigel's word: "keep
+ *  the pieces menu but use my artwork for the pieces ui"): the
+ *  drawing each piece choice in the menu is made FROM — the
+ *  piece's own face, the button law's form (a button made from
+ *  a thing is the thing's image). The triangle is met by one
+ *  of its wedges; the rest by their frontal faces. */
+export const PIECE_MENU_FACES: Record<string, string> = {
+  triangle: triTop,
+  square: squareFoundation,
+  wall: wallLong,
+  door: doorLong,
+  halfwall: halfLongImg,
+  narrow: wallNarrow,
+};
