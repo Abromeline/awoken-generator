@@ -7440,9 +7440,16 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           </div>
         </div>
       )}
+      {/* THE SKY SAYS WHAT THE WEATHER MEANS, IN WORDS (parity
+          row N26, Nigel, 2026-10-28): the mood's description —
+          the same served record (mood.description) the Table's
+          sky reads inline — stands on the face of this pill,
+          exactly as the Table renders it. It stood only in a
+          title tooltip before; touch players never see a
+          tooltip, so the tooltip-only reading is struck. */}
       {mood && (
-        <div className="world-mood" title={mood.description}>
-          🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}
+        <div className="world-mood">
+          🌙 {mood.mood.charAt(0).toUpperCase() + mood.mood.slice(1)}{mood.description ? ` — ${mood.description}` : ""}
         </div>
       )}
       {/* THE BAG (the loot table fix, Nigel, ruled
