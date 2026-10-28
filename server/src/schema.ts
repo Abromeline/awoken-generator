@@ -569,6 +569,19 @@ export const fieldPlacements = sqliteTable("field_placements", {
   follow: integer("follow").notNull().default(0),
   // Binding upkeep: last time the hourly 3-energy charge was applied.
   lastBindingChargeAt: integer("last_binding_charge_at", { mode: "timestamp_ms" }),
+  // FIX THE CLOCKS (Nigel, 2026-10-28: "standing pays only for
+  // the time actually stood"): each placement carries its OWN
+  // settle cursors — bind_paid_at, the hour through which this
+  // binder's standing interval has been paid into the aspect
+  // pools, and press_paid_at, the hour through which its
+  // standing on its tile has been poured by the tile press.
+  // A span is reckoned from the later of placed_at and its
+  // cursor to its departure or the next settle, whichever is
+  // earlier — never the whole window between two reads, and
+  // never lost for want of a read. Null = never settled; the
+  // span then runs from placed_at.
+  bindPaidAt: integer("bind_paid_at", { mode: "timestamp_ms" }),
+  pressPaidAt: integer("press_paid_at", { mode: "timestamp_ms" }),
   hp: integer("hp"),
   // The marching layer (War-Ground, Nigel 2026-10-16): a patrol road
   // kept as data — a JSON array of tile ids — and the hour the march

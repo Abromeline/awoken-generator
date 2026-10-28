@@ -402,6 +402,18 @@ if (!placementCols.some((col) => col.name === "actor_key")) {
   sqlite.exec(`ALTER TABLE field_placements ADD COLUMN actor_key TEXT`);
   sqlite.exec(`UPDATE field_placements SET actor_key = owner_key WHERE actor_key IS NULL`);
 }
+// FIX THE CLOCKS (Nigel, 2026-10-28): per-placement settle
+// cursors for the two standing clocks — bind_paid_at (the
+// aspect accrual) and press_paid_at (the tile press). Every
+// standing row's cursors start at the upgrade moment: the
+// new law pays from here forward, so no span already settled
+// (or burned) under the old read-clock is ever paid twice.
+if (!placementCols.some((col) => col.name === "bind_paid_at")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN bind_paid_at INTEGER`);
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN press_paid_at INTEGER`);
+  const clocksStart = Date.now();
+  sqlite.exec(`UPDATE field_placements SET bind_paid_at = ${clocksStart}, press_paid_at = ${clocksStart}`);
+}
 // Curse HP for territory tiles.
 if (!tileCols.some((col) => col.name === "curse_hp")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_hp INTEGER`);
