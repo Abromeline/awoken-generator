@@ -514,7 +514,15 @@ let child = null, dbB = null;
   // was not a re-walked span), and the pool moves ~nothing.
   const readStartB = Date.now();
   const landB1 = await callOkB("getTerritory", {}, tokenB);
-  const fellWitness = (landB1.strikes ?? []).find(s => s.kind === "placement" && Number(s.wandererId) === darkB);
+  // The FELL's witness is the law's object (gate fix,
+  // 2026-10-28): the first strike ON the dark may be another
+  // placement's miss — the binder standing beside the
+  // fighter answers too, and its blow can land in the record
+  // first and miss. This predicate once read that first
+  // strike and failed on a witnessed fell that stood two
+  // records down the same list; it names the felling blow
+  // itself now, which is what the law below asserts.
+  const fellWitness = (landB1.strikes ?? []).find(s => s.kind === "placement" && Number(s.wandererId) === darkB && s.felled === true);
   ok("the first read witnesses the fell the gear already made: a placement strike on the dark, struck home",
     !!fellWitness && fellWitness.hit === true, JSON.stringify((landB1.strikes ?? []).slice(0, 3)));
   const maxStrike1 = Math.max(0, ...(landB1.strikes ?? []).map(s => s.id));

@@ -6592,8 +6592,27 @@ async function settleProtection(ownerKey: string): Promise<void> {
   } else {
     intensity = 1 + Math.max(0, reigns - mark);
   }
+  // THE SWITCH IS THE TENDER'S HAND (gate fix, 2026-10-28):
+  // this reckoning began from the row read at its head, and
+  // its long counting must never write the switch back from
+  // that stale snapshot — if the hand moved it while the
+  // settle walked (a lighting or a dousing landing between
+  // the read above and this write), the hand's word stands.
+  // The one turn of the switch that is this settle's own to
+  // make is the gutter: a burn that ran its bank or its fuel
+  // dry puts the light OUT, as the protection law has always
+  // ruled. A stale write-back here once reverted a lighting
+  // whole without a sound: the cradle read the land doused
+  // in the very next step and birthed the curse's edge host
+  // down the ordinary road, UNMARKED — the retaliation law
+  // broken by a bookkeeping overwrite, not by any road's
+  // intent (drive-master-clock §R caught it, twice, on two
+  // worktrees, after passing twice on luck).
+  const guttered = Number(row.lit) === 1 && !lit;
+  const storedLitRow = sqlite.prepare("SELECT lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  const writeLit = guttered ? 0 : (storedLitRow ? Number(storedLitRow.lit) || 0 : (lit ? 1 : 0));
   sqlite.prepare("UPDATE tender_progress SET shadow_matter = ?, protection_bank_ms = ?, lighthouse_lit = ?, lighthouse_settled_at = ?, wave_intensity = ?, intensity_reign_mark = ? WHERE owner_key = ?")
-    .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), lit ? 1 : 0, now, intensity, mark, ownerKey);
+    .run(Math.max(0, shadow), Math.max(0, Math.round(bank)), writeLit, now, intensity, mark, ownerKey);
 }
 
 /** THE STRIKE WITNESS (the Token Strip, Nigel 2026-10-23;
