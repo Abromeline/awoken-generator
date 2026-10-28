@@ -6581,12 +6581,7 @@ async function settleProtection(ownerKey: string): Promise<void> {
         sqlite.prepare("UPDATE first_seed_events SET rising_live = 0, rising_stood = NULL, next_wave_at = ? WHERE owner_key = ?")
           .run(Date.now() + firstSeedWaveGapMs(Number(fledEv.waves_cleared ?? 0)), ownerKey);
       }
-      // THE RETALIATION STANDS (THE MASTER CLOCK, Nigel,
-      // 2026-10-28): the dark the lit beacon's edge summons
-      // is NOT driven off — it is the curse pressing against
-      // the light itself, and it stands to be answered by
-      // the fight below. Every other standing dark flees.
-      sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ? AND retaliation = 0").run(ownerKey);
+      sqlite.prepare("DELETE FROM homeland_wanderers WHERE owner_key = ?").run(ownerKey);
       intensity = 1; mark = reigns;
     }
   } else {
@@ -6603,8 +6598,9 @@ async function settleProtection(ownerKey: string): Promise<void> {
   // dry puts the light OUT, as the protection law has always
   // ruled. A stale write-back here once reverted a lighting
   // whole without a sound: the cradle read the land doused
-  // in the very next step and birthed the curse's edge host
-  // down the ordinary road, UNMARKED — the retaliation law
+  // in the very next step and birthed darks down the
+  // ordinary road under a burning beacon — the lit law (no
+  // enemies while the beacon burns, Nigel 2026-10-28)
   // broken by a bookkeeping overwrite, not by any road's
   // intent (drive-master-clock §R caught it, twice, on two
   // worktrees, after passing twice on luck).
@@ -7663,10 +7659,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // beside: harm gathers in the tile until the curse's
       // own HP for that ground is met and the tile turns.
       // THE SPREAD IS HELD UNDER LIGHT (THE MASTER CLOCK,
-      // Nigel, 2026-10-28): while the beacon burns, no
-      // chewing lands at all — the retaliation host bites
-      // bodies and companies, but it turns no ground: the
-      // curse does not spread under a lit beacon.
+      // Nigel, 2026-10-28): while the beacon burns there
+      // are no enemies to chew at all — the cradle is shut
+      // and the pushback has driven the standing dark off —
+      // and this gate stands in the reckoning itself
+      // regardless: no chewing lands while the light burns,
+      // so the curse does not spread under a lit beacon.
       const here = byId.get(d.tileId);
       if (here && !lit) {
         const nbrs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
@@ -11176,72 +11174,6 @@ export const handlers = {
                   const kind = kindPool[Math.floor(Math.random() * kindPool.length)];
                   const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + (intensity - 1);
                   const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    .run(ownerKey, t.id, kind, now, maxHp, t.q, t.r, HOMELAND_DARK_POWER[kind] ?? 1, intensity);
-                  rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, kind, posQ: t.q, posR: t.r, hp: maxHp, lvl: intensity });
-                  occupied.add(t.id);
-                }
-              }
-            }
-            sqlite.prepare("UPDATE tender_progress SET wanderer_settled_beats = ? WHERE owner_key = ?").run(due, ownerKey);
-          }
-        }
-      }
-    }
-    // THE EDGE RETALIATION (THE MASTER CLOCK, Nigel,
-    // 2026-10-28: "when the beacon is lit and the curse
-    // starts to fight back by summoning dark tings AT THE
-    // EDGE OF THE MAP"): while the beacon burns and the
-    // Tender is PRESENT, the cradle above stays shut — the
-    // lit light still holds the curse's spread and every
-    // interior birth — but the curse presses at the border:
-    // on the same spawn beats, from the same beats ledger
-    // (a beat is spent once, by whichever road settles it),
-    // dark things are born on the MAP'S BORDER RING — the
-    // outermost ring of the land's own tiles — on that
-    // ring's cursed ground, barred from FIGHTING light and
-    // from a Beacon's protection as every birth is, under
-    // the standing cap and the standing kind pool at the
-    // standing wave intensity (which the lit light holds
-    // at 1: Fray, as the protection law resets it). They
-    // are marked retaliation-born: the pushback never
-    // drives them off, and the living battle answers them
-    // where they stand and as they march in. A border ring
-    // holding no cursed ground gives the curse no edge to
-    // press from, and no birth lands. The early-entry raise
-    // does not ride this road: that step prices a Tender
-    // standing IN the cursed lands, and this host is the
-    // curse's answer to his light, not to his trespass.
-    else if (standTileId != null && lit && landOnline(ownerKey, now)) {
-      const arow = sqlite.prepare("SELECT wanderer_anchor_at AS anchor, wanderer_settled_beats AS settled FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
-      if (arow) {
-        if (arow.anchor == null) {
-          sqlite.prepare("UPDATE tender_progress SET wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?").run(now, ownerKey);
-        } else {
-          const due = Math.floor((now - Number(arow.anchor)) / SPAWN_BEAT_MS);
-          const fresh = due - Number(arow.settled ?? 0);
-          if (fresh > 0) {
-            const beats = Math.min(fresh, CATCHUP_BEATS);
-            const cap = 8 + 2 * (intensity - 1);
-            const beaconTiles = (sqlite.prepare("SELECT tile_id FROM star_seeds WHERE owner_key = ? AND level >= 3 AND state IN ('fallen','held','first')").all(ownerKey) as { tile_id: number }[])
-              .map(rw => byId.get(rw.tile_id)).filter(Boolean) as any[];
-            const ringOfTile = (t: any) => Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
-            let mapRing = -1;
-            for (const t of tiles) mapRing = Math.max(mapRing, ringOfTile(t));
-            const spawnLight = computeTileLight(ownerKey, tiles);
-            const view = mapRing < 0 ? [] : tiles.filter((t: any) => t.cursed && ringOfTile(t) === mapRing && !beaconTiles.some(b => hexDist(t, b) <= 1) && (spawnLight.get(`${t.q},${t.r}`) ?? LIGHT_DARK) !== LIGHT_FIGHTING);
-            const kindPool = ["fray", "fray", "fray"];
-            if (intensity >= 2) kindPool.push("hollow", "hollow");
-            if (intensity >= 3) kindPool.push("unraveler", "unraveler");
-            if (intensity >= 4) kindPool.push("tangle");
-            for (let b = 0; b < beats && rows.length < cap; b++) {
-              const occupied = new Set(rows.map(w => w.tileId));
-              for (const t of view) {
-                if (rows.length >= cap) break;
-                if (occupied.has(t.id)) continue;
-                if (Math.random() < SPAWN_CHANCE) {
-                  const kind = kindPool[Math.floor(Math.random() * kindPool.length)];
-                  const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + (intensity - 1);
-                  const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, retaliation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)")
                     .run(ownerKey, t.id, kind, now, maxHp, t.q, t.r, HOMELAND_DARK_POWER[kind] ?? 1, intensity);
                   rows.push({ id: Number(info.lastInsertRowid), tileId: t.id, kind, posQ: t.q, posR: t.r, hp: maxHp, lvl: intensity });
                   occupied.add(t.id);
@@ -17950,10 +17882,13 @@ export { assetShape, awakenedShape };
 // spreads nor is effected, no battle walks, no body
 // withers or mends — while its peaceful clocks (press,
 // accrual, upkeep, rises) run on. A present land's war
-// walks whole, under its switch: lit, the curse's spread
-// is held and no ground is gained, and the curse answers
-// at the map's edge (the retaliation, in settleWanderers);
-// doused, ground can be gained again. One land's fault
+// walks whole, under its switch: lit, there are NO
+// enemies — no dark is born anywhere on the land and
+// the standing dark is driven off (Nigel, 2026-10-28
+// 17:10: "if he beacon is on there are no enemies if
+// its of they can attakc thats it") — and no ground is
+// gained; doused, they can attack again and ground can
+// be gained. One land's fault
 // never stops the tick or another land: every step is
 // wrapped, named, and logged where it fell.
 export const MASTER_CLOCK_TICK_MS = (() => {
@@ -17980,7 +17915,8 @@ export const MASTER_CLOCK_TICK_MS = (() => {
 // is that seat's machinery, not this engine's) walks the
 // WAR of every land whose war is live — a present Tender
 // with darks standing or marching, a march on the road, or
-// a lit beacon (the retaliation pending) — and idles over
+// a lit beacon (its pushback reconciles on this gear —
+// while the beacon burns, no enemy stands) — and idles over
 // quiet lands. The gears share every ledger the first
 // build named (the battle's watermark is claimed at its
 // settle's head, the spawn beats spend from one anchor,
@@ -18045,7 +17981,7 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // settles here, where it has always settled; for an away
   // land it is deliberately never walked, because the
   // offline light is the clock's grant, not a draw on the
-  // bank), then the cradle and the retaliation, then the
+  // bank), then the cradle, then the
   // living battle, the written ground, the weapon, the
   // groves, and the first seed's rising at the end.
   let standTileId: number | null = null;
@@ -18150,8 +18086,8 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
  *  order the tick's own war steps walk (the master clock
  *  block, steps (2)–(4)): marches land as they come due,
  *  the first seed's judgement, then the living battle's
- *  whole train — the lighthouse and its bank, the cradle
- *  and the retaliation, the battle, the written ground,
+ *  whole train — the lighthouse and its bank, the cradle,
+ *  the battle, the written ground,
  *  the weapon, the groves, the rising — and the Tender
  *  bodies last. Every call is a standing settle the read
  *  path and the slow tick also call; this walk only calls
@@ -18224,8 +18160,10 @@ export async function settleLandWar(ownerKey: string, now: number): Promise<void
 const realtimeWarLands = new Set<string>();
 
 /** One beat of the REALTIME gear: find the lands whose
- *  war is live — a lit beacon (the retaliation pending),
- *  darks standing, a march on the road — keep only the
+ *  war is live — a lit beacon (its pushback walks this
+ *  gear, so a burning beacon's land is swept clear at the
+ *  war's own grain), darks standing, a march on the road
+ *  — keep only the
  *  present ones, and reconcile each one's war at the
  *  engine's grain. Quiet lands and away lands are never
  *  touched: no busy loop over a sleeping world. */

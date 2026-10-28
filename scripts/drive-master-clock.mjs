@@ -18,11 +18,23 @@
    offline counts as LIT (held: no spread, no summons, no blows,
    no ground gained; the peaceful clocks still run); ground is
    gained only unlit; a doused beacon reads FAINT (1) in the
-   server lighting reckoning instead of FIGHTING (2); lit +
-   online brings the edge retaliation — darks born on the map's
-   border ring through the standing spawn ledger, answered by
-   the standing battle, their struck hexes lit FAINT at the
-   witness.
+   server lighting reckoning instead of FIGHTING (2); lit
+   means NO enemies at all — while the beacon burns, no dark
+   is born anywhere on the land and the standing dark is
+   driven off. A struck hex still flashes FAINT at the
+   witness — the projectiles lighting up the dark — and it
+   belongs to fights, which happen while doused.
+
+   THE EDGE RETALIATION IS STRUCK (Nigel, 2026-10-28
+   17:10): "edge mark? i dont think that necessary if he
+   beacon is on there are no enemies if its of they can
+   attakc thats it" — the retaliation first built from the
+   15:10 words above (border-ring births while lit, marked
+   and spared by the pushback) is struck whole: no edge
+   mark, no retaliation summoning, no spared class. THE
+   LAW AS IT STANDS, and the law this drive asserts:
+   beacon lit → NO enemies; beacon doused → they can
+   attack. That is all of it.
 
    This drive boots the real server on a scratch DB with the
    tick turned fast, shapes one land, and walks it through
@@ -53,10 +65,11 @@
    the drive) fights a whole battle on the realtime gear
    alone — the watermark advancing in small live steps,
    never one lump — while its attunement cursor does not
-   move at all (attunement is the slow gear's alone), the
-   retaliation is born on the realtime gear under a lit
-   beacon, and a read in the middle of it settles nothing
-   twice. The face reads at the same grain: while a battle
+   move at all (attunement is the slow gear's alone), and
+   a read in the middle of it settles nothing
+   twice — then, the beacon lit on the same gear, the
+   pushback drives the standing dark off and not one dark
+   is born (the 17:10 law, proven on the gear alone). The face reads at the same grain: while a battle
    stands, the homeland map's read loop polls at 500 ms
    and relaxes to the 2.8 s battle beat when none does
    (Territory.tsx, HOMELAND_REALTIME_READ_MS).
@@ -181,7 +194,7 @@ for (const h of ring2Tiles) {
 }
 // One interior dark, the kind the lit light pushes back.
 const chewTile = { q: 3, r: 0 };
-const chewId = Number(db.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at, retaliation) VALUES (?, 'fray', ?, 3, ?, ?, 0, 1, ?, 0)")
+const chewId = Number(db.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at) VALUES (?, 'fray', ?, 3, ?, ?, 0, 1, ?)")
   .run(ownerKey, T(chewTile.q, chewTile.r), chewTile.q, chewTile.r, T0).lastInsertRowid);
 // A watchtower two hours unkept, and a square mid-rise (frac ½,
 // its clock five minutes back) under the Stone crew's hands.
@@ -249,41 +262,37 @@ console.log("§O offline = held — the war freezes, the peaceful clocks run");
     res().energy <= 100000 - 9, `energy ${res().energy}`);
 }
 
-/* ── §L ONLINE + LIT = THE EDGE RETALIATION ──────────────────
-   The Tender returns; the beacon burns. The curse may not
-   spread and no ground may be gained — but it fights back at
-   the border, and the land's Awokin answer in witnessed
-   projectiles whose strikes light their hexes FAINT. */
-console.log("§L online + lit — held, and the curse answers at the edge");
+/* ── §L ONLINE + LIT = NO ENEMIES ────────────────────────────
+   The Tender returns; the beacon burns. THE LAW (Nigel,
+   2026-10-28 17:10): while the beacon is on there are no
+   enemies — the pushback drives the interior dark off and
+   NOT ONE dark is born anywhere on the land, across slow
+   ticks and realtime beats alike; no ground may be gained
+   either. The fight, and the strikes that light up the
+   dark, belong to the doused hours (§D, §R). */
+console.log("§L online + lit — no enemies under a burning beacon");
 {
   const nowL = Date.now();
   db.prepare("UPDATE tender_resources SET last_seen_at = ? WHERE owner_key = ?").run(nowL, ownerKey);
   db.prepare("UPDATE tender_progress SET lighthouse_lit = 1, lighthouse_settled_at = ?, tender_tile_id = ?, battle_watermark = ?, wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?")
     .run(nowL, heartId, nowL - 3000, nowL - 200_000, ownerKey);
-  await sleep(1700); // ≥ 2 ticks: protection, then the retaliation's beats, then the battle
-  // Read FIRST, while the strikes' flashes still burn — the
-  // database witnesses below keep; a five-second light does not.
+  await sleep(1700); // ≥ 2 ticks: the protection's pushback walks, on both gears
+  // Read FIRST, while the reckoning is fresh — the database
+  // witnesses below keep either way.
   const land = await callOk("getTerritory", {}, token);
   const p = prog(), w = wanderers();
-  ok("the lit light pushed the interior dark off the land (the pushback takes the standing kind, never the retaliation)",
-    !w.some(x => Number(x.id) === chewId) && w.every(x => Number(x.retaliation) === 1),
-    JSON.stringify(w.map(x => [x.id, x.retaliation])));
+  ok("under the burning beacon there are NO enemies: the pushback drove the interior dark off and not one dark was born in its place",
+    w.length === 0 && !w.some(x => Number(x.id) === chewId),
+    JSON.stringify(w.map(x => x.id)));
   ok("the protection settled on the tick (its stamp advanced with no read to call it)",
     Number(p.lighthouse_settled_at) > nowL - 500, `${p.lighthouse_settled_at}`);
   ok("no ground was gained under the light: the calm's tile keeps its full curse still",
     Number(tileRow(calmTile.q, calmTile.r).curse_max_hp) === 22);
   const byId = new Map(land.tiles.map(t => [t.id, t]));
   ok("the beacon burns FIGHTING at the heart while lit", byId.get(heartId)?.light === 2, `light ${byId.get(heartId)?.light}`);
-  // The retaliation's darks are answered inside the same ticks
-  // that birth them — the witness, not the graveyard, is the
-  // proof: placement strikes on darks that are not the interior
-  // one, struck on the border ring.
-  const edgeStrikes = (land.strikes ?? []).filter(s => s.kind === "placement" && Number(s.wandererId) !== chewId && ringOf(s.toQ, s.toR) === 3);
-  ok("the curse fought back AT THE EDGE and the Awokin answered: witnessed strikes on new darks, all on the border ring",
-    edgeStrikes.length >= 1 && edgeStrikes.some(s => s.hit), JSON.stringify((land.strikes ?? []).slice(0, 3)));
-  const answer = edgeStrikes.find(s => s.hit);
-  ok("…and the struck hex LIGHTS UP THE DARK: the witness's tile reads FAINT in the served reckoning",
-    !!answer && byId.get(answer.tileId)?.light === 1, answer ? `tile light ${byId.get(answer.tileId)?.light}` : "no hit strike");
+  ok("…and no fight happened under the light: the witness holds no placement strikes struck since the beacon lit",
+    (land.strikes ?? []).filter(s => s.kind === "placement" && Number(s.at) >= nowL - 250).length === 0,
+    JSON.stringify((land.strikes ?? []).slice(0, 3)));
   const atk = fighters.find(f => f.q === 2 && f.r === 0);
   const hpBefore = Number(tileRow(3, 0).curse_hp);
   const refused = await call("attackTile", { awakenedId: atk.aw, tileId: T(3, 0) }, token);
@@ -426,9 +435,9 @@ let child = null, dbB = null;
   // true standing shape — its edge ring 7 — and does not
   // grow again inside this section (nothing here purifies
   // new ground). (Server A's §L never needed this: its
-  // retaliation birthed while its land was still the
-  // shaped disc, so its border was ring 3. This section
-  // proves the gear on the land's true edge.)
+  // proofs turn on the shaped disc's own ground, while
+  // this section proves the gears on the land as it
+  // truly stands.)
   const bornB = Date.now();
   dbB.prepare("INSERT INTO tender_attention (owner_key, starfall_anchor_at, starfall_seen_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_key) DO NOTHING")
     .run(keyB, bornB, bornB, bornB);
@@ -453,7 +462,7 @@ let child = null, dbB = null;
   insPlaceB.run(keyB, binderB, TBq(1, 0), TB - 2 * 3600_000, TB - 2 * 3600_000, "binding", 60, 1, 0);
   const fighterB = makeAwB("Realtime Fighter", [["RF Body", "body", 10, 60, "root"], ["RF Arms", "arms", 10, 60, "root"], ["RF Crown", "head", 10, 60, "root"]]);
   insPlaceB.run(keyB, fighterB, TBq(2, 0), TB, TB, "attack", 60, 2, 0);
-  const darkB = Number(dbB.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at, retaliation) VALUES (?, 'fray', ?, 3, 3, 0, 0, 1, ?, 0)")
+  const darkB = Number(dbB.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at) VALUES (?, 'fray', ?, 3, 3, 0, 0, 1, ?)")
     .run(keyB, TBq(3, 0), TB).lastInsertRowid);
   // A second, long fight across the land — a dark too
   // deep to fell inside this section, against its own
@@ -462,16 +471,26 @@ let child = null, dbB = null;
   // gear must keep reconciling, not finish and idle.
   const fighterB2 = makeAwB("Realtime Long Fighter", [["RLF Body", "body", 10, 60, "root"], ["RLF Arms", "arms", 10, 60, "root"], ["RLF Crown", "head", 10, 60, "root"]]);
   insPlaceB.run(keyB, fighterB2, TBq(-2, 0), TB, TB, "attack", 60, -2, 0);
-  const darkFatB = Number(dbB.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at, retaliation) VALUES (?, 'fray', ?, 100000, -3, 0, 0, 1, ?, 0)")
+  const darkFatB = Number(dbB.prepare("INSERT INTO homeland_wanderers (owner_key, kind, tile_id, hp, pos_q, pos_r, last_strike_at, lvl, spawned_at) VALUES (?, 'fray', ?, 100000, -3, 0, 0, 1, ?)")
     .run(keyB, TBq(-3, 0), TB).lastInsertRowid);
   void darkFatB;
   // The pins land LAST, in one breath: presence fresh, the
   // beacon doused, the watermark three seconds behind the
-  // world, the cradle's anchor fresh (no births owed).
+  // world, the cradle's anchor fresh (no births owed). The
+  // bank and the hoard ride the conflict clause by name —
+  // a fixture lesson (2026-10-28): this statement's first
+  // shape carried them only in its VALUES, and the row
+  // already stood (the setup read had made it), so the
+  // land kept an empty hoard; when §R later lit the
+  // beacon on that land, the first protection settle
+  // lawfully guttered the fuelless light inside a breath
+  // and the cradle spent the rewound beats on a land the
+  // drive believed lit. The server was never wrong; the
+  // pin had not built the land it described.
   const pinB = Date.now();
   dbB.prepare(`INSERT INTO tender_progress (owner_key, tender_tile_id, hp, curse_watermark, lighthouse_lit, shadow_matter, protection_bank_ms, lighthouse_settled_at, battle_watermark, wanderer_anchor_at, wanderer_settled_beats, wave_intensity, updated_at)
     VALUES (?, ?, 100, ?, 0, 500, 3600000, ?, ?, ?, 0, 1, ?)
-    ON CONFLICT(owner_key) DO UPDATE SET tender_tile_id = excluded.tender_tile_id, hp = 100, curse_watermark = excluded.curse_watermark, lighthouse_lit = 0, battle_watermark = excluded.battle_watermark, wanderer_anchor_at = excluded.wanderer_anchor_at, wanderer_settled_beats = 0, wave_intensity = 1`)
+    ON CONFLICT(owner_key) DO UPDATE SET tender_tile_id = excluded.tender_tile_id, hp = 100, curse_watermark = excluded.curse_watermark, lighthouse_lit = 0, shadow_matter = excluded.shadow_matter, protection_bank_ms = excluded.protection_bank_ms, battle_watermark = excluded.battle_watermark, wanderer_anchor_at = excluded.wanderer_anchor_at, wanderer_settled_beats = 0, wave_intensity = 1`)
     .run(keyB, TBq(0, 0), pinB, pinB, pinB - 3000, pinB, pinB);
   dbB.prepare("INSERT INTO tender_resources (owner_key, energy, last_seen_at, updated_at) VALUES (?, 100000, ?, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 100000, last_seen_at = excluded.last_seen_at")
     .run(keyB, pinB, pinB);
@@ -525,6 +544,20 @@ let child = null, dbB = null;
   const fellWitness = (landB1.strikes ?? []).find(s => s.kind === "placement" && Number(s.wandererId) === darkB && s.felled === true);
   ok("the first read witnesses the fell the gear already made: a placement strike on the dark, struck home",
     !!fellWitness && fellWitness.hit === true, JSON.stringify((landB1.strikes ?? []).slice(0, 3)));
+  // The strikes LIGHT UP THE DARK (Nigel, 2026-10-28
+  // 15:10 — and standing after the 17:10 strike, because
+  // the flash belongs to fights, and this fight is a
+  // doused one): the hex the latest struck-home blow
+  // landed on reads FAINT in the served reckoning — the
+  // witness's five-second flash, still burning when the
+  // read lands. This land holds no light of its own (no
+  // beacon, no seed, no working stands on it), so a FAINT
+  // hex beside the fight can only be the flash.
+  const tilesB = new Map(landB1.tiles.map(t => [t.id, t]));
+  const litHit = [...(landB1.strikes ?? [])].reverse().find(s => s.kind === "placement" && s.hit === true);
+  ok("the strikes light up the dark: the hex the latest struck-home blow landed on reads FAINT in the served reckoning",
+    !!litHit && tilesB.get(litHit.tileId)?.light === 1,
+    litHit ? `tile ${litHit.tileId} light ${tilesB.get(litHit.tileId)?.light}` : "no hit strike witnessed");
   const maxStrike1 = Math.max(0, ...(landB1.strikes ?? []).map(s => s.id));
   const poolB1 = poolB("root");
   const landB2 = await callOkB("getTerritory", {}, tokenB);
@@ -533,19 +566,22 @@ let child = null, dbB = null;
     freshB.every(s => Number(s.at) > readStartB) && Math.abs(poolB("root") - poolB1) < 0.01,
     `fresh ${JSON.stringify(freshB.map(s => [s.id, s.at]))} vs read start ${readStartB}, pool delta ${poolB("root") - poolB1}`);
 
-  // R5 — the retaliation rides the realtime gear: light
-  // the beacon, rewind the cradle's anchor, and with the
-  // slow hand still dormant the curse answers at the edge
-  // on the gear's own beats.
+  // R5 — LIT MEANS NO ENEMIES, ON THE REALTIME GEAR
+  // (Nigel, 2026-10-28 17:10: "if he beacon is on there
+  // are no enemies if its of they can attakc thats it"):
+  // light the beacon, rewind the cradle's anchor so spawn
+  // beats stand owed, and with the slow hand still dormant
+  // the gear alone must hold the law — the pushback drives
+  // the long fight's dark off the land, and NOT ONE dark
+  // is born across the beats that follow.
   const nowR = Date.now();
   dbB.prepare("UPDATE tender_progress SET lighthouse_lit = 1, wanderer_anchor_at = ?, wanderer_settled_beats = 0 WHERE owner_key = ?")
     .run(nowR - 200_000, keyB);
   dbB.prepare("UPDATE tender_resources SET last_seen_at = ? WHERE owner_key = ?").run(nowR, keyB);
   await sleep(1400); // several realtime beats, no reads
-  const born = dbB.prepare(`SELECT w.retaliation AS ret, t.q AS q, t.r AS r FROM homeland_wanderers w JOIN territory_tiles t ON t.id = w.tile_id WHERE w.owner_key = ? AND w.id != ?`).all(keyB, darkFatB);
-  ok("lit + online, the retaliation is born ON THE REALTIME GEAR: darks stand marked at the land's edge (ring 7 — any step inward since is the battle's own march), the slow hand never having turned",
-    born.length >= 1 && born.every(x => Number(x.ret) === 1 && ringOf(x.q, x.r) >= mapRingB - 1) && born.some(x => ringOf(x.q, x.r) === mapRingB),
-    JSON.stringify(born));
+  const standingR = dbB.prepare("SELECT id FROM homeland_wanderers WHERE owner_key = ?").all(keyB);
+  ok("lit + online ON THE REALTIME GEAR: no enemies — the pushback drove the standing dark off and not one dark was born across the beats, the slow hand never having turned",
+    standingR.length === 0, JSON.stringify(standingR.map(x => x.id)));
 }
 
 console.log(`\nMASTER CLOCK: ${pass} passed, ${fail} failed`);
