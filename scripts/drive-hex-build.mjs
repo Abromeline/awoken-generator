@@ -21,8 +21,10 @@
 //      no floor under its edge refuses (no foundation); and
 //      removing a free floor fells the wall it alone founded
 //      while the joined neighbour stands.
-//   §M THE TWO MODES, BY TAP, in a real browser: the bar's
-//      placing-mode switch stands; in FREE PLACE a floor lands
+//   §M THE TWO MODES, BY TAP, in a real browser: the pieces
+//      menu's placing-mode switch stands (the switch lived in
+//      the build bar until the bar was struck, 2026-10-28 — the
+//      menu is its home now); in FREE PLACE a floor lands
 //      exactly where the tap puts it — even within snap's reach
 //      of a standing edge, it does NOT snap; back in SNAP mode
 //      the same reach joins a floor flush to its neighbour.
@@ -35,8 +37,11 @@
 //   §G the door's gap, in the shipped geometry: a step threaded
 //      through the middle two-fifths crosses no collision
 //      segment; the same step at the wall's standing part does.
-//   §E THE FACE, in a real browser: build mode opens from its
-//      own toggle; its bar carries the five tools; taps on the
+//   §E THE FACE, in a real browser: the construction's door
+//      is the building menu (the toggle and bar struck whole,
+//      2026-10-28 — Nigel: "we allready ahda build menue");
+//      its pieces menu carries the piece choices as buttons
+//      made from the pieces' own drawn faces; taps on the
 //      map's own scaffolding lay a square and a triangle and
 //      raise a wall on the square's edge; the compound around
 //      the Tender — a whole construction hex of six triangles,
@@ -621,6 +626,32 @@ async function clearOverlays() {
   });
   await sleep(500);
 }
+// THE DOOR, RESTATED (2026-10-28, the pieces-faces-menu build):
+// the construction's door is the building menu now — Nigel
+// struck the construction toggle and the build bar whole ("i
+// also never asked for the triangle and square button,, we
+// allready ahda build menue...") and ruled the pieces be chosen
+// from the build menu, each choice a button made from the
+// piece's own drawn face ("give it one door and but keep the
+// pieces menu but use my artwork for the pieces ui"). Every
+// door interaction in this drive walks that road: the castle
+// opens the panel; the pieces menu inside it does the picking;
+// picking a piece puts it in hand and closes the panel.
+const openBuildingPanel = async () => {
+  const open = await page.evaluate(() => !!document.querySelector(".building-side-panel"));
+  if (!open) { await page.evaluate(() => document.querySelector(".castle-toggle")?.click()); await sleep(400); }
+};
+const pickPiece = async (tool) => {
+  await openBuildingPanel();
+  await page.evaluate((t) => { document.querySelector(`.pieces-menu .piece-choice[data-tool="${t}"]`)?.click(); }, tool);
+  await sleep(300);
+};
+const clickMenuDone = async () => {
+  await openBuildingPanel();
+  await page.evaluate(() => { document.querySelector(".pieces-menu .done")?.click(); });
+  await sleep(300);
+};
+const buildDoorStands = () => page.evaluate(() => !!document.querySelector("[data-build-capture]"));
 await enterTerritory();
 await clearOverlays();
 const domCounts = () => page.evaluate(() => ({
@@ -641,19 +672,21 @@ const tilingTris = (land.buildPieces ?? []).filter(p => p.kind === "triangle" &&
 ok("§E the tiling-laid triangle floors wear his drawn faces (one seated image per tiling triangle; free-laid floors wear the standing geometry until their faces' turn)",
   before.floorFaces >= tilingTris && tilingTris > 0 && before.floorFaces > 0,
   JSON.stringify({ ...before, tilingTris, allTris: (land.buildPieces ?? []).filter(p => p.kind === "triangle").length }));
-const toggle = await page.$(".buildmode-toggle");
-ok("§E build mode's own toggle stands on the map", !!toggle);
-await toggle.click();
-await sleep(400);
-const bar = await page.evaluate(() => {
-  const el = document.querySelector(".build-bar");
-  return el ? [...el.querySelectorAll(".build-tool")].map(b => b.textContent.trim()) : null;
+ok("§E the struck door is gone: no construction toggle and no build bar stands on the map (struck whole on Nigel's word, 2026-10-27)",
+  await page.evaluate(() => !document.querySelector(".buildmode-toggle") && !document.querySelector(".build-bar")));
+await openBuildingPanel();
+const menu = await page.evaluate(() => {
+  const el = document.querySelector(".pieces-menu");
+  if (!el) return null;
+  return {
+    choices: [...el.querySelectorAll(".piece-choice")].map(b => ({ tool: b.getAttribute("data-tool"), img: !!b.querySelector("img"), label: b.textContent.trim() })),
+    modeSwitch: !!el.querySelector(".place-mode"),
+  };
 });
-ok("§E the build bar carries its tools: triangle, square, wall, door, take away, done",
-  !!bar && ["Triangle", "Square", "Wall", "Door", "Take away", "Done"].every(w => bar.some(b => b.includes(w))),
-  JSON.stringify(bar));
-ok("§E build mode raises its own click scaffolding over the map",
-  await page.evaluate(() => !!document.querySelector("[data-build-capture]")));
+ok("§E the building menu's pieces menu is the construction's door: six piece choices, each a button made from the piece's own drawn face, take away beside them, and the placing switch in the menu",
+  !!menu && ["triangle", "square", "wall", "door", "halfwall", "narrow"].every(t => menu.choices.some(c => c.tool === t && c.img))
+  && menu.choices.some(c => c.tool === "remove") && menu.modeSwitch,
+  JSON.stringify(menu));
 // Lay by tap: a square, then a triangle, on open land near the
 // Tender. Points are LAND coordinates, carried to the screen
 // through the land's own transform — no assumption about how
@@ -707,7 +740,8 @@ const svgBox = await page.evaluate(() => {
 });
 if (svgBox) await page.screenshot({ path: join(SHOTS, "02-compound-map.png"), clip: svgBox });
 const floorsBefore = (await domCounts()).floors;
-await page.evaluate(() => { [...document.querySelectorAll(".build-tool")].find(b => b.textContent.includes("Square"))?.click(); });
+await pickPiece("square");
+ok("§E build mode raises its own click scaffolding over the map", await buildDoorStands());
 const sqClick = await findBuildClick([[130, 35], [-150, -20], [60, 110], [-60, 110], [170, -40], [-190, 60]]);
 ok("§E open land the scaffolding owns stands near the Tender (for the square tap)", !!sqClick);
 if (sqClick) { await page.mouse.click(sqClick.x, sqClick.y); await sleep(700); }
@@ -715,7 +749,7 @@ const afterSquare = await domCounts();
 ok("§E a tap with the square in hand lays a square foundation (the map and the ledger agree)",
   afterSquare.floors === floorsBefore + 1 && (await servedPieces()).some(p => p.kind === "square"),
   JSON.stringify({ before: floorsBefore, after: afterSquare.floors }));
-await page.evaluate(() => { [...document.querySelectorAll(".build-tool")].find(b => b.textContent.includes("Triangle"))?.click(); });
+await pickPiece("triangle");
 const triClick = await findBuildClick([[-130, 35], [150, -20], [-60, -110], [60, -110], [-170, -40], [190, 60]]);
 ok("§E open land the scaffolding owns stands near the Tender (for the triangle tap)", !!triClick);
 if (triClick) { await page.mouse.click(triClick.x, triClick.y); await sleep(700); }
@@ -726,7 +760,7 @@ ok("§E a tap with the triangle in hand lays a triangle floor",
 // from the ledger (a standing floor edge carrying no wall yet),
 // its midpoint carried to the screen through the land's own
 // transform.
-await page.evaluate(() => { [...document.querySelectorAll(".build-tool")].find(b => b.textContent.includes("Wall") && !b.textContent.includes("Door"))?.click(); });
+await pickPiece("wall");
 const servedNow = await servedPieces();
 const uiSquare = [...servedNow].reverse().find(p => p.kind === "square");
 const walledKeys = new Set(servedNow.filter(p => p.kind === "wall" || p.kind === "door").map(p => edgeKeyOf(p.verts[0], p.verts[1])));
@@ -753,8 +787,7 @@ await page.screenshot({ path: join(SHOTS, "03-built-by-taps.png") });
 
 /* ── §T THE TENDER'S STRIDE ────────────────────────────────── */
 console.log("§T the Tender's stride — stopped by the wall, freed by its taking-away");
-await page.evaluate(() => { [...document.querySelectorAll(".build-tool")].find(b => b.textContent.trim() === "Done")?.click(); });
-await sleep(300);
+await clickMenuDone();
 land = await callOk("getTerritory", {}, token);
 const tTileNow = land.tiles.find(t => t.id === land.tender?.tileId) ?? tenderTile;
 const landToClient = async (q, r) => page.evaluate((qq, rr) => {
@@ -1044,9 +1077,9 @@ ok("§P every ring piece was found standing on the map", ringFound === 12, `${ri
 // this run). Each ring's portrait is a clip centred on the
 // ring; the full frame is kept too.
 let pOpenedBuild = false;
-if (!(await page.$(".build-bar"))) {
-  const tglP = await page.$(".buildmode-toggle");
-  if (tglP) { await tglP.click(); await sleep(400); pOpenedBuild = true; }
+if (!(await buildDoorStands())) {
+  await pickPiece("triangle");
+  pOpenedBuild = await buildDoorStands();
 }
 await page.screenshot({ path: join(SHOTS, "11-perspectives-frame.png") });
 for (const [ring, shot, label] of [[ringA, "09-perspectives-walls.png", "walls"], [ringB, "10-perspectives-doors.png", "doors"]]) {
@@ -1063,15 +1096,13 @@ for (const [ring, shot, label] of [[ringA, "09-perspectives-walls.png", "walls"]
   await page.screenshot({ path: join(SHOTS, shot), clip });
 }
 if (pOpenedBuild) {
-  const tglP2 = await page.$(".buildmode-toggle");
-  if (tglP2) { await tglP2.click(); await sleep(400); }
+  await clickMenuDone();
 }
 
 /* ── §S THE PHOTOGRAPH ─────────────────────────────────────── */
 console.log("§S the photograph — the far compound, panned to the middle of the frame");
 {
-  const tgl = await page.$(".buildmode-toggle");
-  if (tgl) { await tgl.click(); await sleep(400); }
+  if (!(await buildDoorStands())) { await pickPiece("triangle"); await sleep(200); }
   const westLand = await page.evaluate((q, r) => {
     const k = 54 / 796;
     return { x: 250 + q * 1292 * k, y: 170 + q * 470 * k + r * 948 * k };
@@ -1108,11 +1139,18 @@ const tapPlate = async (plate) => {
   await sleep(700);
   return true;
 };
-const modeBtn = () => page.evaluate(() => {
-  const b = document.querySelector(".build-tool.place-mode");
-  return b ? { text: b.textContent.trim(), pressed: b.getAttribute("aria-pressed") } : null;
-});
-const clickModeBtn = () => page.evaluate(() => { document.querySelector(".build-tool.place-mode")?.click(); });
+const modeBtn = async () => {
+  await openBuildingPanel();
+  return page.evaluate(() => {
+    const b = document.querySelector(".pieces-menu .place-mode");
+    return b ? { text: b.textContent.trim(), pressed: b.getAttribute("aria-pressed") } : null;
+  });
+};
+const clickModeBtn = async () => {
+  await openBuildingPanel();
+  await page.evaluate(() => { document.querySelector(".pieces-menu .place-mode")?.click(); });
+  await sleep(200);
+};
 const floorsServed = async () => (await servedPieces()).filter(p => p.kind === "triangle" || p.kind === "square");
 // A standing floor's free edge, with room on its far side: the
 // tap point `dist` out from the edge's midpoint, and the free
@@ -1159,14 +1197,12 @@ async function freeEdgeRoom(dist, needSnap = false) {
 // entry stands the land centred, as §F's photograph shows.
 await enterTerritory();
 await clearOverlays();
-if (!(await page.$(".build-bar"))) {
-  const tgl2 = await page.$(".buildmode-toggle");
-  if (tgl2) { await tgl2.click(); await sleep(400); }
+if (!(await buildDoorStands())) {
+  await pickPiece("triangle");
 }
-await page.evaluate(() => { [...document.querySelectorAll(".build-tool")].find(b => b.textContent.includes("Triangle"))?.click(); });
 let mAnchor = null; // the §M work's own seat, for its photograph
 const mode0 = await modeBtn();
-ok("§M the build bar carries the placing-mode switch, standing at Snap together",
+ok("§M the pieces menu carries the placing-mode switch, standing at Snap together",
   !!mode0 && mode0.text.includes("Snap together") && mode0.pressed === "false", JSON.stringify(mode0));
 // FREE PLACE: a tap within snap's own reach of a standing edge
 // lands EXACTLY there — it does not snap together.
@@ -1176,7 +1212,7 @@ if (roomFree) {
   await clickModeBtn();
   await sleep(300);
   const mode1 = await modeBtn();
-  ok("§M the switch turns: the bar now stands at Free place",
+  ok("§M the switch turns: the menu now stands at Free place",
     !!mode1 && mode1.text.includes("Free place") && mode1.pressed === "true", JSON.stringify(mode1));
   const beforeIds = new Set((await floorsServed()).map(p => p.id));
   const tapped = await tapPlate(roomFree.tap);
@@ -1213,9 +1249,8 @@ if (roomFree) {
 {
   await enterTerritory();
   await clearOverlays();
-  if (!(await page.$(".build-bar"))) {
-    const tgl3 = await page.$(".buildmode-toggle");
-    if (tgl3) { await tgl3.click(); await sleep(400); }
+  if (!(await buildDoorStands())) {
+    await pickPiece("triangle");
   }
   await sleep(600);
   await page.screenshot({ path: join(SHOTS, "08-free-placement.png") });

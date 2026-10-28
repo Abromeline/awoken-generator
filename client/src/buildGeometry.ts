@@ -305,7 +305,15 @@ export function proveKitPiece(kind: string, verts: Pt[]): Pt[] | null {
 export const DOOR_GAP_HALF = 0.2; // the open middle is 2 × this of the edge
 
 export function collisionSegments(kind: string, axialVerts: Pt[]): [Pt, Pt][] {
-  if (kind === "wall") {
+  if (kind === "wall" || kind === "halfwall" || kind === "narrow") {
+    // A wall's whole edge bars the road. The half wall and the
+    // narrow wall bar it the same: the stride law and the march
+    // roads read only these segments, and the one crossing-over
+    // law the field knows — a leap clears a wall, as it clears
+    // any wall — is what the draw sheet's half-wall line names
+    // ("walkers are stopped; leapers cross"): it is already the
+    // law for every wall kind here, so the half wall's waist
+    // height lives in its drawing, not in a second reckoning.
     return axialVerts.length === 2 ? [[axialVerts[0], axialVerts[1]]] : [];
   }
   if (kind === "door") {

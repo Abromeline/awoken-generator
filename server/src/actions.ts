@@ -347,7 +347,7 @@ function loadBuildPieces(ownerKey: string): BuildPieceRow[] {
 function buildWallSegments(ownerKey: string): [Pt, Pt][] {
   const segs: [Pt, Pt][] = [];
   for (const p of loadBuildPieces(ownerKey)) {
-    if (p.kind === "wall" || p.kind === "door") segs.push(...collisionSegments(p.kind, p.footprint));
+    if (p.kind === "wall" || p.kind === "door" || p.kind === "halfwall" || p.kind === "narrow") segs.push(...collisionSegments(p.kind, p.footprint));
   }
   return segs;
 }
@@ -746,7 +746,7 @@ function buildPieceView(p: BuildPieceRow, tilesByKey: Map<string, any>) {
  *  stands over — declared here in its turn, not before.) */
 function restsOn(p: BuildPieceRow, pieces: BuildPieceRow[]): { grounded: boolean; supporters: BuildPieceRow[] } {
   if (p.kind === "triangle" || p.kind === "square") return { grounded: true, supporters: [] };
-  if (p.kind === "wall" || p.kind === "door") {
+  if (p.kind === "wall" || p.kind === "door" || p.kind === "halfwall" || p.kind === "narrow") {
     const ek = edgeKeyOf(p.verts[0], p.verts[1]);
     const supporters = pieces.filter(q =>
       (q.kind === "triangle" || q.kind === "square") &&
@@ -11502,10 +11502,10 @@ export const handlers = {
   async placeBuildPiece(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
     const parsed = z.object({
-      kind: z.enum(["triangle", "square", "wall", "door"]),
+      kind: z.enum(["triangle", "square", "wall", "door", "halfwall", "narrow"]),
       verts: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(4),
     }).safeParse(args);
-    if (!parsed.success) badRequest("The work needs a piece — a triangle, a square, a wall or a door, by its corners.");
+    if (!parsed.success) badRequest("The work needs a piece — a triangle, a square, a wall, a door, a half wall or a narrow wall, by its corners.");
     const { kind } = parsed.data;
     const verts = parsed.data.verts as Pt[];
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
@@ -11561,7 +11561,7 @@ export const handlers = {
       if (edge) break;
     }
     if (!edge) badRequest("No floor of yours carries that edge — walls stand on the edges of your floors.");
-    if (pieces.some(p => (p.kind === "wall" || p.kind === "door") && edgeKeyOf(p.verts[0], p.verts[1]) === claimKey)) {
+    if (pieces.some(p => (p.kind === "wall" || p.kind === "door" || p.kind === "halfwall" || p.kind === "narrow") && edgeKeyOf(p.verts[0], p.verts[1]) === claimKey)) {
       badRequest("A wall already stands on that edge — take it down before raising another.");
     }
     const footprint = edge.map(v => plateToAxial(v));

@@ -924,7 +924,7 @@ export const api = {
   /** THE HEX BUILDING SYSTEM (Nigel, 2026-10-25): lay a piece of
    *  the construction — named by its plate-plane vertices; the
    *  server re-derives the true piece and its footprint. */
-  placeBuildPiece: (args: { kind: "triangle" | "square" | "wall" | "door"; verts: [number, number][] }) =>
+  placeBuildPiece: (args: { kind: "triangle" | "square" | "wall" | "door" | "halfwall" | "narrow"; verts: [number, number][] }) =>
     post<{ ok: true; piece: BuildPiece }>("placeBuildPiece", args),
   removeBuildPiece: (args: { id: number }) =>
     post<{ ok: true; removed: number[] }>("removeBuildPiece", args),
