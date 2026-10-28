@@ -77,6 +77,13 @@ button { font-family: inherit; }
 }
 .table-btn.primary { background: var(--gold); color: #191104; font-weight: bold; }
 .table-btn:disabled { opacity: 0.45; cursor: default; }
+/* The doors wear his artwork (Nigel, 2026-10-28): a button
+   made FROM a thing is the thing's image — the starseed door
+   wears the meteor, the host door wears the beacon, each at
+   the glyph's old footprint, modestly larger so the art
+   reads, seated beside the door's words. */
+.door-btn { display: inline-flex; align-items: center; gap: 9px; }
+.door-face { height: 32px; width: auto; display: block; }
 
 /* ————— The Discord intro door (2026-10-26) —————
    The beginning inside the door card: the claim/sign-in forms,

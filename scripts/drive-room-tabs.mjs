@@ -8,6 +8,13 @@
 //      homeland / hunt a starseed), and hosting seats the
 //      Tender on their own homeland — the homeland's own face
 //      (the map) with the room's furniture beside it.
+//      RESTATED (Nigel, 2026-10-28, 12:43: "use my meteor for
+//      the starseed image in the table selection button and a
+//      beacon for the host my homeland button plz"): the two
+//      door buttons wear his artwork — the meteor the homeland
+//      draws for a starseed on the starseed door, his beacon
+//      from the land on the host door — and §B proves both
+//      faces render on the buttons.
 //   §C AN INVITE ARRIVAL seats: a second browser carrying
 //      ?room=<the homeland's room> and the guest's own session
 //      lands seated in the room; both pages' party panels name
@@ -130,9 +137,23 @@ await host.waitForSelector(".table-tabs", { timeout: 30000 });
 const tabs = await host.evaluate(() => [...document.querySelectorAll(".table-tabs button")].map(b => b.getAttribute("data-tab")));
 ok("§A the tab bar carries the Room, the Test Ground, and Campaign Mode",
   JSON.stringify(tabs) === JSON.stringify(["room", "test", "campaign"]), JSON.stringify(tabs));
-ok("§B the room tab's doors stand (host homeland, hunt a starseed)",
-  (await waitText(host, "Host homeland")) && (await pageText(host)).includes("Hunt a new starseed"));
+const doorsStand = (await waitText(host, "Host homeland")) && (await pageText(host)).includes("Hunt a new starseed");
+const doorFaces = await host.evaluate(() => {
+  const btn = (t) => [...document.querySelectorAll("button")].find((x) => (x.textContent || "").includes(t));
+  const face = (b, needle, notNeedle) => {
+    const img = b?.querySelector("img");
+    const src = img?.getAttribute("src") || "";
+    return !!img && src.includes(needle) && !(notNeedle && src.includes(notNeedle)) && img.complete && img.naturalWidth > 0;
+  };
+  return {
+    meteor: face(btn("Hunt a new starseed"), "meteor-rain"),
+    beacon: face(btn("Host homeland"), "beacon", "beacon-button"),
+  };
+});
+ok("§B the room tab's doors stand (host homeland, hunt a starseed), wearing his meteor and his beacon",
+  doorsStand && doorFaces.meteor && doorFaces.beacon, JSON.stringify(doorFaces));
 await host.screenshot({ path: join(OUT, "01-room-doors.png") });
+await host.screenshot({ path: join(OUT, "07-room-doors-art.png") });
 await clickText(host, "Host homeland");
 ok("§B hosting seats the host: the room's furniture stands beside the land",
   await waitText(host, "The party at this Table", 60000));

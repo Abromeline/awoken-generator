@@ -25,6 +25,17 @@ import {
 } from "./api";
 import { toLayerAssets } from "./wakeShared";
 import { takeTableSession } from "./tableSdk";
+// THE DOORS WEAR HIS ARTWORK (Nigel, 2026-10-28, 12:43: "use
+// my meteor for the starseed image in the table selection
+// button and a beacon for the host my homeland button plz"):
+// a button made FROM a thing is the thing's image. The
+// starseed door wears THE METEOR — the very file the homeland
+// renders for a starseed (Territory's meteorGif, the seed's
+// face at every unrisen seat) — and the host door wears THE
+// BEACON — Nigel's beacon art standing on the land (the
+// beacon-stage seed's face, Territory's seedBeaconArt).
+import meteorGif from "./assets/meteor-rain.gif";
+import seedBeaconArt from "./assets/starseed/beacon.png";
 
 type Stage =
   | { kind: "door" }
@@ -156,12 +167,12 @@ export default function RoomSeat() {
               ⚔ Take your seat at this Table
             </button>
           ) : (
-            <button className="table-btn primary" disabled={busy} onClick={() => { if (signedIn) void enter("starseed"); else setStage({ kind: "intro", mode: "begin" }); }}>
-              🌠 Hunt a new starseed — a fresh table is dealt
+            <button className="table-btn primary door-btn" disabled={busy} onClick={() => { if (signedIn) void enter("starseed"); else setStage({ kind: "intro", mode: "begin" }); }}>
+              <img className="door-face" src={meteorGif} alt="" /> Hunt a new starseed — a fresh table is dealt
             </button>
           )}
-          <button className="table-btn" disabled={busy} onClick={() => { if (signedIn) void enter("homeland"); else setStage({ kind: "intro", mode: "login" }); }}>
-            🏠 Host homeland — the Table stands on your own land
+          <button className="table-btn door-btn" disabled={busy} onClick={() => { if (signedIn) void enter("homeland"); else setStage({ kind: "intro", mode: "login" }); }}>
+            <img className="door-face" src={seedBeaconArt} alt="" /> Host homeland — the Table stands on your own land
           </button>
         </div>
         {!signedIn && (
