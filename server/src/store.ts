@@ -799,6 +799,12 @@ try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN held_until INTEGER 
 // corrupted seed waits on. A seed's corruption lifts when
 // no wanderer of its guarding column still stands.
 try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN column_id INTEGER"); } catch { /* exists */ }
+// THE MASTER CLOCK (Nigel, 2026-10-28): a wanderer born of
+// the lit beacon's EDGE RETALIATION carries its birth on its
+// row — the lighthouse's pushback drives off the standing
+// dark but never these: they are the curse pressing against
+// the light itself, and they stand to be answered.
+try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN retaliation INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
 // THE RISINGS RIDE THE ENGINE (Nigel, 2026-10-24): a
 // first-seed rising's Fray stand on the land as real
 // wanderers of the living battle, and each carries the

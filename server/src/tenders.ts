@@ -10,7 +10,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { mailLive, sendPasswordResetMail } from "./mail.js";
 import { eq, and, desc, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "./store.js";
+import { db, schema, sqlite } from "./store.js";
 import { adoptVisitorState } from "./adopt.js";
 import { suggestTenderName } from "./naming.js";
 import { grantCredits } from "./credits.js";
@@ -112,7 +112,30 @@ export async function tenderFromToken(token: unknown): Promise<TenderRow | null>
     return null;
   }
   const tenderRows = await db.select().from(schema.tenders).where(eq(schema.tenders.id, session.tenderId)).limit(1);
-  return tenderRows[0] ?? null;
+  const tender = tenderRows[0] ?? null;
+  if (tender) stampTenderPresence(tender.id);
+  return tender;
+}
+
+/** PRESENCE (THE MASTER CLOCK, Nigel, 2026-10-28): the house
+ *  already keeps one presence record — tender_resources'
+ *  last_seen_at, the stamp getEnergy reads for its own online
+ *  detection ("if last seen within 5 min, Tender is online").
+ *  Every resolved session refreshes it here, throttled to a
+ *  minute, so presence means what it says: the Tender has
+ *  been seen, lately, doing anything at all under their own
+ *  name. The master clock READS this stamp and never writes
+ *  it — a clock that stamped presence would make absence
+ *  impossible. A fault here never breaks a sign-in. */
+const presenceStampAt = new Map<number, number>();
+function stampTenderPresence(tenderId: number): void {
+  const now = Date.now();
+  if (now - (presenceStampAt.get(tenderId) ?? 0) < 60_000) return;
+  presenceStampAt.set(tenderId, now);
+  try {
+    sqlite.prepare("UPDATE tender_resources SET last_seen_at = ? WHERE owner_key = ?")
+      .run(now, tenderOwnerKey(tenderId));
+  } catch { /* presence is a courtesy record */ }
 }
 
 export async function destroySession(token: unknown): Promise<void> {

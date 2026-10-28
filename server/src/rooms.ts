@@ -248,6 +248,11 @@ export function resolveRoomSeat(token: string | null | undefined): {
   if (!room) return null;
   const seat = room.seats.get(ref.seatKey);
   if (!seat) return null;
+  // THE SEAT'S HEARTBEAT (THE MASTER CLOCK, 2026-10-28): a
+  // resolved seat is a present seat — its last-seen walks
+  // with every act it takes, throttled, so the land's war
+  // laws can follow the seats as they truly stand.
+  if (!seat.watcher && Date.now() - seat.lastSeenAt > 30_000) seat.lastSeenAt = Date.now();
   return {
     code: room.code, landOwnerKey: room.landOwnerKey,
     watcher: seat.watcher, seatTileId: seat.tileId, tenderId: seat.tenderId,
@@ -279,6 +284,21 @@ export function roomSeatsOnLand(landOwnerKey: string): RoomSeatOnLand[] {
     }
   }
   return out;
+}
+
+/** The latest heartbeat of any SEAT standing on a land
+ *  (watchers are not seats and hold no war law): 0 when no
+ *  seat stands there. THE MASTER CLOCK reads presence
+ *  through this door — "the war laws follow the seats". */
+export function roomLandLastSeatSeenAt(landOwnerKey: string): number {
+  let latest = 0;
+  for (const room of rooms.values()) {
+    if (room.landOwnerKey !== landOwnerKey) continue;
+    for (const seat of room.seats.values()) {
+      if (!seat.watcher && seat.lastSeenAt > latest) latest = seat.lastSeenAt;
+    }
+  }
+  return latest;
 }
 
 /** Move one seat's figure stand on its land (the bastion

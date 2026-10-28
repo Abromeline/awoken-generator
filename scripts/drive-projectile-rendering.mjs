@@ -310,6 +310,19 @@ while (Date.now() < bDeadline) {
 }
 if (!shotTaken) await page.screenshot({ path: join(OUT, "homeland-volley.png") }).catch(() => {});
 const recEndWall = Date.now();
+/* RESTATED FOR THE MASTER CLOCK (Nigel, 2026-10-28): the
+   battle now also settles on the server's own tick, not only
+   on reads — so a batch can be struck in the window's last
+   moments that the page has not polled yet when the watch
+   ends. The law §B1 proves is unchanged (every strike served
+   fresh in the window is drawn); the close-out now leaves
+   the page open and polling for the flight law's own span —
+   one read beat (2.8 s) plus the stagger's cap (2.6 s),
+   rounded up — so a tick-struck tail is presented and flown
+   before the count, exactly as a player's page would draw
+   it at its next read. The drawn window's grace widens to
+   the same span. */
+await sleep(6000);
 const brec = await page.evaluate(() => {
   const rec = window.__projRec;
   clearInterval(rec.iv);
@@ -321,7 +334,7 @@ await page.close();
 
 const winStart = recStartWall + 4000;
 const servedInWindow = [...browserWindowStrikes.values()].filter(s => s.at >= winStart && s.at <= recEndWall);
-const drawnInWindow = brec.flights.filter(f => f.first >= winStart && f.first <= recEndWall + 3500);
+const drawnInWindow = brec.flights.filter(f => f.first >= winStart && f.first <= recEndWall + 6500);
 console.log(`  browser window: served ${servedInWindow.length} strikes, drawn ${drawnInWindow.length} flights, peak concurrent ${brec.peak}, ticks ${brec.ticks}`);
 ok("§B1 every strike served fresh in the window is drawn on the map", drawnInWindow.length >= servedInWindow.length - 2 && servedInWindow.length >= 60,
   `drawn=${drawnInWindow.length} served=${servedInWindow.length}`);
