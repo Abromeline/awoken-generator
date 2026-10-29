@@ -25,6 +25,12 @@
 //   §E THE CAMPAIGN TAB opens the campaign board (amendment
 //      2): its door is the campaign door, and taking it seats
 //      the storyteller board's room.
+//   §F THE ROOM'S FACE STANDS AT ITS TRUE SIZES (the room's
+//      stylesheet fix, 2026-10-28): at a Discord Activity
+//      size the Pack's bag, the Eye's glyph, the view's fit
+//      to its seat, and the page's scroll are measured —
+//      theme.css must reach the table entry for any of them
+//      to stand as drawn.
 // Screenshots land in ~/workspace/homeland-discord-proof/.
 // Run AFTER `npm run build`: node scripts/drive-room-tabs.mjs
 import { join } from "node:path";
@@ -191,6 +197,49 @@ await host.evaluate(() => {
 });
 await sleep(900);
 await host.screenshot({ path: join(OUT, "04-room-two-seats.png") });
+
+/* ── §F THE ROOM'S FACE STANDS AT ITS TRUE SIZES ────────
+   (THE ROOM'S STYLESHEET, 2026-10-28: Push 48 mounted the
+   homeland's Territory inside the room, but the rules that
+   lay Territory out live in theme.css, which only the
+   homeland's entry imported — in the room the face rendered
+   unstyled: the Pack's bag at its art's intrinsic 468×509
+   instead of the fixed 112×128, the Eye's glyph at 114×114
+   instead of 22×22, the view thousands of px tall with the
+   map far below the fold. Measured at a Discord Activity
+   size, 1280×720, on the host's seated room.) */
+console.log("§F the room's face at Discord Activity size (1280×720)");
+await host.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+await sleep(1200);
+const geo = await host.evaluate(() => {
+  const rect = (sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { w: r.width, h: r.height };
+  };
+  const bag = document.querySelector(".bag-btn");
+  return {
+    bag: rect(".bag-btn"),
+    bagPos: bag ? getComputedStyle(bag).position : null,
+    eye: rect(".eye-glyph"),
+    viewH: rect(".territory-view")?.h ?? null,
+    seatH: rect(".room-seat-map")?.h ?? null,
+    scrollH: document.documentElement.scrollHeight,
+    innerH: window.innerHeight,
+  };
+});
+ok("§F the Pack's bag stands at its drawn size, fixed to the window (≤128px tall, position fixed)",
+  !!geo.bag && geo.bag.h <= 128 && geo.bagPos === "fixed", JSON.stringify(geo));
+ok("§F the Eye's glyph stands at 22×22",
+  !!geo.eye && Math.abs(geo.eye.w - 22) <= 1 && Math.abs(geo.eye.h - 22) <= 1, JSON.stringify(geo.eye));
+ok("§F the homeland's face fills its seat (the view's height is the seat's, within a few px)",
+  geo.viewH != null && geo.seatH != null && Math.abs(geo.viewH - geo.seatH) <= 4,
+  `view=${geo.viewH} seat=${geo.seatH}`);
+ok("§F no vertical page scroll at Activity size (1280×720)",
+  geo.scrollH <= geo.innerH + 1, `scrollH=${geo.scrollH} innerH=${geo.innerH}`);
+await host.setViewport({ width: 1400, height: 950, deviceScaleFactor: 1 });
+await sleep(600);
 
 /* ── §D THE TEST GROUND TAB ───────────────────────────── */
 console.log("§D the Test Ground tab opens the old Table page");
