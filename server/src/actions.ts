@@ -43,6 +43,12 @@ import { castModFor, partyBattleSeatFor } from "./table.js";
 // both modules stand).
 import { roomSeatsOnLand, moveRoomSeatStand, roomPackForLand, nextRoomPackSeat, roomPackSetMode, noteRoomTale, roomLandLastSeatSeenAt, type RoomPackMode } from "./rooms.js";
 import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+// THE ABILITIES SECTION (Nigel, 2026-10-29): the ability
+// registry's server copy — the cast gates below judge by its
+// requirement table, the twin of the client's (client/src/
+// abilities.ts), so the wheel's door and the server's door
+// are the same door. See server/src/abilities.ts.
+import { abilityByKey, abilityQualifies, type ElementName, type ElementSums } from "./abilities.js";
 import { drainDropNotices, inventoryView, trySpendRuneShards, rollDrip, rollFellTake, describeDrops, addToInventory, landHomelandPack, homelandPackView, peekHomelandPackEntry, takeHomelandPackEntry, takeHomelandPackAmount, takeFromInventory, inventoryCanHold, itemDisplayName, recordDropEvent, drainDropEvents, type FellDrop, type PackEntryView } from "./drops.js";
 import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_EMPOWERMENT_BONUS } from "./reagentSets.js";
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
@@ -972,30 +978,46 @@ function pieceStands(target: BuildPieceRow, pieces: BuildPieceRow[]): boolean {
  * The rise is a real state on the piece's record (begun at,
  * lead, height) settled lazily at read, like the homeland
  * battle — never by a timer. */
-const STONE_BUILD_MIN = 2;
 const RISE_ANCHOR_NUMERATOR = 36;
 const RISE_SETTLE_CAP_MIN = 60;
 const SETTLE_RATE_PER_MIN = 1 / 12;
 const PIECE_MAX_HP = 100;
 
-/** One Awoken's Rock: its Stone element sum, counted as the
- *  terrain press counts the parts — a part is a point, an
- *  aspect part is its level in points. */
-async function stoneSumOf(aw: any): Promise<number> {
+/** One Awoken's element sums — every element at once,
+ *  counted as the terrain press counts the parts: a part is
+ *  a point, an aspect part is its level in points. THE
+ *  ABILITIES SECTION (2026-10-29): these are the sums the
+ *  registry's requirements are judged against, here at the
+ *  cast gates and in the field getTerritory serves. */
+async function elementSumsOf(aw: any): Promise<ElementSums> {
+  const sums: ElementSums = { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
   let layers: any[] = [];
-  try { layers = JSON.parse(aw.compositionJson || "[]"); } catch { return 0; }
+  try { layers = JSON.parse(aw.compositionJson || "[]"); } catch { return sums; }
   const layerEls = await compositionElements(layers);
-  let sum = 0;
   layers.forEach((l, i) => {
-    if (layerEls[i] === "stone") sum += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
+    const el = layerEls[i] as string;
+    if (el in sums) sums[el as ElementName] += l.category === "aspect" ? ((l as any).aspectLevel ?? 1) : 1;
   });
-  return sum;
+  return sums;
+}
+
+/** One Awoken's Rock: its Stone element sum — the stone
+ *  face of elementSumsOf, kept for the reckonings that read
+ *  Rock alone (the strike's mending hand, the crew's pace). */
+async function stoneSumOf(aw: any): Promise<number> {
+  return (await elementSumsOf(aw)).stone;
 }
 
 interface BuildCrewMember { awakenedId: number; stone: number }
 /** The building crew: the lead builder and every other fielded,
- *  available Awoken holding at least 2 Rock. */
+ *  available Awoken who QUALIFIES for the Building ability —
+ *  judged by the registry's own requirement (server/src/
+ *  abilities.ts: Building asks 2 Rock), the same table the
+ *  wheel's Abilities door reads, so who the wheel offers the
+ *  door to and who this gate accepts can never part ways. */
 async function buildCrewFor(ownerKey: string): Promise<BuildCrewMember[]> {
+  const building = abilityByKey("building");
+  if (!building) return [];
   const placements = await db.select().from(schema.fieldPlacements)
     .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
   if (!placements.length) return [];
@@ -1006,8 +1028,8 @@ async function buildCrewFor(ownerKey: string): Promise<BuildCrewMember[]> {
   for (const p of placements) {
     const aw = byId.get(p.awakenedId);
     if (!aw || crew.some(c => c.awakenedId === p.awakenedId)) continue;
-    const stone = await stoneSumOf(aw);
-    if (stone >= STONE_BUILD_MIN) crew.push({ awakenedId: p.awakenedId, stone });
+    const sums = await elementSumsOf(aw);
+    if (abilityQualifies(building.requires, sums)) crew.push({ awakenedId: p.awakenedId, stone: sums.stone });
   }
   return crew;
 }
@@ -11844,12 +11866,17 @@ export const handlers = {
         if (row) { if (nm == null) nm = row.name; if (!aw) aw = row; }
       }
       if (nm != null) (p as any).name = nm;
-      // THE STONE CAST's GATE, served with the field: each
-      // placement carries its Awoken's Rock (Stone) element sum,
-      // so the wheel can seat the building ability tab on
-      // exactly the Awoken the server's gate would accept —
-      // the server still judges the cast itself, at the door.
-      (p as any).stone = aw ? await stoneSumOf(aw) : 0;
+      // THE ABILITIES SECTION's SUMS, served with the field:
+      // each placement carries its Awoken's full element sums,
+      // so the wheel can pull the abilities this Awoken
+      // qualifies for from the registry on exactly the sums
+      // the server's gates judge — the server still judges
+      // every cast itself, at its own door. The Rock sum
+      // rides under its own name too, as it has since the
+      // Stone Cast, for the reckonings that read Rock alone.
+      const sums = aw ? await elementSumsOf(aw) : { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
+      (p as any).elements = sums;
+      (p as any).stone = sums.stone;
     }
     const placedIdSet = new Set(placements.map(p => p.awakenedId));
     const stagedIdSet = new Set(stagedIdsFor(actorKeyFor(ctx)));

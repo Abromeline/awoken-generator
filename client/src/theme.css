@@ -712,8 +712,11 @@ body.defeat-flash {
   box-shadow: -4px 0 24px rgba(0,0,0,0.5);
 }
 .ability-side-panel .pieces-menu { margin-top: 10px; }
-.ability-list { margin-top: 10px; }
-.ability-entry { border: 1px solid #8a6d3b; border-radius: 8px; padding: 7px 10px; font-size: 13.5px; background: rgba(184,155,94,0.10); }
+/* THE ABILITIES SECTION (2026-10-29): the tab's list is the
+   registry's pull for this Awoken — one row per qualified
+   ability, each row a button that begins its cast. */
+.ability-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ability-entry { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; border: 1px solid #8a6d3b; border-radius: 8px; padding: 7px 10px; font-size: 13.5px; background: rgba(184,155,94,0.10); }
 .ability-entry.active { background: rgba(232,199,102,0.22); border-color: #ffd700; }
 .ability-crew { font-size: 12.5px; line-height: 1.5; color: #cbbd93; margin: 10px 0 0; }
 .ability-strike { margin-top: 12px; border-top: 1px solid rgba(201,162,39,0.35); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }

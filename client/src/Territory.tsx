@@ -4,6 +4,7 @@ import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./a
 import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
 import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
+import { abilityByKey, abilityQualifies, elementSumsOfPlacement, qualifiedAbilities, requirementText } from "./abilities";
 import EnergyTimer from "./EnergyTimer";
 import hallBanner from "./assets/hall-of-champions.jpg";
 import meteorGif from "./assets/meteor-rain.gif";
@@ -1193,15 +1194,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [buildGhost, setBuildGhost] = useState<BuildGhost>(null);
   const [buildNote, setBuildNote] = useState<string>("");
   const buildDragRef = useRef<{ cx: number; cy: number; panX: number; panY: number; moved: boolean } | null>(null);
-  // ── THE STONE CAST (2026-10-28): the building ABILITY TAB ──
-  // Building is reached through a fielded Awoken's ability tab
-  // — an abilities section on the individual Awoken's action
-  // wheel (buildOrdersEntries), gated on that Awoken holding
-  // at least 2 Rock in its element sum. abilityLeadId is the
-  // Awoken whose tab stands open: the lead builder, named in
-  // every cast. The free-standing pieces seat in the building
-  // panel is CLOSED — one door, and the door is the Awoken.
+  // ── THE ABILITIES SECTION (2026-10-29): the ability tab ──
+  // The individual Awoken's action wheel carries an Abilities
+  // door that catches the abilities of the registry
+  // (client/src/abilities.ts): it pulls every ability THIS
+  // Awoken's element sums qualify it for, and stands only
+  // when at least one qualifies (Nigel, 2026-10-29). The
+  // registry's first ability is BUILDING, the Stone Cast
+  // (2026-10-28) — the stone build pieces, asking 2 Rock.
+  // abilityLeadId is the Awoken whose tab stands open;
+  // abilityActiveKey is the ability begun from the tab's
+  // list (null = the list alone stands). For Building, the
+  // lead is the lead builder, named in every cast. The
+  // free-standing pieces seat in the building panel is
+  // CLOSED — one door, and the door is the Awoken.
   const [abilityLeadId, setAbilityLeadId] = useState<number | null>(null);
+  const [abilityActiveKey, setAbilityActiveKey] = useState<string | null>(null);
   const abilityLeadIdRef = useRef<number | null>(null);
   useEffect(() => { abilityLeadIdRef.current = abilityLeadId; }, [abilityLeadId]);
   // Strike the work, armed from the tab: the next taps on
@@ -1218,6 +1226,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   useEffect(() => {
     if (abilityLeadId != null && !placements.some(p => p.awakenedId === abilityLeadId)) {
       setAbilityLeadId(null);
+      setAbilityActiveKey(null);
       setBuildMode(false);
       setBuildGhost(null);
       setStrikeArmed(false);
@@ -2838,6 +2847,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // Follow for the whole selection. Picking March arms the
   // order; the next tap on the land — or a dragged
   // line under the button law — obeys at once.
+  // BEGIN AN ABILITY'S CAST, from its row in the ability
+  // tab. Each ability's hook lives here, answering to the
+  // registry's key — a new ability adds its entry to the
+  // registry (client/src/abilities.ts) and its hook here,
+  // and no wheel surgery. BUILDING's hook is the Stone
+  // Cast's standing flow, kept whole: this Awoken leads,
+  // the pieces menu seats in build mode, and every cast
+  // begun names the lead — the server judges the cast at
+  // its own door, by the registry's twin table.
+  const beginAbility = (key: string, leadId: number) => {
+    const lead = placements.find(p => p.awakenedId === leadId);
+    if (!lead) return;
+    if (key === "building") {
+      setAbilityActiveKey("building");
+      setStrikeStrikerId(leadId);
+      setStrikeArmed(false);
+      setBuildGhost(null);
+      setBuildMode(true);
+      setBuildNote(`Building — ${lead.name} leads the cast, and every fielded Awoken with 2 Rock or more builds beside them. Choose a piece, then tap the land: the piece RISES from the ground — it does not appear. Walls and doors rise on a floor's edge.`);
+    }
+  };
+
   const buildOrdersEntries = (ids: number[]): WheelEntry[] => {
     if (ids.length > 1) {
       return [
@@ -2861,24 +2892,27 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     entries.push({ key: "ord-binding", sigil: "binding", label: "Binding", lit: p.stance === "binding", act: () => { void handleSetStance(id, "binding"); } } as WheelEntry);
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
     entries.push({ key: "ord-patrol", sigil: "arrow", label: p.patrolPath ? "Re-lay patrol" : "Patrol", lit: !!p.patrolPath, act: () => { setPatrolDraft(patrolRoadOf(p)); setPatrolSettingFor(id); } } as WheelEntry);
-    // THE ABILITIES SECTION (THE STONE CAST, 2026-10-28): the
-    // wheel gains an abilities door, built to hold more
-    // abilities later; its first ability is BUILDING, and the
-    // door stands only on an Awoken holding at least 2 Rock in
-    // its element sum — the gate Nigel ruled ("an awoken with
-    // build ability 2 rock energy must be available to raise
-    // stone form the ground"). Opening it seats the pieces
-    // menu in this Awoken's ability tab, with this Awoken as
-    // the lead builder of every cast begun there.
-    if (((p as any).stone ?? 0) >= 2) {
+    // THE ABILITIES SECTION (Nigel, 2026-10-29): the wheel's
+    // Abilities door, catching the abilities of the registry
+    // (client/src/abilities.ts). The door PULLS what this
+    // Awoken qualifies for: its element sums are judged
+    // against every registry entry — a single element's
+    // amount, or a mix met in full — and the door stands
+    // only when at least one ability qualifies (Nigel's
+    // ruling: "Only appears when an ability qualifies").
+    // An Awoken qualifying for nothing shows no door, and
+    // no locked display stands in its place. Opening the
+    // door seats this Awoken's ability tab on the list;
+    // tapping a listed ability begins its cast (beginAbility).
+    // The registry's first ability is BUILDING, the Stone
+    // Cast — 2 Rock, as Nigel ruled in 2026-10-27 ("an
+    // awoken with build ability 2 rock energy must be
+    // available to raise stone form the ground").
+    if (qualifiedAbilities(elementSumsOfPlacement(p)).length) {
       entries.push({ key: "ord-abilities", sigil: "ability", label: "Abilities", act: () => {
         setSelectedAwoken(id);
         setAbilityLeadId(id);
-        setStrikeStrikerId(id);
-        setStrikeArmed(false);
-        setBuildGhost(null);
-        setBuildMode(true);
-        setBuildNote(`Building — ${p.name} leads the cast, and every fielded Awoken with 2 Rock or more builds beside them. Choose a piece, then tap the land: the piece RISES from the ground — it does not appear. Walls and doors rise on a floor's edge.`);
+        setAbilityActiveKey(null);
       } } as WheelEntry);
     }
     const inParty = !!partyQ.data?.members.some(m => m.awakenedId === id);
@@ -3320,8 +3354,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // The crew raising this cast, for the spoken line: every
     // fielded Awoken at 2 Rock or more, and the anchor's pace
     // their Stone buys (minutes ≈ 36 / the crew's Stone power).
-    const crew = placements.filter(p => ((p as any).stone ?? 0) >= 2);
-    const crewPower = crew.reduce((s, p) => s + ((p as any).stone ?? 0), 0);
+    const buildingDef = abilityByKey("building");
+    const crew = buildingDef ? placements.filter(p => abilityQualifies(buildingDef.requires, elementSumsOfPlacement(p))) : [];
+    const crewPower = crew.reduce((s, p) => s + elementSumsOfPlacement(p).stone, 0);
     const riseLine = crewPower > 0
       ? `begins to rise — the crew of ${crew.length} raises it in about ${Math.max(1, Math.round(36 / crewPower))} minutes`
       : "begins to rise";
@@ -8808,22 +8843,28 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         </div>
       )}
 
-      {/* THE BUILDING ABILITY TAB (THE STONE CAST, 2026-10-28):
-          an abilities section on a fielded Awoken's action
-          wheel, built to hold more abilities later; BUILDING
-          is its first. The tab holds the stone build pieces
-          only — the masonry kit in the PiecesMenu, unchanged —
-          and every cast begun here names this Awoken as the
-          lead builder. The crew line speaks the anchor's law:
-          pace from the crew's Stone, energy per builder per
-          minute. Below the menu: the strike (a Stone hand
-          mends the work, another hand breaks it) and the work
-          in progress — each rise with its height and its Stop. */}
+      {/* THE ABILITY TAB (THE ABILITIES SECTION, 2026-10-29):
+          the tab stands on the Awoken whose wheel door opened
+          it, and its list is the registry's pull for that
+          Awoken — the abilities its element sums qualify it
+          for, each row naming the ability and what it asks.
+          Tapping a row begins its cast (beginAbility). The
+          registry's first ability is BUILDING, the Stone
+          Cast: begun, its surface stands under the list — the
+          masonry kit in the PiecesMenu, unchanged, every cast
+          naming this Awoken as the lead builder; the crew
+          line speaking the anchor's law (pace from the crew's
+          Stone, energy per builder per minute); the strike
+          (a Stone hand mends the work, another hand breaks
+          it); and the work in progress — each rise with its
+          height and its Stop. */}
       {abilityLeadId != null && (() => {
         const lead = placements.find(p => p.awakenedId === abilityLeadId);
         if (!lead) return null;
-        const crew = placements.filter(p => ((p as any).stone ?? 0) >= 2);
-        const crewPower = crew.reduce((s, p) => s + ((p as any).stone ?? 0), 0);
+        const leadQualified = qualifiedAbilities(elementSumsOfPlacement(lead));
+        const buildingDef = abilityByKey("building");
+        const crew = buildingDef ? placements.filter(p => abilityQualifies(buildingDef.requires, elementSumsOfPlacement(p))) : [];
+        const crewPower = crew.reduce((s, p) => s + elementSumsOfPlacement(p).stone, 0);
         const riseMinutes = crewPower > 0 ? Math.max(1, Math.round(36 / crewPower)) : 0;
         const workRows = buildPieces.filter(p => p.state === "rising" || p.state === "settling" || (p.hp ?? 100) < 100);
         const striker = placements.find(p => p.awakenedId === (strikeStrikerId ?? abilityLeadId));
@@ -8831,13 +8872,20 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           <div className="ability-side-panel" data-lead={lead.awakenedId}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <h3 style={{ margin: 0, color: "#e8c766", fontSize: 16 }}>Abilities — {lead.name}</h3>
-              <button type="button" className="abtn small" onClick={() => { setAbilityLeadId(null); setBuildMode(false); setBuildGhost(null); setStrikeArmed(false); }}>✕</button>
+              <button type="button" className="abtn small" onClick={() => { setAbilityLeadId(null); setAbilityActiveKey(null); setBuildMode(false); setBuildGhost(null); setStrikeArmed(false); }}>✕</button>
             </div>
             <div className="ability-list">
-              <div className="ability-entry active">🪨 Building — the stone build pieces</div>
+              {leadQualified.map(def => (
+                <button key={def.key} type="button" data-ability={def.key}
+                  className={`ability-entry${abilityActiveKey === def.key ? " active" : ""}`}
+                  onClick={() => beginAbility(def.key, lead.awakenedId)}>
+                  {def.mark} {def.name} — {requirementText(def)} · {def.blurb}
+                </button>
+              ))}
             </div>
+            {abilityActiveKey === "building" && (<>
             <p className="ability-crew">
-              Crew: {crew.map(p => `${p.name} (${(p as any).stone} Rock)`).join(" · ") || "—"}<br />
+              Crew: {crew.map(p => `${p.name} (${elementSumsOfPlacement(p).stone} Rock)`).join(" · ") || "—"}<br />
               Together {crewPower} Stone — a piece rises in about {riseMinutes} minutes, and each builder draws 1 energy a minute while it rises.
             </p>
             <PiecesMenu
@@ -8908,6 +8956,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 ))}
               </div>
             )}
+            </>)}
           </div>
         );
       })()}

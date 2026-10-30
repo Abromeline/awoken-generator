@@ -212,6 +212,13 @@ export interface FieldPlacement {
    *  Awoken's Rock (Stone) element sum. The building ability
    *  tab lives on a placement whose stone is at least 2. */
   stone?: number;
+  /** THE ABILITIES SECTION's sums, served with the field
+   *  (2026-10-29): this Awoken's full element sums, counted
+   *  the parts' way. The wheel's Abilities section pulls the
+   *  abilities these sums qualify for out of the registry
+   *  (client/src/abilities.ts); the server judges every cast
+   *  itself, at its own door, by the registry's twin table. */
+  elements?: Record<ElementName, number>;
   tileId: number;
   placedAt: string;
   lastMovedAt: string;
