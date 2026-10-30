@@ -38,8 +38,10 @@
 //   §S8 THE DOOR, IN A REAL BROWSER: the building panel's
 //      free-standing pieces seat is CLOSED (no pieces menu
 //      there); a ≥2-Rock Awoken's wheel carries the Abilities
-//      door and a <2-Rock Awoken's does not; the tab seats the
-//      pieces menu with Nigel's SMALLER examples (his
+//      door and a <2-Rock Awoken's does not; the tab opens on
+//      the registry's LIST (THE ABILITIES SECTION, 2026-10-29)
+//      and tapping Building's row begins the cast and seats
+//      the pieces menu, with Nigel's SMALLER examples (his
 //      amendment of 2026-10-28 09:53 — the same faces, thumb-
 //      nail scale); a piece mid-rise stands on the map at half
 //      height (data-frac 0.5), riding its lifted tile.
@@ -521,6 +523,24 @@ console.log("§S8 the door in a real browser — the closed seat, the tab, the s
     await page.touchscreen.tap(box.x, box.y);
     await sleep(800);
   }
+  // THE ABILITIES SECTION (2026-10-29): the tab opens on the
+  // registry's LIST — Building's row stands, the pieces menu
+  // not yet seated; tapping the row begins the cast.
+  const listState = await page.evaluate(() => {
+    const panel = document.querySelector(".ability-side-panel");
+    return {
+      tab: !!panel,
+      row: !!panel?.querySelector('.ability-entry[data-ability="building"]'),
+      rowText: panel?.querySelector('.ability-entry[data-ability="building"]')?.textContent ?? "",
+      menu: !!panel?.querySelector(".pieces-menu"),
+    };
+  });
+  ok("the tab opens on the registry's list — Building's row stands (2 Rock spoken), the menu not yet seated",
+    listState.tab && listState.row && listState.rowText.includes("2 Rock") && !listState.menu, JSON.stringify(listState));
+  await page.evaluate(() => {
+    document.querySelector('.ability-side-panel .ability-entry[data-ability="building"]')?.click();
+  });
+  await sleep(800);
   const tabState = await page.evaluate(() => {
     const panel = document.querySelector(".ability-side-panel");
     const img = panel?.querySelector(".pieces-menu .piece-choice img");
@@ -558,14 +578,23 @@ console.log("§S8 the door in a real browser — the closed seat, the tab, the s
     if (b) b.click();
   });
   await sleep(600);
+  // The wall keeps rising in real time while the browser
+  // walks (the Abilities tab's list step, 2026-10-29, spends
+  // some of the old ±0.06 window), so the drawn height is
+  // judged against the SERVED height at the same breath —
+  // the assertion's substance stands: the map draws the
+  // piece at its true rise, mid-way, state rising.
+  const servedMid = pieceById(await servedPieces(), midWall.id);
   const wallDom = await page.evaluate(() => {
     const n = [...document.querySelectorAll(".build-wall-piece")].map(x => ({
       state: x.getAttribute("data-state"), frac: Number(x.getAttribute("data-frac")),
     }));
     return n;
   });
-  ok("a piece stands on the map MID-RISE — half height, state rising",
-    wallDom.some(w => w.state === "rising" && Math.abs(w.frac - 0.5) < 0.06), JSON.stringify(wallDom));
+  ok("a piece stands on the map MID-RISE — drawn at its served height, state rising",
+    !!servedMid && servedMid.frac > 0.25 && servedMid.frac < 0.75
+      && wallDom.some(w => w.state === "rising" && Math.abs(w.frac - servedMid.frac) < 0.03),
+    JSON.stringify({ served: servedMid?.frac, dom: wallDom }));
   await page.screenshot({ path: join(SHOTS, "02-piece-mid-rise.png") });
 
   /* ── §S9 THE RISE'S FACE — EMERGENCE, NOT SQUASH ───────────
