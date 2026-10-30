@@ -43,6 +43,14 @@
 //      amendment of 2026-10-28 09:53 — the same faces, thumb-
 //      nail scale); a piece mid-rise stands on the map at half
 //      height (data-frac 0.5), riding its lifted tile.
+//   §S9 THE RISE'S FACE (2026-10-29, Nigel's correction — the
+//      squashed shrink-grow is struck): a rising piece is drawn
+//      at its standing, perspective-correct size and EMERGES —
+//      sunk by the un-emerged share and clipped at the ground
+//      line (walls) or to its seat (floors) — with the gravel
+//      churn at its base while it moves, resting as cracks and
+//      a rubble line once it stands. Screenshots for his eye
+//      land in ~/workspace/rise-face-proof/.
 // Screenshots land in ~/workspace/stonecast-proof/.
 // Run after `npm run build`:
 //   PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-stone-cast.mjs
@@ -559,6 +567,190 @@ console.log("§S8 the door in a real browser — the closed seat, the tab, the s
   ok("a piece stands on the map MID-RISE — half height, state rising",
     wallDom.some(w => w.state === "rising" && Math.abs(w.frac - 0.5) < 0.06), JSON.stringify(wallDom));
   await page.screenshot({ path: join(SHOTS, "02-piece-mid-rise.png") });
+
+  /* ── §S9 THE RISE'S FACE — EMERGENCE, NOT SQUASH ───────────
+   * Nigel's correction (2026-10-29): the walls "are not growing
+   * out of the ground with gravel like we designed, they are
+   * just shrunk and slowly grow to fully size". Proven here on
+   * §S8's mid-rise wall: the face is drawn at its standing size
+   * (the same pixel height mid-rise as standing), sunk by the
+   * un-emerged share of its rise and CLIPPED at the ground line
+   * — its clip window's bottom edge lies on the wall's own edge
+   * line — and the gravel churn runs at its base while it moves,
+   * then rests as cracks and a rubble line once it stands. The
+   * floors answer the same law, clipped to their seat. */
+  console.log("§S9 the rise's face — emergence at standing size, clipped at the ground line, gravel at the foot");
+  const RSHOTS = "/home/hatch/workspace/rise-face-proof";
+  mkdirSync(RSHOTS, { recursive: true });
+  const raiseTo = async (id, target) => {
+    for (let i = 0; i < 12; i++) {
+      const pieces = await servedPieces();
+      const p = pieceById(pieces, id);
+      if (!p || p.state === "standing" || (p.frac ?? 0) >= target - 0.03) return p;
+      backdate(id, 2);
+    }
+    const pieces = await servedPieces();
+    return pieceById(pieces, id);
+  };
+  const wallGeom = (id) => page.evaluate((pid) => {
+    const node = document.querySelector(`.build-wall-piece[data-piece="${pid}"]`);
+    if (!node) return null;
+    const img = node.querySelector("image");
+    const ir = img.getBoundingClientRect();
+    const poly = node.querySelector("clipPath path");
+    const line = node.querySelector("line");
+    const churn = node.querySelector(".rise-churn");
+    return {
+      state: node.getAttribute("data-state"), frac: Number(node.getAttribute("data-frac")),
+      clip: node.getAttribute("data-clip"), sink: Number(node.getAttribute("data-sink")),
+      risePx: Number(node.getAttribute("data-rise-px")),
+      imgW: ir.width, imgH: ir.height,
+      clipPts: poly ? poly.getAttribute("d") : null,
+      line: line ? [Number(line.getAttribute("x1")), Number(line.getAttribute("y1")), Number(line.getAttribute("x2")), Number(line.getAttribute("y2"))] : null,
+      churnMoving: churn ? churn.getAttribute("data-moving") : null,
+      churnStones: churn ? Number(churn.getAttribute("data-stones")) : -1,
+      stoneEls: churn ? churn.querySelectorAll(".rise-stone").length : 0,
+      cracks: churn ? churn.querySelectorAll(".rise-crack").length : 0,
+      mound: churn ? !!churn.querySelector(".rise-mound") : false,
+    };
+  }, id);
+  const shootWall = async (id, file, waitMoving) => {
+    if (waitMoving) await page.waitForFunction((pid) =>
+      document.querySelector(`.build-wall-piece[data-piece="${pid}"] .rise-churn`)?.getAttribute("data-moving") === "1",
+      { timeout: 15000 }, id).catch(() => {});
+    const boxOf = () => page.evaluate((pid) => {
+      const n = document.querySelector(`.build-wall-piece[data-piece="${pid}"]`);
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    }, id);
+    // Draw close, for his eye: the map's own zoom-in button
+    // (＋, +0.2 a tap) until the wall stands large — keeping
+    // the last framing in which the wall stood in view.
+    let box = await boxOf();
+    for (let i = 0; i < 6 && box && box.height < 300; i++) {
+      const btn = await page.$(".zoom-in");
+      if (!btn) break;
+      await btn.click();
+      await sleep(450);
+      const next = await boxOf();
+      if (!next || next.height <= box.height * 1.05) break;
+      if (next.x < -40 || next.y < -40 || next.x > 1400 || next.y > 950) break;
+      box = next;
+    }
+    if (!box) return false;
+    const x = Math.max(0, box.x - 130), y = Math.max(0, box.y - 60);
+    await page.screenshot({ path: join(RSHOTS, file),
+      clip: { x, y, width: Math.min(1400 - x, box.width + 260), height: Math.min(950 - y, box.height + 200) } });
+    return true;
+  };
+
+  // The churn while the wall moves: gravel in the air.
+  let sawMoving = false, maxStones = 0;
+  for (let i = 0; i < 48 && !sawMoving; i++) {
+    const g = await wallGeom(midWall.id);
+    if (g) {
+      if (g.churnMoving === "1") sawMoving = true;
+      maxStones = Math.max(maxStones, g.churnStones, g.stoneEls);
+    }
+    if (!sawMoving) await sleep(250);
+  }
+  ok("while the wall moves, its gravel churn runs at its base", sawMoving);
+  ok("gravel stones are thrown at the wall's foot while it moves", maxStones > 0, `max stones seen ${maxStones}`);
+
+  // Emergence geometry at mid-rise.
+  const gMid = await wallGeom(midWall.id);
+  ok("the mid-rise wall is clipped at the ground line (data-clip=ground, a clip window stands)",
+    !!gMid && gMid.clip === "ground" && !!gMid.clipPts, JSON.stringify(gMid));
+  ok("the sink is the un-emerged share of the wall's standing rise — the face itself is not scaled",
+    !!gMid && Math.abs(gMid.sink - (1 - gMid.frac) * gMid.risePx) < 1.5,
+    gMid ? `sink ${gMid.sink} vs ${(1 - gMid.frac) * gMid.risePx}` : "no node");
+  {
+    // The clip window's bottom edge lies ON the wall's ground
+    // line: its first two points sit within a rounding hair
+    // (0.15 land units — the points are written to 0.1) of the
+    // edge's line and reach beyond both ends. (wallGeom reads
+    // the window's path data in clipPts, "M x,y L x,y …" form.)
+    let onLine = false, beyond = false, dists = "";
+    if (gMid && gMid.clipPts && gMid.line) {
+      const pts = gMid.clipPts.replace(/[MLZ]/g, " ").trim().split(/\s+/).map(s => s.split(",").map(Number));
+      const [x1, y1, x2, y2] = gMid.line;
+      const edgeLen = Math.hypot(x2 - x1, y2 - y1) || 1;
+      const dist = (px, py) => Math.abs((px - x1) * (y2 - y1) - (py - y1) * (x2 - x1)) / edgeLen;
+      dists = `${dist(pts[0][0], pts[0][1]).toFixed(3)} / ${dist(pts[1][0], pts[1][1]).toFixed(3)}`;
+      onLine = dist(pts[0][0], pts[0][1]) < 0.15 && dist(pts[1][0], pts[1][1]) < 0.15;
+      const along = (px, py) => (px - x1) * (x2 - x1) + (py - y1) * (y2 - y1);
+      const edgeSq = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+      beyond = along(pts[0][0], pts[0][1]) < 0 && along(pts[1][0], pts[1][1]) > edgeSq;
+    }
+    ok("the clip window's bottom edge lies on the wall's ground line, reaching past both ends", onLine && beyond,
+      gMid ? `${gMid.clipPts} (dists ${dists})` : "none");
+  }
+
+  // The size law: complete the rise and compare the drawn face.
+  await raiseTo(midWall.id, 2);
+  await page.waitForFunction((pid) =>
+    document.querySelector(`.build-wall-piece[data-piece="${pid}"]`)?.getAttribute("data-state") === "standing",
+    { timeout: 30000 }, midWall.id).catch(() => {});
+  await sleep(3200); // the settling tail (0.7s) and the thrown gravel's lives (≤1.75s) run out
+  const gStand = await wallGeom(midWall.id);
+  ok("standing, the face is the SAME size it was mid-rise — pixel-for-pixel the seat's own size at every moment",
+    !!gMid && !!gStand && Math.abs(gStand.imgH / gMid.imgH - 1) < 0.02 && Math.abs(gStand.imgW / gMid.imgW - 1) < 0.02,
+    gMid && gStand ? `mid ${gMid.imgW}x${gMid.imgH} vs standing ${gStand.imgW}x${gStand.imgH}` : "missing");
+  ok("standing, the clip is gone — the whole face shows, exactly as it always stood",
+    !!gStand && !gStand.clip && gStand.sink === 0, JSON.stringify(gStand));
+  ok("standing, the churn RESTS: the rubble mound remains, the six cracks stand, no gravel is thrown",
+    !!gStand && gStand.mound && gStand.cracks === 6 && gStand.stoneEls === 0 && gStand.churnStones === 0,
+    JSON.stringify(gStand));
+  ok("the just-stood wall is photographed with its settled rubble line",
+    await shootWall(midWall.id, "03-wall-just-stood-rubble.png", false));
+
+  // The floors answer the same law: sunk, clipped to the seat,
+  // never scaled, churning at their southern edge.
+  const standingVerts = new Set((await servedPieces()).map(p => JSON.stringify(p.verts)));
+  const tri2 = hexPiecesAt(0, 0).filter(p => p.kind === "triangle")
+    .find(p => !standingVerts.has(JSON.stringify(p.verts)));
+  const floor2 = (await callOk("placeBuildPiece", { kind: "triangle", verts: tri2.verts, leadId: stonewright }, token)).piece;
+  await raiseTo(floor2.id, 0.5);
+  await page.waitForFunction((pid) => {
+    const n = document.querySelector(`.build-floors g[data-piece="${pid}"]`);
+    return !!n && Math.abs(Number(n.getAttribute("data-frac")) - 0.5) < 0.14;
+  }, { timeout: 30000 }, floor2.id).catch(() => {});
+  const floorGeom = await page.evaluate((pid) => {
+    const n = document.querySelector(`.build-floors g[data-piece="${pid}"]`);
+    if (!n) return null;
+    const sunk = n.querySelector("g[clip-path]");
+    return {
+      clip: n.getAttribute("data-clip"), frac: Number(n.getAttribute("data-frac")),
+      sink: Number(n.getAttribute("data-sink")),
+      sunkTransform: sunk ? sunk.getAttribute("transform") : null,
+      hasClipPath: !!n.querySelector("clipPath path"),
+      churn: !!n.querySelector(".rise-churn"),
+    };
+  }, floor2.id);
+  ok("the mid-rise floor is clipped to its seat and only sunk — a pure translation, never a scale",
+    !!floorGeom && floorGeom.clip === "seat" && floorGeom.hasClipPath
+      && /^translate\(/.test(floorGeom.sunkTransform ?? "")
+      && Math.abs(floorGeom.sink - (1 - floorGeom.frac) * 30) < 1.5,
+    JSON.stringify(floorGeom));
+  ok("the floor carries its own gravel churn at its base", !!floorGeom && floorGeom.churn, JSON.stringify(floorGeom));
+
+  // The photographs for Nigel's eye: a wall a third risen, a
+  // wall two thirds risen — each at standing size, cut off at
+  // the ground, gravel churning at its foot.
+  const wThird = (await callOk("placeBuildPiece", { kind: "wall", verts: edgesOf(T1.verts)[0], leadId: stonewright }, token)).piece;
+  const wTwo = (await callOk("placeBuildPiece", { kind: "wall", verts: edgesOf(T1.verts)[1], leadId: stonewright }, token)).piece;
+  await raiseTo(wThird.id, 1 / 3);
+  await raiseTo(wTwo.id, 2 / 3);
+  const fracs = await servedPieces();
+  ok("the photographed walls stand at a third and two thirds of their rise",
+    Math.abs((pieceById(fracs, wThird.id)?.frac ?? 0) - 1 / 3) < 0.09
+      && Math.abs((pieceById(fracs, wTwo.id)?.frac ?? 0) - 2 / 3) < 0.09,
+    JSON.stringify({ third: pieceById(fracs, wThird.id)?.frac, two: pieceById(fracs, wTwo.id)?.frac }));
+  ok("the third-risen wall is photographed, gravel at its foot",
+    await shootWall(wThird.id, "01-wall-third-rise.png", true));
+  ok("the two-thirds-risen wall is photographed, gravel at its foot",
+    await shootWall(wTwo.id, "02-wall-two-thirds-rise.png", true));
   await browser.close();
 }
 

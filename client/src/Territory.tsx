@@ -23,6 +23,7 @@ import seedBeaconArt from "./assets/starseed/beacon.png";
 
 import FieldAwoken from "./FieldAwoken";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
+import { RiseChurn } from "./riseChurn";
 import { TENDER_CLASSES, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { WORKING_DEFS } from "./workingsData";
@@ -5777,6 +5778,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     };
     const polyPts = (poly: Pt[]): string =>
       poly.map(([q, r]) => { const s = landPt(q, r); return `${s.x.toFixed(1)},${s.y.toFixed(1)}`; }).join(" ");
+    // A points string as a closed path — the rise's clip
+    // windows are cut as paths, never polygons, so the floors'
+    // polygon on the land stays the rim alone (the map's own
+    // proofs count floor polygons as floors).
+    const ptsPath = (pts: string): string => `M${pts.trim().split(/\s+/).join(" L")} Z`;
     // THE STONE CAST's drawing measures, and BUILDING RIDES
     // THE TILE: a piece stands on its tile's own lift — the
     // tray steps and the floating isle's hover, read by the
@@ -5824,24 +5830,49 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             const s = landPt(p.footprint[idx][0], p.footprint[idx][1]);
             return [s.x, s.y] as [number, number];
           })) : null;
-          // THE RISE, DRAWN: the floor emerges — sunk by the
+          // THE RISE, DRAWN (remade 2026-10-29, Nigel's
+          // correction): the floor emerges — sunk by the
           // un-emerged share of the rise, riding its tile's
-          // lift (pieceLiftY) the whole way.
+          // lift (pieceLiftY) the whole way, and CLIPPED to
+          // its seat: the window is the footprint where the
+          // floor will stand (lifted with its tile) plus a
+          // shallow apron below its southern edge for the
+          // slab's drawn skirt, so the part still underground
+          // is never drawn — the face itself is never scaled.
+          // The gravel churn rides its southern edge.
           const frac = p.frac ?? 1;
-          const sinkY = (1 - frac) * BUILD_WALL_H + pieceLiftY(p);
+          const liftY = pieceLiftY(p);
+          const sinkY = (1 - frac) * BUILD_WALL_H + liftY;
+          const clipId = `rise-clip-f${p.id}`;
+          const liftedVerts = p.footprint.map(([q, r]) => { const s = landPt(q, r); return { x: s.x, y: s.y + liftY }; });
+          const liftedPts = liftedVerts.map(v => `${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(" ");
+          const apronPts = liftedVerts.map(v => `${v.x.toFixed(1)},${(v.y + 18).toFixed(1)}`).join(" ");
+          const south = [...liftedVerts].sort((a, b) => b.y - a.y).slice(0, 2);
           return (
-            <g key={p.id} data-state={p.state ?? "standing"} data-frac={frac}
-              transform={sinkY ? `translate(0 ${sinkY.toFixed(1)})` : undefined}>
-              {face && matrix && (
-                <g transform={matrix}>
-                  <image href={face.src} x={0} y={0} width={face.w ?? FLOOR_FRAME_W} height={face.h ?? FLOOR_FRAME_H} />
-                </g>
+            <g key={p.id} data-piece={p.id} data-state={p.state ?? "standing"} data-frac={frac}
+              data-clip={frac < 1 ? "seat" : undefined} data-sink={frac < 1 ? ((1 - frac) * BUILD_WALL_H).toFixed(1) : "0"}>
+              {frac < 1 && (
+                <clipPath id={clipId}>
+                  <path d={ptsPath(liftedPts)} />
+                  <path d={ptsPath(apronPts)} />
+                </clipPath>
               )}
-              <polygon points={polyPts(p.footprint)}
-                fill={face && matrix ? "none" : p.kind === "square" ? "rgba(216,202,170,0.34)" : "rgba(178,142,88,0.30)"}
-                stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
-                strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
-                strokeLinejoin="round" />
+              <g clipPath={frac < 1 ? `url(#${clipId})` : undefined}
+                transform={sinkY ? `translate(0 ${sinkY.toFixed(1)})` : undefined}>
+                {face && matrix && (
+                  <g transform={matrix}>
+                    <image href={face.src} x={0} y={0} width={face.w ?? FLOOR_FRAME_W} height={face.h ?? FLOOR_FRAME_H} />
+                  </g>
+                )}
+                <polygon points={polyPts(p.footprint)}
+                  fill={face && matrix ? "none" : p.kind === "square" ? "rgba(216,202,170,0.34)" : "rgba(178,142,88,0.30)"}
+                  stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
+                  strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
+                  strokeLinejoin="round" />
+              </g>
+              <RiseChurn pieceKey={`f${p.id}`} seed={p.id}
+                ax={south[0].x} ay={south[0].y} bx={south[1].x} by={south[1].y}
+                frac={frac} state={p.state ?? "standing"} />
             </g>
           );
         })}
@@ -5879,18 +5910,50 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // the Tender's own. The node names its stance
           // (data-perspective) so a proof can read which
           // perspective stands on each edge.
-          // THE RISE, DRAWN: the seat takes the emerged share
-          // of the wall's height — the wall grows out of its
-          // edge, it does not appear.
-          const seat = wallSeatFor(p.kind, A, B, p.frac ?? 1);
+          // THE RISE, DRAWN (remade 2026-10-29, Nigel's
+          // correction — "they are not growing out of the
+          // ground with gravel like we designed, they are just
+          // shrunk and slowly grow to fully size"): the seat
+          // stands the face at its FULL perspective-correct
+          // size — the very size it stands at when the rise
+          // completes — and the piece EMERGES: translated down
+          // by the un-emerged share of its rise and clipped at
+          // the ground line (the half-plane above its edge), so
+          // the underground part is never drawn and no axis of
+          // the face is ever scaled by the rise. The gravel
+          // churn rides the edge while the piece moves.
+          const seat = wallSeatFor(p.kind, A, B);
           const face = seat.face;
+          const frac = p.frac ?? 1;
+          const sinkPx = frac < 1 ? (1 - frac) * seat.risePx : 0;
+          const clipId = `rise-clip-w${p.id}`;
+          const edgeLen = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+          const eux = (B.x - A.x) / edgeLen, euy = (B.y - A.y) / edgeLen;
+          const ext = seat.risePx * 2 + edgeLen;
+          const topReach = seat.risePx + Math.abs(B.y - A.y) + 40;
+          const clipPts = [
+            `${(A.x - eux * ext).toFixed(1)},${(A.y - euy * ext).toFixed(1)}`,
+            `${(B.x + eux * ext).toFixed(1)},${(B.y + euy * ext).toFixed(1)}`,
+            `${(B.x + eux * ext).toFixed(1)},${(B.y + euy * ext - topReach).toFixed(1)}`,
+            `${(A.x - eux * ext).toFixed(1)},${(A.y - euy * ext - topReach).toFixed(1)}`,
+          ].join(" ");
+          const faceTransform = sinkPx > 0 ? `translate(0 ${sinkPx.toFixed(2)}) ${seat.transform}` : seat.transform;
           return (
-            <g key={p.id} className="build-wall-piece" data-perspective={seat.stance} data-kind={p.kind}
-              data-state={p.state ?? "standing"} data-frac={p.frac ?? 1} data-hp={p.hp ?? 100}>
+            <g key={p.id} className="build-wall-piece" data-piece={p.id} data-perspective={seat.stance} data-kind={p.kind}
+              data-state={p.state ?? "standing"} data-frac={frac} data-hp={p.hp ?? 100}
+              data-clip={sinkPx > 0 ? "ground" : undefined} data-rise-px={seat.risePx.toFixed(1)} data-sink={sinkPx.toFixed(1)}>
               <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={p.protected ? "#e8c766" : "#4a3a20"} strokeWidth={1.4 / zoom} opacity={0.6} />
-              <g transform={seat.transform}>
+              {sinkPx > 0 && (
+                <clipPath id={clipId}>
+                  <path d={ptsPath(clipPts)} />
+                </clipPath>
+              )}
+              <g transform={faceTransform} clipPath={sinkPx > 0 ? `url(#${clipId})` : undefined}>
                 <image href={face.src} x={0} y={0} width={face.w} height={face.h} />
               </g>
+              <RiseChurn pieceKey={`w${p.id}`} seed={p.id}
+                ax={A.x} ay={A.y} bx={B.x} by={B.y}
+                frac={frac} state={p.state ?? "standing"} />
             </g>
           );
         });

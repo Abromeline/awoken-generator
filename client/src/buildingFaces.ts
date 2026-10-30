@@ -522,6 +522,20 @@ export function wallPerspectiveFor(kind: string, ax: number, ay: number, bx: num
  *     upright, its base start (the drawing's left) toward the
  *     west — the face as read from the south. */
 export function seatWallFace(face: WallFace, A: { x: number; y: number }, B: { x: number; y: number }): string {
+  return seatWallFaceFull(face, A, B).transform;
+}
+
+/** The similarity seat, whole: its transform AND the face's
+ *  standing rise — the greatest height of the seated drawing's
+ *  box above the edge's line, in land units, measured vertically
+ *  (the direction a rising piece travels). The Stone Cast's
+ *  emergence reads it: a piece partway up is this same seat
+ *  translated down by the un-emerged share of the rise and
+ *  clipped at the ground line — never scaled (Nigel's
+ *  correction, 2026-10-29: the piece stands at its perspective-
+ *  correct size at every moment of the rise; only how much of
+ *  it shows above the ground changes). */
+export function seatWallFaceFull(face: WallFace, A: { x: number; y: number }, B: { x: number; y: number }): { transform: string; risePx: number } {
   const baseSlanted = Math.abs(face.y2 - face.y1) > 0.05 * Math.abs(face.x2 - face.x1);
   let P: { x: number; y: number }, Q: { x: number; y: number };
   if (baseSlanted) {
@@ -542,7 +556,24 @@ export function seatWallFace(face: WallFace, A: { x: number; y: number }, B: { x
   const baseAng = Math.atan2(face.y2 - face.y1, face.x2 - face.x1);
   const rot = Math.atan2(Q.y - P.y, Q.x - P.x) - baseAng;
   const sc = Math.hypot(Q.x - P.x, Q.y - P.y) / Math.hypot(face.x2 - face.x1, face.y2 - face.y1);
-  return `translate(${P.x.toFixed(2)} ${P.y.toFixed(2)}) rotate(${(rot * 180 / Math.PI).toFixed(2)}) scale(${sc.toFixed(4)}) translate(${(-face.x1).toFixed(1)} ${(-face.y1).toFixed(1)})`;
+  const transform = `translate(${P.x.toFixed(2)} ${P.y.toFixed(2)}) rotate(${(rot * 180 / Math.PI).toFixed(2)}) scale(${sc.toFixed(4)}) translate(${(-face.x1).toFixed(1)} ${(-face.y1).toFixed(1)})`;
+  // The drawing box's corners carried through the seat; the
+  // rise is the highest any of them stands above the edge's
+  // line (the line reached at the corner's own x).
+  const cos = Math.cos(rot), sin = Math.sin(rot);
+  const lineYat = (x: number): number => {
+    const dx = B.x - A.x;
+    if (Math.abs(dx) < 0.001) return (A.y + B.y) / 2;
+    return A.y + (B.y - A.y) * ((x - A.x) / dx);
+  };
+  let risePx = 0;
+  for (const [fx, fy] of [[0, 0], [face.w, 0], [0, face.h], [face.w, face.h]]) {
+    const lx = fx - face.x1, ly = fy - face.y1;
+    const mx = P.x + sc * (cos * lx - sin * ly);
+    const my = P.y + sc * (sin * lx + cos * ly);
+    risePx = Math.max(risePx, lineYat(mx) - my);
+  }
+  return { transform, risePx };
 }
 
 /* ── THE AFFINE SEAT FOR AN UNDRAWN STANCE (2026-10-28) ────────
@@ -576,22 +607,24 @@ const RISE_K: Record<"shallow" | "upright" | "slantAffine", number> = {
 const EDGE_ON_STRIP_SHARE = 60 / 230;
 
 /** Seat a frontal face into an undrawn stance's frame by the
- *  affine law. A and B are the edge's ends on screen. */
+ *  affine law. A and B are the edge's ends on screen. Returns
+ *  the transform AND the panel's standing rise in land units:
+ *  the Stone Cast's emergence seats the piece at this full
+ *  frame at every moment and lets the ground line clip what
+ *  has not yet emerged — the frame itself never shrinks toward
+ *  its base (the squashed seat was struck by Nigel's correction
+ *  of 2026-10-29). */
 export function seatWallAffine(
   face: WallFace,
   A: { x: number; y: number },
   B: { x: number; y: number },
   seat: "shallow" | "upright" | "slantAffine",
-  frac = 1,
-): string | null {
+): { transform: string; risePx: number } | null {
   const panelH = face.panelH ?? face.h;
   const baseLen = Math.hypot(face.x2 - face.x1, face.y2 - face.y1);
   if (baseLen < 1 || panelH < 1) return null;
   const edgeLen = Math.hypot(B.x - A.x, B.y - A.y);
-  // THE STONE CAST: a rising wall stands at the emerged share
-  // of its rise — the frame's top edge sits frac of the way up,
-  // the base never leaves its edge.
-  const rise = edgeLen * (panelH / baseLen) * RISE_K[seat] * frac;
+  const rise = edgeLen * (panelH / baseLen) * RISE_K[seat];
   const src: [number, number][] = [
     [face.x1, face.y1], [face.x2, face.y2], [face.x1, face.y1 - panelH],
   ];
@@ -614,39 +647,35 @@ export function seatWallAffine(
       [A.x, A.y], [B.x, B.y], [A.x, A.y - rise],
     ];
   }
-  return affineFor(src, dst);
+  const transform = affineFor(src, dst);
+  if (!transform) return null;
+  return { transform, risePx: rise };
 }
 
-/** One wall piece's seat, whole: its perspective row and the
- *  transform that stands its face on its edge — by similarity
- *  for a drawn stance, by the affine law for an undrawn one.
- *  The one door the map's wall drawing walks through. */
+/** One wall piece's seat, whole: its perspective row, the
+ *  transform that stands its face on its edge AT ITS STANDING
+ *  SIZE — by similarity for a drawn stance, by the affine law
+ *  for an undrawn one — and the face's standing rise (risePx),
+ *  the measure the Stone Cast's emergence sinks and clips by.
+ *  The one door the map's wall drawing walks through. The seat
+ *  takes no rise fraction: a partway piece is seated whole and
+ *  emerges through the ground line's clip, exactly the size it
+ *  stands at when the rise completes (Nigel's correction,
+ *  2026-10-29 — the squashed shrink seat is struck). */
 export function wallSeatFor(
   kind: string,
   A: { x: number; y: number },
   B: { x: number; y: number },
-  frac = 1,
-): { transform: string; stance: string; drawn: boolean; face: WallFace } {
+): { transform: string; stance: string; drawn: boolean; face: WallFace; risePx: number } {
   const p = wallPerspectiveFor(kind, A.x, A.y, B.x, B.y);
   if (p.seat === "similarity") {
-    let transform = seatWallFace(p.face, A, B);
-    if (frac < 1) {
-      // THE STONE CAST: the face emerges — within its own frame,
-      // the panel's height shrinks to the emerged share while
-      // both base corners stay exactly where the seat put them
-      // (the frame affine fixes the base line and carries the
-      // top toward it), then the seat stands what remains.
-      const panelH = p.face.panelH ?? p.face.h;
-      const shrink = affineFor(
-        [[p.face.x1, p.face.y1], [p.face.x2, p.face.y2], [p.face.x1, p.face.y1 - panelH]],
-        [[p.face.x1, p.face.y1], [p.face.x2, p.face.y2], [p.face.x1, p.face.y1 - panelH * frac]],
-      );
-      if (shrink) transform = `${transform} ${shrink}`;
-    }
-    return { transform, stance: p.stance, drawn: p.drawn, face: p.face };
+    const { transform, risePx } = seatWallFaceFull(p.face, A, B);
+    return { transform, stance: p.stance, drawn: p.drawn, face: p.face, risePx };
   }
-  const transform = seatWallAffine(p.face, A, B, p.seat, frac) ?? seatWallFace(p.face, A, B);
-  return { transform, stance: p.stance, drawn: p.drawn, face: p.face };
+  const aff = seatWallAffine(p.face, A, B, p.seat);
+  if (aff) return { transform: aff.transform, stance: p.stance, drawn: p.drawn, face: p.face, risePx: aff.risePx };
+  const { transform, risePx } = seatWallFaceFull(p.face, A, B);
+  return { transform, stance: p.stance, drawn: p.drawn, face: p.face, risePx };
 }
 
 /** THE PIECES MENU'S FACES (2026-10-28, Nigel's word: "keep
