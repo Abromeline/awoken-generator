@@ -44,7 +44,9 @@
 //      "we allready ahda build menue"; the tab since the Stone
 //      Cast, same day — the free-standing pieces seat in the
 //      building panel is closed, one door, and the door is the
-//      Awoken); its pieces menu carries the piece choices as
+//      Awoken; since the Abilities redesign, 2026-10-29, the
+//      tab opens on the registry's list and Building's row is
+//      tapped before the menu seats); its pieces menu carries the piece choices as
 //      buttons made from the pieces' own drawn faces; taps on
 //      the map's own scaffolding lay a square and a triangle
 //      and raise a wall on the square's edge; the compound around
@@ -705,6 +707,13 @@ async function clearOverlays() {
 // the mason's figure, tap the wheel's Abilities door, pick in
 // the tab. The tab stays open while the piece is laid (the
 // map's presses beside it belong to the laying).
+// RESTATED FOR THE ABILITIES SECTION (Nigel, 2026-10-29):
+// the tab now opens on the registry's LIST, and the pieces
+// menu seats only once Building's row is tapped and its cast
+// begun — every road that reads the menu walks that list step
+// first (beginBuildingCast below), and §E speaks the list
+// aloud before it taps the row, as §S8 does in
+// drive-stone-cast.
 const openAbilityTab = async () => {
   const open = await page.evaluate(() => !!document.querySelector(".ability-side-panel"));
   if (open) return;
@@ -749,13 +758,26 @@ const openAbilityTab = async () => {
     await sleep(500);
   }
 };
+// THE LIST STEP (the Abilities redesign, Nigel 2026-10-29):
+// with the tab standing on the registry's list, tap
+// Building's row to begin its cast — only then does the
+// pieces menu seat. A menu already seated (the cast already
+// begun) is left as it stands.
+const beginBuildingCast = async () => {
+  const seated = await page.evaluate(() => !!document.querySelector(".ability-side-panel .pieces-menu"));
+  if (seated) return;
+  await page.evaluate(() => { document.querySelector('.ability-side-panel .ability-entry[data-ability="building"]')?.click(); });
+  await sleep(800);
+};
 const pickPiece = async (tool) => {
   await openAbilityTab();
+  await beginBuildingCast();
   await page.evaluate((t) => { document.querySelector(`.ability-side-panel .pieces-menu .piece-choice[data-tool="${t}"]`)?.click(); }, tool);
   await sleep(300);
 };
 const clickMenuDone = async () => {
   await openAbilityTab();
+  await beginBuildingCast();
   await page.evaluate(() => { document.querySelector(".ability-side-panel .pieces-menu .done")?.click(); });
   await sleep(300);
 };
@@ -783,6 +805,25 @@ ok("§E the tiling-laid triangle floors wear his drawn faces (one seated image p
 ok("§E the struck door is gone: no construction toggle and no build bar stands on the map (struck whole on Nigel's word, 2026-10-27)",
   await page.evaluate(() => !document.querySelector(".buildmode-toggle") && !document.querySelector(".build-bar")));
 await openAbilityTab();
+// THE ABILITIES SECTION (2026-10-29): the tab opens on the
+// registry's LIST — Building's row stands, the pieces menu
+// not yet seated; tapping the row begins the cast and seats
+// the menu (the same walk §S8 makes in drive-stone-cast).
+const listState = await page.evaluate(() => {
+  const panel = document.querySelector(".ability-side-panel");
+  return {
+    tab: !!panel,
+    row: !!panel?.querySelector('.ability-entry[data-ability="building"]'),
+    rowText: panel?.querySelector('.ability-entry[data-ability="building"]')?.textContent ?? "",
+    menu: !!panel?.querySelector(".pieces-menu"),
+  };
+});
+ok("§E the ability tab opens on the registry's list — Building's row stands (2 Rock spoken), the menu not yet seated",
+  listState.tab && listState.row && listState.rowText.includes("2 Rock") && !listState.menu, JSON.stringify(listState));
+await page.evaluate(() => {
+  document.querySelector('.ability-side-panel .ability-entry[data-ability="building"]')?.click();
+});
+await sleep(800);
 const menu = await page.evaluate(() => {
   const el = document.querySelector(".ability-side-panel .pieces-menu");
   if (!el) return null;
@@ -1250,6 +1291,7 @@ const tapPlate = async (plate) => {
 };
 const modeBtn = async () => {
   await openAbilityTab();
+  await beginBuildingCast();
   return page.evaluate(() => {
     const b = document.querySelector(".pieces-menu .place-mode");
     return b ? { text: b.textContent.trim(), pressed: b.getAttribute("aria-pressed") } : null;
@@ -1257,6 +1299,7 @@ const modeBtn = async () => {
 };
 const clickModeBtn = async () => {
   await openAbilityTab();
+  await beginBuildingCast();
   await page.evaluate(() => { document.querySelector(".pieces-menu .place-mode")?.click(); });
   await sleep(200);
 };
