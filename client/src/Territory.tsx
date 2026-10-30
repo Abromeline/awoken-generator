@@ -7985,13 +7985,10 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       <div className="territory-battle-trigger">
         {incursionsQ.data && (() => {
           const inc = incursionsQ.data;
-          const eyeWord = inc.eye >= 100 ? "Under investigation" : inc.eye >= 60 ? "Drawing attention" : inc.eye >= 25 ? "Stirring" : "Hidden";
           const danger = inc.eye >= 60 || inc.columns.length > 0;
           return (
             <button className={`abtn eye-toggle${danger ? " warn" : ""}`} onClick={() => setEyeOpen(v => !v)} style={{ marginLeft: 8 }} title="The Curse's Eye — open it to see how in danger of attack your land stands">
-              <svg className="eye-glyph" viewBox="0 0 32 32"><path d="M3 16 C7.5 9.5 12 6.5 16 6.5 C20 6.5 24.5 9.5 29 16 C24.5 22.5 20 25.5 16 25.5 C12 25.5 7.5 22.5 3 16 Z"/><circle cx="16" cy="16" r="5"/><circle className="pupil" cx="16" cy="16" r="1.8"/><path d="M10 4.8 L11.2 7"/><path d="M22 4.8 L20.8 7"/><path d="M16 2.8 V5.3"/></svg> The Eye — {eyeWord}
-              <span className="curse-eye-bar mini"><span className="curse-eye-fill" style={{ width: `${Math.min(100, inc.eye)}%` }} /></span>
-              {inc.eye}
+              <svg className="eye-glyph" viewBox="0 0 32 32"><path d="M3 16 C7.5 9.5 12 6.5 16 6.5 C20 6.5 24.5 9.5 29 16 C24.5 22.5 20 25.5 16 25.5 C12 25.5 7.5 22.5 3 16 Z"/><circle cx="16" cy="16" r="5"/><circle className="pupil" cx="16" cy="16" r="1.8"/><path d="M10 4.8 L11.2 7"/><path d="M22 4.8 L20.8 7"/><path d="M16 2.8 V5.3"/></svg>
             </button>
           );
         })()}
