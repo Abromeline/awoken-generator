@@ -113,6 +113,10 @@ const ROOM_REFUSED_ACTIONS = new Set<string>([
   "setChampion", "addFieldToParty", "resolveBattle",
   "feedEnergy", "hoverSpend",
   "settleMarches", "settleIncursions", "settleSeedCalm", "settleSeedMissions",
+  // THE DOOR (ENTRANCE BUILD 1, 2026-11-01): the entrance is
+  // walked alone, on the homeland face — never through a room
+  // seat, where the door's writes would land on the room's land.
+  "entranceChooseClass", "entranceChooseSpell", "entranceWakeThree",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {

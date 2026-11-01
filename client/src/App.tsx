@@ -13,6 +13,7 @@ import Territory from "./Territory";
 import { AspectAttunement } from "./AspectAttunement";
 import Zodiac from "./Zodiac";
 import ClassChoosing from "./ClassChoosing";
+import EntranceDoor, { EntrancePoolNote } from "./EntranceDoor";
 import { TENDER_CLASSES, type TenderClassId } from "./tenderArt";
 import MarginGuide from "./MarginGuide";
 import FrontWhisper, { LessonTrigger, MapDoorLessonWatcher, useFrontWhisper } from "./FrontWhisper";
@@ -1433,7 +1434,12 @@ function TenderGate({ onDone, note }: { onDone: (token: string) => void; note?: 
       if (password.length < 8) throw new Error("Give your account a password of at least 8 characters.");
       if (password !== confirm) throw new Error("The two passwords do not match.");
       const refCode = new URLSearchParams(window.location.search).get("ref") ?? undefined;
-      return api.claimTender({ password, refCode, tenderName: tenderName.trim(), ...(claimEmail.trim() ? { email: claimEmail.trim() } : {}) });
+      // THE DOOR (ENTRANCE BUILD 1, 2026-11-01): a claim made
+      // at this gate asks for the entrance — the server marks
+      // the account at claim time UNLESS the browser already
+      // carries a welcomed past (granted or adopted), in which
+      // case the old road stands whole and the mark is not laid.
+      return api.claimTender({ password, refCode, tenderName: tenderName.trim(), entrance: true, ...(claimEmail.trim() ? { email: claimEmail.trim() } : {}) });
     },
     onSuccess: (data) => onDone(data.token),
     onError: (e) => setError(e instanceof Error ? e.message : "The bond could not be made."),
@@ -2252,6 +2258,10 @@ export function App() {
   // event itself, and the energy numbers it quotes are the server's.
   const firstSeedQ = useQuery({ queryKey: ["firstSeed", tenderTokenState], queryFn: () => api.getFirstSeedEvent(), retry: false, enabled: !!tenderTokenState });
   const patrolEnergyQ = useQuery({ queryKey: ["patrolEnergy", tenderTokenState], queryFn: () => api.getEnergy(), retry: false, enabled: !!tenderTokenState });
+  // THE DOOR (ENTRANCE BUILD 1): the caller's entrance standing —
+  // the patrol banner's guard and nothing else reads it here;
+  // the door's own face (EntranceDoor) reads the same query key.
+  const entranceQ = useQuery({ queryKey: ["entranceStatus"], queryFn: () => api.getEntranceStatus(), retry: false, enabled: !!tenderTokenState });
   const courtLegendsQ = useQuery({ queryKey: ["legends"], queryFn: () => api.getLegends(), enabled: !!tenderTokenState });
   const courtHallQ = useQuery({ queryKey: ["hall"], queryFn: () => api.getHall(), enabled: !!tenderTokenState });
   useEffect(() => {
@@ -2303,6 +2313,7 @@ export function App() {
     setGateNote(null);
     void queryClient.invalidateQueries({ queryKey: ["studio"] });
     void queryClient.invalidateQueries({ queryKey: ["welcome"] });
+    void queryClient.invalidateQueries({ queryKey: ["entranceStatus"] });
   }
   function handleLogout() {
     const token = tenderTokenState;
@@ -2370,7 +2381,11 @@ export function App() {
     // any seed standing at Beacon stage counts, whatever
     // the first seed's event reports.
     const firstBeaconLit = !!firstSeedQ.data?.hasBeacon;
-    const showPatrolBanner = tenderItems.length >= 20 && !!patrolTerritoryQ.data
+    // THE DOOR: the patrol banner NEVER shows for entrance
+    // accounts — its condition assumed the old road (twenty
+    // held before the field). The seed-claim machinery under
+    // it stands untouched for everyone.
+    const showPatrolBanner = !entranceQ.data?.entrance && tenderItems.length >= 20 && !!patrolTerritoryQ.data
       && (patrolTerritoryQ.data.tiles.length === 0
         || (!!firstSeedEv && !firstSeedEv.banked && firstSeedEv.state !== "done"));
     // THE MAP LOCKED UNTIL A TENDER (Nigel, 2026-10-23 22:26): the
@@ -2429,7 +2444,7 @@ export function App() {
       {showTenderDeck && <CollectionView items={tenderItems} title="My Deck" note="Your awakened collection. Tap one to tell it a story." storyteller />}
       {renaming && tender ? <TenderNaming isRename currentEmail={tender.email ?? null} onDone={() => { setRenaming(false); refreshTender(); }} /> : null}
       {tender ? <FeedbackWidget /> : null}
-      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} initialPatrolIds={patrolIds} onOpenZodiac={() => setShowZodiac(true)} onToggleDeck={() => setShowTenderDeck(v => !v)} deckOpen={showTenderDeck} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onNeedClaim={needClaim} />{showPatrolBanner && <section className="patrol-banner" aria-live="polite"><p className="eyebrow">The First Seed</p><h2>A starseed has landed!</h2><div className="patrol-banner-faces">{patrolThree.map((a) => <img key={a.id} src={a.image_url} alt={a.name} />)}</div><p><strong>A starseed has landed</strong> on your land — and the curse will test any hold on it, wave upon wave. You can send a patrol to claim it: {patrolThree.map((a) => a.name).join(", ")} stand ready as your first three.</p><p>The energy you will have when you get there grows with every friend you wake here{patrolEnergyQ.data ? <> — your pool stands at <strong><span className="spark-glow">✦</span>{patrolEnergyQ.data.energy} of {patrolEnergyQ.data.maxEnergy}</strong> now, and each new waking raises it</> : ""}. We might find more powerful friends to bring.</p><p className="whisper-line">A whispering Awoken, thin as thread: “Are you sure? The curse tests all…”</p><button type="button" className="patrol-banner-send" onClick={patrolDoor}>Send these three to claim the starseed</button><p className="quiet">The seed waits until your patrol claims it.</p></section>}<WakeRitual onPresentedChange={setBirthId} assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} onFirstTouch={whisper.touch} /><LoreSection /></>}
+      {showDeck ? <Territory tenderItems={tenderItems} assets={assets} onUpdate={() => refreshTender()} initialPatrolIds={patrolIds} onOpenZodiac={() => setShowZodiac(true)} onToggleDeck={() => setShowTenderDeck(v => !v)} deckOpen={showTenderDeck} /> : <><WelcomeSection assets={assets} welcome={welcomeQuery.data} onNeedClaim={needClaim} /><EntranceDoor assets={assets} onFinished={() => { refreshTender(); void entranceQ.refetch(); setShowDeck(true); }} /><EntrancePoolNote />{showPatrolBanner && <section className="patrol-banner" aria-live="polite"><p className="eyebrow">The First Seed</p><h2>A starseed has landed!</h2><div className="patrol-banner-faces">{patrolThree.map((a) => <img key={a.id} src={a.image_url} alt={a.name} />)}</div><p><strong>A starseed has landed</strong> on your land — and the curse will test any hold on it, wave upon wave. You can send a patrol to claim it: {patrolThree.map((a) => a.name).join(", ")} stand ready as your first three.</p><p>The energy you will have when you get there grows with every friend you wake here{patrolEnergyQ.data ? <> — your pool stands at <strong><span className="spark-glow">✦</span>{patrolEnergyQ.data.energy} of {patrolEnergyQ.data.maxEnergy}</strong> now, and each new waking raises it</> : ""}. We might find more powerful friends to bring.</p><p className="whisper-line">A whispering Awoken, thin as thread: “Are you sure? The curse tests all…”</p><button type="button" className="patrol-banner-send" onClick={patrolDoor}>Send these three to claim the starseed</button><p className="quiet">The seed waits until your patrol claims it.</p></section>}<WakeRitual onPresentedChange={setBirthId} assets={assets} collection="tender" ownerName={tender?.tenderName ?? "Tender"} manual={false} onSaved={saved} onNeedClaim={needClaim} credits={studio.credits} freeWakeAvailable={welcomeQuery.data?.freeWakeAvailable} nextFreeWakeAt={welcomeQuery.data?.nextFreeWakeAt ?? null} waitingFree={welcomeQuery.data?.freeWake ?? null} isFirstAwoken={tenderItems.length === 0} creatorGifts={studio.creatorGifts} signedIn={!!tender} items={tenderItems} onFirstTouch={whisper.touch} /><LoreSection /></>}
     </main><LegalLinks /><AcornButton onClick={() => setShowPacket(true)} />{showPacket && <WelcomePacket onClose={() => setShowPacket(false)} />}
       </div></>;  }
   if (lockQuery.isPending) return <main className="loading-screen">The ink is settling…</main>;

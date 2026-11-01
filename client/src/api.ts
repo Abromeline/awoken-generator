@@ -561,6 +561,22 @@ export interface WelcomeStatus {
   nextFreeWakeAt: string | null;
 }
 
+/** THE DOOR (ENTRANCE BUILD 1, 2026-11-01): the entrance
+ *  account's standing — the step it stands on, the spell
+ *  choice (exactly three, Nigel's names), and the award pool:
+ *  the original 20 recorded as theirs, 0 spendable until
+ *  Build 2's tutorial sections pay them out. */
+export interface EntranceStatus {
+  entrance: boolean;
+  step: "class" | "spell" | "weapon" | "wake" | "done" | null;
+  spellKey: string | null;
+  spellChoices: { key: string; name: string; bookName: string; kind: string | null; cost: number | null; blurb: string }[];
+  awardPool: number;
+  spendableCredits: number;
+  classKey: string | null;
+  weaponKey: string | null;
+}
+
 // Soft visitor identity: a UUID kept in this browser, sent on every call so
 // the server can greet first-timers and pace free wakes. Clearing storage
 // starts over — real Tender accounts will replace this one day.
@@ -919,7 +935,7 @@ export const api = {
   updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
   claimSpark: (value: { tileId: number }) => post<{ ok: boolean; fireLevel: number }>("claimSpark", value),
   getTenderRank: () => post<{ ok: boolean; myRank: number; myCount: number; totalTenders: number; nearby: { rank: number; name: string; count: number; isMe: boolean }[] }>("getTenderRank", {}),
-  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; weaponKey: string | null; arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[]; pools: Record<string, number>; awokenCount: number }>("getTenderExp", {}),
+  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; startingSpellKey: string | null; weaponKey: string | null; arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[]; pools: Record<string, number>; awokenCount: number }>("getTenderExp", {}),
   /** THE RUNIC WEAPON (2026-10-19; trigger amended
    *  2026-10-23 — chosen with the class at three woken, not
    *  at Lv 3); re-picking rides the second-thoughts economy. */
@@ -932,6 +948,16 @@ export const api = {
   buyWeaponNode: (args: { weaponKey: "swordshield" | "sword" | "spear" | "arrow"; node: "manifest" | "signature" }) =>
     post<{ ok: true; weaponKey: string; node: string; element: string; cost: number }>("buyWeaponNode", args),
   chooseClass: (value: { classKey: string }) => post<{ ok: true; classKey: string; via: string; progress: any }>("chooseClass", value),
+  /** THE DOOR (ENTRANCE BUILD 1, 2026-11-01): the entrance
+   *  flow's own surface — status (step, the three spells, the
+   *  award pool), the class step, the spell step, and the
+   *  waking of the three. The weapon step rides chooseWeapon
+   *  above, the standing machinery, as the design rules. */
+  getEntranceStatus: () => post<EntranceStatus>("getEntranceStatus", {}),
+  entranceChooseClass: (value: { classKey: string }) => post<{ ok: true; classKey: string; via: string; progress: any }>("entranceChooseClass", value),
+  entranceChooseSpell: (value: { spellKey: string }) => post<{ ok: true; spellKey: string; name: string; progress: any }>("entranceChooseSpell", value),
+  entranceWakeThree: (value: { items: { layers: LayerRef[]; imageBase64: string }[] }) =>
+    post<{ ok: true; awakened: Awakened[] }>("entranceWakeThree", value),
   grantReclassToken: (value: { tenderName: string }) => post<{ ok: boolean; tenderName: string | null; reclassTokens: number }>("grantReclassToken", value),
   setTenderPassword: (value: { password: string }) => post<{ ok: boolean }>("setTenderPassword", value),
   getSiteColors: () => post<{ ok: boolean; colors: Record<string, string> }>("getSiteColors", {}),
@@ -1107,8 +1133,8 @@ export const api = {
   getWorkshopStudio: () => post<Studio>("getWorkshopStudio", {}),
   // Self-serve Tender accounts: secret code + password.
   suggestTenderCode: () => post<{ code: string }>("suggestTenderCode", {}),
-  claimTender: (args: { password: string; refCode?: string; tenderName?: string; email?: string }) =>
-    post<{ token: string; tender: TenderInfo }>("claimTender", args),
+  claimTender: (args: { password: string; refCode?: string; tenderName?: string; email?: string; entrance?: boolean }) =>
+    post<{ token: string; tender: TenderInfo; entrance?: boolean }>("claimTender", args),
   loginTender: (args: { identity: string; password: string }) =>
     post<{ token: string; tender: TenderInfo }>("loginTender", args),
   requestPasswordReset: (args: { identity: string }) =>

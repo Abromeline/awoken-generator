@@ -162,6 +162,17 @@ export const visitors = sqliteTable("visitors", {
   welcomeWakesGranted: integer("welcome_wakes_granted").notNull().default(0),
   welcomeClaimed: integer("welcome_claimed").notNull().default(0),
   lastFreeWakeAt: integer("last_free_wake_at", { mode: "timestamp_ms" }),
+  // THE DOOR (ENTRANCE BUILD 1, Nigel's build word 2026-11-01):
+  // accounts claimed through the new entrance carry the mark on
+  // this record — entrance = 1, with the door's step, the chosen
+  // starting spell, and the AWARD POOL (the original 20, held as
+  // theirs but 0 spendable until Build 2's tutorial sections pay
+  // them out). Every account without the mark is LEGACY and walks
+  // the old road exactly; these columns read 0 / null for them.
+  entrance: integer("entrance").notNull().default(0),
+  entranceStep: text("entrance_step"),
+  entranceSpell: text("entrance_spell"),
+  entranceAwardPool: integer("entrance_award_pool").notNull().default(0),
 });
 
 // Self-serve Tender accounts: a secret code + password. No email, no OAuth.

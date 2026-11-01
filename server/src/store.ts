@@ -73,7 +73,11 @@ CREATE TABLE IF NOT EXISTS visitors (
   created_at INTEGER NOT NULL,
   welcome_wakes_granted INTEGER NOT NULL DEFAULT 0,
   welcome_claimed INTEGER NOT NULL DEFAULT 0,
-  last_free_wake_at INTEGER
+  last_free_wake_at INTEGER,
+  entrance INTEGER NOT NULL DEFAULT 0,
+  entrance_step TEXT,
+  entrance_spell TEXT,
+  entrance_award_pool INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS pending_welcomes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -248,6 +252,18 @@ try {
   sqlite.exec("ALTER TABLE tenders ADD COLUMN email TEXT");
 } catch {
   // Column already exists
+}
+// Migration: THE DOOR (ENTRANCE BUILD 1, 2026-11-01) — the entrance
+// mark on the visitor record: the flag, the door's step, the chosen
+// starting spell, and the award pool. Existing rows take the
+// defaults (0 / null) and stay legacy, untouched.
+for (const col of [
+  "entrance INTEGER NOT NULL DEFAULT 0",
+  "entrance_step TEXT",
+  "entrance_spell TEXT",
+  "entrance_award_pool INTEGER NOT NULL DEFAULT 0",
+]) {
+  try { sqlite.exec(`ALTER TABLE visitors ADD COLUMN ${col}`); } catch { /* exists */ }
 }
 
 // Lightweight migration: awakened.owner_key for per-Tender decks.

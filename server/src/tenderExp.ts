@@ -20,6 +20,7 @@
 import { db, schema } from "./store.js";
 import { and, eq } from "drizzle-orm";
 import { heartEffects } from "./skills.js";
+import { entranceSpellKeyFor } from "./entrance.js";
 
 /**
  * Cumulative EXP at which each level is reached (index 0 = Lv 1).
@@ -107,6 +108,11 @@ export interface TenderProgressView {
   classKey: string | null;
   classRiteAvailable: boolean;
   reclassTokens: number;
+  /** THE DOOR (ENTRANCE BUILD 1, 2026-11-01): the starting
+   *  spell an entrance account chose at the door — castable
+   *  from the start, ahead of the Lv 3 ward/rune waking.
+   *  Null for every legacy account and before the choice. */
+  startingSpellKey: string | null;
   /** THE RUNIC WEAPON (Nigel, 2026-10-19): the blade, spear or
    *  bow chosen with the class — null until the choosing's
    *  second gift is taken. */
@@ -148,6 +154,7 @@ function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string 
     classKey: cls?.classKey ?? null,
     classRiteAvailable: !!cls?.classKey && !cls.classFreeRiteUsed,
     reclassTokens: cls?.reclassTokens ?? 0,
+    startingSpellKey: null,
     weaponKey: cls?.weaponKey ?? null,
     arsenal: extra?.arsenal ?? defaultArsenal(),
     pools: extra?.pools ?? {},
@@ -174,6 +181,10 @@ function withHeart(ownerKey: string, v: TenderProgressView): TenderProgressView 
   const h = heartEffects(ownerKey);
   if (h.tenderHp) v.maxTenderHp += h.tenderHp;
   if (h.heal) v.healAmount += h.heal;
+  // THE DOOR: the chosen starting spell rides every progress
+  // reading, so the Grimoire's face and the cast doors judge
+  // the same standing (null on the old road, always).
+  v.startingSpellKey = entranceSpellKeyFor(ownerKey);
   return v;
 }
 
