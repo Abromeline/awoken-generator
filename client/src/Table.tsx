@@ -325,6 +325,11 @@ interface YouState {
   healTier?: number;
   healAmount?: number;
   wardRuneUnlocked?: boolean;
+  /** THE DISCORD DOOR (ENTRANCE BUILD 3, 2026-11-02): the
+   *  starting spell chosen at the door — offered unlocked
+   *  below Lv 3, exactly as the homeland's wheel offers it
+   *  (Territory's grimGate reads the same record). */
+  startingSpellKey?: string | null;
   classKey?: string | null;
   weaponKey?: string | null;
   weaponLevel?: number;
@@ -691,18 +696,24 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   const [introMode, setIntroMode] = useState<"begin" | "login" | null>(null);
   const [IntroComp, setIntroComp] = useState<ComponentType<{
     authToken: string; initialMode: "begin" | "login";
-    onComplete: (tenderName: string) => void; onCancel: () => void;
+    onComplete: (tenderName: string, entrance?: boolean) => void; onCancel: () => void;
   }> | null>(null);
   const [introDoneName, setIntroDoneName] = useState<string | null>(null);
+  // THE DISCORD DOOR (ENTRANCE BUILD 3): whether the walk
+  // just finished was THE ENTRANCE — the bound words below
+  // speak the award pool for the door's walkers and the
+  // welcome wakes for the old road's, each truly.
+  const [introDoneEntrance, setIntroDoneEntrance] = useState(false);
   function openIntro(mode: "begin" | "login") {
     setIntroMode(mode);
     if (!IntroComp) {
       void import("./TableIntro").then((m) => setIntroComp(() => m.default)).catch(() => setIntroMode(null));
     }
   }
-  function introComplete(tenderName: string) {
+  function introComplete(tenderName: string, entrance?: boolean) {
     setIntroMode(null);
     setIntroDoneName(tenderName);
+    setIntroDoneEntrance(!!entrance);
     setAuthJoin((cur) => (cur ? { ...cur, bound: true, tenderName } : cur));
   }
   // The Stage: hidden by the viewer's own tap until a new
@@ -2087,8 +2098,10 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                 {introDoneName ? (
                   <p>
                     You are bound as <strong>{introDoneName}</strong> — the Table will seat your
-                    real Tender. Your first three stand as your party, and seventeen welcome wakes
-                    still wait for you in the game: wake them when you will — they do not gate this seat.
+                    real Tender. Your first three stand as your party, and{" "}
+                    {introDoneEntrance
+                      ? <>your twenty wait in your <strong>award pool</strong> in the game — earned back five at a time as you learn the land. They do not gate this seat.</>
+                      : <>seventeen welcome wakes still wait for you in the game: wake them when you will — they do not gate this seat.</>}
                   </p>
                 ) : authJoin.bound ? (
                   <p className="quiet">
@@ -3279,8 +3292,14 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // very act its wheel entry runs (Nigel, 2026-10-19).
   const buildOfferings = (): { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] => {
     const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
+    // THE DOOR'S GRANT (ENTRANCE BUILD 3): below Lv 3 every
+    // working locks — except the one starting spell the
+    // Tender chose at the door, which the server's gates
+    // honour from Lv 1; the wheel offers what the gates
+    // honour, no more and no less.
+    const castLocked = (key: string) => !you?.wardRuneUnlocked && key !== (you?.startingSpellKey ?? null);
     for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
-      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: castLocked(d.key), act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
     }
     if (healDef) {
       offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
@@ -3288,10 +3307,10 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
     // THE SPRINGLEAF: a binding-school def the server routes
     // through castWard — it places by the ward flow.
     for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
-      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: castLocked(d.key), act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
     }
     for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
-      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: castLocked(d.key), act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
     }
     // ABILITY: the ring's last entry opens the weapon
     // sub-ring instead of casting.
