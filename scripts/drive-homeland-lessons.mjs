@@ -95,12 +95,12 @@ const serverLessons = readFileSync(join(root, "server/src/frontLessons.ts"), "ut
 const storeSrc = readFileSync(join(root, "server/src/store.ts"), "utf8");
 
 // ── §A THE LESSON LIST ─────────────────────────────────────
-console.log("\n§A homelandLessons.ts — twelve lessons, the ground's order, each a line or two naming its control");
-const entries = [...lessonsSrc.matchAll(/\{\s*key: "([a-z]+)",\s*system: "([^"]+)",\s*text: "([^"]+)",\s*\}/g)]
+console.log("\n§A homelandLessons.ts — the ground's twelve + the award road's twelve (Build 2), each a line or two naming its control");
+const entries = [...lessonsSrc.matchAll(/\{\s*key: "([a-z0-9]+)",\s*system: "([^"]+)",\s*text: "([^"]+)",\s*\}/g)]
   .map((m) => ({ key: m[1], system: m[2], text: m[3] }));
-check("exactly twelve homeland lessons stand (the ground's nine + the growth cycle's three)", entries.length === 12, `found ${entries.length}`);
-check("the lessons stand in the ground's order: party, return, safehex, battle, cast, orders, group, warning, seed, then the growth cycle's three",
-  entries.map((e) => e.key).join(",") === "party,return,safehex,battle,cast,orders,group,warning,seed,seedfeed,seedsapling,seedbeacon",
+check("exactly twenty-four homeland lessons stand (the ground's nine + the growth cycle's three + the award road's twelve, entrance accounts only)", entries.length === 24, `found ${entries.length}`);
+check("the lessons stand in the ground's order: party, return, safehex, battle, cast, orders, group, warning, seed, then the growth cycle's three, then the road's twelve",
+  entries.map((e) => e.key).join(",") === "party,return,safehex,battle,cast,orders,group,warning,seed,seedfeed,seedsapling,seedbeacon,roadstart,road1start,road1done,road2start,road2done,road3start,road3dark,road3fought,road3done,road4start,road4done,roaddone",
   entries.map((e) => e.key).join(","));
 const NAMES = {
   party: ["first three", "party", "🌳", "Party tab"],
@@ -246,8 +246,8 @@ console.log("\n§R ONE registry, extended — the same table, the same routes, t
 check("the server's homeland keys match the client's, in order",
   ["party", "return", "safehex", "battle", "cast", "orders", "group", "warning", "seed"].every((k) => serverLessons.includes(`"${k}"`))
   && serverLessons.includes("HOMELAND_LESSON_KEYS"));
-check("the server's served set is the UNION (LESSON_KEYS = front + homeland + the growth cycle's servings, 2026-10-25) and the mark judges by it",
-  serverLessons.includes("export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS] as const")
+check("the server's served set is the UNION (LESSON_KEYS = front + homeland + the growth cycle's servings, 2026-10-25 + the award road's keys, Build 2) and the mark judges by it",
+  serverLessons.includes("export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS, ...ENTRANCE_ROAD_KEYS] as const")
   && serverLessons.includes("z.enum(LESSON_KEYS)"));
 check("still ONE table: store DDL creates front_lessons_seen exactly once (no second, parallel registry)",
   (storeSrc.match(/CREATE TABLE IF NOT EXISTS front_lessons_seen/g) ?? []).length === 1

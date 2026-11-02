@@ -385,10 +385,16 @@ check("the ceremony's end TAKES THE PLAYER TO THEIR LAND (the map opens, the dec
 await sleep(2500);
 await page.screenshot({ path: `${OUT}/06-after-the-door.png` });
 await clickButtonWithText(page, "RETURN");
-const poolShown = await page.waitForFunction(
-  () => document.body.innerText.includes("Award pool:") && document.body.innerText.includes("not spendable yet"),
-  { timeout: 30000 }).then(() => true).catch(() => false);
-check("back on the tender face, the POOL NOTE stands where the player already looks (above Wake One)",
+// Build 2 grew the pool note into THE AWARD ROAD, standing in the
+// same seat (the note itself remains the panel's loading fallback):
+// the pool line now names what each section pays.
+let poolShown = false;
+for (let i = 0; i < 30 && !poolShown; i++) {
+  poolShown = await page.evaluate(() => !!document.querySelector(".entrance-road")
+    && document.body.innerText.includes("Award pool:") && document.body.innerText.includes("still to earn"));
+  if (!poolShown) await sleep(1000);
+}
+check("back on the tender face, the AWARD ROAD stands where the pool note stood (above Wake One) — Build 2's road in the note's seat",
   poolShown, (await pageText(page)).slice(0, 300));
 await page.screenshot({ path: `${OUT}/06b-award-pool-note.png` });
 

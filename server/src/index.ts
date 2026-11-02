@@ -10,6 +10,7 @@ import {
 } from "./welcome.js";
 import { tenderFromToken, tenderOwnerKey, tenderTokenFromHeader } from "./tenders.js";
 import { getFrontLessonsSeen, markFrontLessonSeen } from "./frontLessons.js";
+import { isEntranceAccount } from "./entrance.js";
 import { groveStatus, recordPlanting } from "./grove.js";
 import { requireWorkshop, unlockWorkshop, workshopLockEnabled, workshopTokenValid } from "./workshopAuth.js";
 import { registerTableRoutes, registerTableSocket, tableDoorMode } from "./table.js";
@@ -117,6 +118,10 @@ const ROOM_REFUSED_ACTIONS = new Set<string>([
   // walked alone, on the homeland face — never through a room
   // seat, where the door's writes would land on the room's land.
   "entranceChooseClass", "entranceChooseSpell", "entranceWakeThree",
+  // THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the road's
+  // one writing action — a door opened — is the homeland's
+  // too; a room seat's surfaces are the Table's, not the road's.
+  "entranceNavOpened",
 ]);
 for (const name of actionNames) {
   app.post(`/api/${name}`, async (req, res) => {
@@ -221,12 +226,50 @@ async function frontLessonKeys(req: express.Request): Promise<string[]> {
   }
   return keys;
 }
+// THE OLD ORDER, SUPERSEDED AT THE DOOR (ENTRANCE BUILD 2,
+// 2026-11-02): for entrance accounts, the lessons that teach
+// the OLD entrance order never fire — the choosing-after-three
+// ("choose"), the twenty-before-the-field ("twenty" on the
+// front screen and its homeland twin "seed": "Twenty held —
+// the starseed can be claimed…"), and the early-entry warnings
+// ("early" on the front screen, "warning" on the homeland).
+// The entrance player's choosing stands BEFORE the waking,
+// their twenty are the award road itself, and their first
+// entry to the cursed lands is the designed lesson at the
+// game's own pace — the warnings' premise is not theirs.
+// Supersede is served, not stored: an entrance Tender's seen
+// set reads with these keys already inside it (so neither
+// whisper ever picks them), and a mark for one of them is
+// answered without writing. Every other lesson — the claim,
+// the waking, the map's own teachings, the growth cycle —
+// stands for entrance accounts exactly as for everyone.
+const ENTRANCE_SUPERSEDED_LESSONS = ["choose", "twenty", "early", "warning", "seed"];
+async function frontLessonsSeenFor(req: express.Request): Promise<{ seen: string[] }> {
+  const keys = await frontLessonKeys(req);
+  const seen = (await getFrontLessonsSeen(keys)).seen;
+  const tenderKey = keys.find((k) => k.startsWith("tender:"));
+  if (tenderKey && isEntranceAccount(tenderKey)) {
+    return { seen: [...new Set([...seen, ...ENTRANCE_SUPERSEDED_LESSONS])] };
+  }
+  return { seen };
+}
 app.get("/api/front-lessons", async (req, res) => {
-  try { res.json(await getFrontLessonsSeen(await frontLessonKeys(req))); }
+  try { res.json(await frontLessonsSeenFor(req)); }
   catch (error) { sendError(res, error); }
 });
 app.post("/api/front-lessons/seen", async (req, res) => {
-  try { res.json(await markFrontLessonSeen(await frontLessonKeys(req), req.body ?? {})); }
+  try {
+    const keys = await frontLessonKeys(req);
+    const tenderKey = keys.find((k) => k.startsWith("tender:"));
+    const lessonKey = (req.body as { lessonKey?: unknown } | null)?.lessonKey;
+    if (tenderKey && typeof lessonKey === "string"
+      && ENTRANCE_SUPERSEDED_LESSONS.includes(lessonKey) && isEntranceAccount(tenderKey)) {
+      res.json(await frontLessonsSeenFor(req));
+      return;
+    }
+    await markFrontLessonSeen(keys, req.body ?? {});
+    res.json(await frontLessonsSeenFor(req));
+  }
   catch (error) { sendError(res, error); }
 });
 

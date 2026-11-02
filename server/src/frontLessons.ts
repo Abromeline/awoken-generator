@@ -84,9 +84,35 @@ export const SEED_GROWTH_KEYS = [
 ] as const;
 export type SeedGrowthKey = (typeof SEED_GROWTH_KEYS)[number];
 
+/** THE AWARD ROAD'S PLAY-ALONG (ENTRANCE BUILD 2, 2026-11-02):
+ *  the entrance tutorial's lines, fired in step with the acts
+ *  they teach — a section's opening when it becomes the road's
+ *  standing lesson, the beacon lesson's dark and fought
+ *  moments as they land, a completion the breath its five
+ *  wakes pay. They join THIS registry (the same once-only
+ *  served set), with keys no legacy flow ever touches: the
+ *  road's watcher stands only for entrance accounts, so
+ *  veterans are never served them. Their words live
+ *  client-side in homelandLessons.ts, beside Acorn's line. */
+export const ENTRANCE_ROAD_KEYS = [
+  "roadstart",
+  "road1start",
+  "road1done",
+  "road2start",
+  "road2done",
+  "road3start",
+  "road3dark",
+  "road3fought",
+  "road3done",
+  "road4start",
+  "road4done",
+  "roaddone",
+] as const;
+export type EntranceRoadLessonKey = (typeof ENTRANCE_ROAD_KEYS)[number];
+
 /** Every lesson key this registry will remember: the front
  *  screen's and the homeland's, one served set per Tender. */
-export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS] as const;
+export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS, ...ENTRANCE_ROAD_KEYS] as const;
 
 const lessonKeySchema = z.enum(LESSON_KEYS);
 

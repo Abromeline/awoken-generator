@@ -577,6 +577,36 @@ export interface EntranceStatus {
   weaponKey: string | null;
 }
 
+/** THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the
+ *  entrance account's four tutorial sections as the server
+ *  has verified them — done, active, the pool remaining, the
+ *  spendable credits the sections have paid — plus each
+ *  section's live facts for the face's progress lines. Legacy
+ *  accounts read entrance: false and no sections, always. */
+export interface EntranceRoadState {
+  entrance: boolean;
+  begun: boolean;
+  finished: boolean;
+  awardPool: number;
+  spendableCredits: number;
+  sections: {
+    n: 1 | 2 | 3 | 4;
+    done: boolean;
+    active: boolean;
+    progress: {
+      navOpened?: string[];
+      navTotal?: number;
+      ordersGiven?: number;
+      ordersTotal?: number;
+      battleFought?: boolean;
+      beaconStage?: "to-light" | "to-douse" | "to-fight" | "to-relight" | "done";
+      spellKey?: string | null;
+      spellName?: string | null;
+      cast?: boolean;
+    };
+  }[];
+}
+
 // Soft visitor identity: a UUID kept in this browser, sent on every call so
 // the server can greet first-timers and pace free wakes. Clearing storage
 // starts over — real Tender accounts will replace this one day.
@@ -958,6 +988,11 @@ export const api = {
   entranceChooseSpell: (value: { spellKey: string }) => post<{ ok: true; spellKey: string; name: string; progress: any }>("entranceChooseSpell", value),
   entranceWakeThree: (value: { items: { layers: LayerRef[]; imageBase64: string }[] }) =>
     post<{ ok: true; awakened: Awakened[] }>("entranceWakeThree", value),
+  /** THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the
+   *  road's read, and a door's opening reported at the moment
+   *  it opens (§1's one client-reported act). */
+  getEntranceRoad: () => post<EntranceRoadState>("getEntranceRoad", {}),
+  entranceNavOpened: (value: { surface: string }) => post<EntranceRoadState>("entranceNavOpened", value),
   grantReclassToken: (value: { tenderName: string }) => post<{ ok: boolean; tenderName: string | null; reclassTokens: number }>("grantReclassToken", value),
   setTenderPassword: (value: { password: string }) => post<{ ok: boolean }>("setTenderPassword", value),
   getSiteColors: () => post<{ ok: boolean; colors: Record<string, string> }>("getSiteColors", {}),

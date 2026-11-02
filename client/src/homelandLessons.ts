@@ -112,6 +112,77 @@ export const HOMELAND_LESSONS = [
     system: "The Beacon (the growth cycle: the first seed's third stage — PROTECTION arrives, taught in the moment it arrives)",
     text: "A Beacon stands — protection is yours to light. The Lighthouse panel holds your banked minutes: light it, and the dark is driven off until the burn ends.",
   },
+  // THE AWARD ROAD'S PLAY-ALONG (ENTRANCE BUILD 2, 2026-11-02;
+  // drafts for Nigel's polish, printed verbatim in the build
+  // report): the entrance tutorial's lines, spoken by the
+  // companions through this same whisper. They fire IN STEP
+  // with the acts — a section's opening when it becomes the
+  // road's standing lesson, the beacon lesson's dark and
+  // fought moments as they land, a completion in the breath
+  // its five wakes pay — never a lesson in front of play.
+  // The road's watcher touches these keys for ENTRANCE
+  // ACCOUNTS ONLY; no legacy flow ever touches them, so
+  // veterans are never served the road's lines.
+  {
+    key: "roadstart",
+    system: "The award road opens (the entrance tutorial: four sections, five wakes each)",
+    text: "We three walk with you while you learn this land. Each lesson lived earns five wakes — twenty in all, waiting in your award pool.",
+  },
+  {
+    key: "road1start",
+    system: "Section 1 — learn the doors (the homeland face's navigation surfaces)",
+    text: "First, learn the ways around: the map, your deck, the star tree, attunement, the pack. Find yourself on the land — and tap one of us to open the wheel.",
+  },
+  {
+    key: "road1done",
+    system: "Section 1 complete — five wakes paid",
+    text: "Every door known. Five wakes are yours — they wait at Wake One, spendable now.",
+  },
+  {
+    key: "road2start",
+    system: "Section 2 — orders, and a first fight",
+    text: "Now, orders: give each of us an order — a stance, a march, a patrol — then stand with us in a first fight; we hold where you set us.",
+  },
+  {
+    key: "road2done",
+    system: "Section 2 complete — five wakes paid",
+    text: "Orders given, and a battle stood together. Five more wakes are yours.",
+  },
+  {
+    key: "road3start",
+    system: "Section 3 — the beacon lesson (light it, douse it, fight in the dark, relight it)",
+    text: "The beacon lesson: light it, douse it, fight what the dark sends, and light it again. Kills buy the light — your bank holds what your battles have won.",
+  },
+  {
+    key: "road3dark",
+    system: "The beacon lesson — the dousing (the dark comes at the game's own pace)",
+    text: "Dark now, by your own hand — what comes, comes at the game's own pace, so stand ready: this fight is the lesson.",
+  },
+  {
+    key: "road3fought",
+    system: "The beacon lesson — fought in the dark (relight it)",
+    text: "You fought in the dark, and stood. Now relight the beacon — end the lesson in light.",
+  },
+  {
+    key: "road3done",
+    system: "Section 3 complete — five wakes paid",
+    text: "Doused, fought, relit — the beacon's law is in your hands now. Five more wakes are yours.",
+  },
+  {
+    key: "road4start",
+    system: "Section 4 — the first casting (the starting spell chosen at the Door)",
+    text: "Last, your spell — the one you chose at the door. Cast it true, once, on your land.",
+  },
+  {
+    key: "road4done",
+    system: "Section 4 complete — five wakes paid, the last of the twenty",
+    text: "It answers you. Five more wakes — the last of the twenty.",
+  },
+  {
+    key: "roaddone",
+    system: "The award road walked — all twenty wakes stand spendable",
+    text: "The road is walked: all twenty wakes stand spendable at Wake One. What you wake with them still teaches as it grows — level three stands at this road's end.",
+  },
 ] as const;
 
 export type HomelandLessonKey = (typeof HOMELAND_LESSONS)[number]["key"];

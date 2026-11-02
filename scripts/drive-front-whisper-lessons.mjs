@@ -167,8 +167,8 @@ check("TenderGate itself stands untouched, exactly as the standing drives keep i
 }
 check("the choosing's opening is the choose lesson's touch",
   app.includes('useEffect(() => { if (door) onFirstTouch?.("choose"); }, [door, onFirstTouch]);'));
-check("the banner's appearance is the twenty lesson's touch",
-  app.includes('<LessonTrigger when={showPatrolBanner} lessonKey="twenty" onTouch={whisper.touch} />'));
+check("the banner's appearance is the twenty lesson's touch (through Build 2's frontTouch, which turns the old order aside for entrance accounts only)",
+  app.includes('<LessonTrigger when={showPatrolBanner} lessonKey="twenty" onTouch={frontTouch} />'));
 {
   // The door handlers and their buttons are locked in shape by the
   // standing map-lock / patrol drives, so the lessons observe the
@@ -188,8 +188,8 @@ check("the banner's appearance is the twenty lesson's touch",
     whisperSrc.includes("if (openRef.current) return;"));
   check("the watcher only listens — it never calls the doors or prevents their work (no deckDoor/patrolDoor/preventDefault inside it)",
     !/deckDoor|patrolDoor|preventDefault|stopPropagation/.test(whisperSrc.slice(whisperSrc.indexOf("MapDoorLessonWatcher"), whisperSrc.indexOf("The speaking lesson"))));
-  check("App seats the watcher on the tender face with the Tender's standing and the map's",
-    app.includes('<MapDoorLessonWatcher isTender={!!tender} mapOpen={showDeck} onTouch={whisper.touch} />'));
+  check("App seats the watcher on the tender face with the Tender's standing and the map's (through Build 2's frontTouch)",
+    app.includes('<MapDoorLessonWatcher isTender={!!tender} mapOpen={showDeck} onTouch={frontTouch} />'));
 }
 check("the serve records server-side in the same breath it fires (api.markFrontLesson inside serve)",
   whisperSrc.includes("void api.markFrontLesson({ lessonKey: key })"));
