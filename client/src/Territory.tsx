@@ -1255,7 +1255,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const anyTransientFx = workings.some((w) => w.engine === "bats" || w.engine === "holdrune");
   // Transient workings' frames ride the map's ONE clock (below).
   const [grim, setGrim] = useState<GrimoireState | null>(null);
-  const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number }>({ level: 1, wardRuneUnlocked: false, healAmount: 5 });
+  const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number; startingSpellKey: string | null }>({ level: 1, wardRuneUnlocked: false, healAmount: 5, startingSpellKey: null });
   const [castMode, setCastMode] = useState(false);
   // THE ATTUNE ABILITY (Nigel, 2026-10-21): Attune is an
   // ability on the wheel — Ability → Attune → element —
@@ -1928,7 +1928,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   useEffect(() => {
     api.getGrimoire().then(setGrim).catch(() => {});
-    api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount })).catch(() => {});
+    api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount, startingSpellKey: g.startingSpellKey ?? null })).catch(() => {});
   }, []);
 
   // The read loop's turn-keeping (see THE READ LOOP below):
@@ -2807,7 +2807,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const spellPageCount = Math.max(1, Math.ceil(kindSpells.length / 6));
     const spellWnd = Math.min(spellPage, spellPageCount - 1);
     const entries = kindSpells.slice(spellWnd * 6, spellWnd * 6 + 6).map(sp => {
-      const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked;
+      // THE DOOR (ENTRANCE BUILD 1): the one working chosen at
+      // the door stands unlocked from the start — the Lv 3
+      // lock below keeps every other page, exactly as today.
+      const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked && sp.key !== grimGate.startingSpellKey;
       return {
         key: `cast-${sp.key}`,
         img: grimGlyphImg(sp.key),

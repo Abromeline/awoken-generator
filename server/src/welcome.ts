@@ -21,6 +21,7 @@ import { awakenedPayloadById, describeValidationIssues, layerRefShape, planAwake
 import { CREDITS_PER_PACK } from "./config.js";
 import { grantCredits } from "./credits.js";
 import { tenderFromToken, tenderOwnerKey, type TenderRow } from "./tenders.js";
+import { entranceStateFor, isEntranceAccount } from "./entrance.js";
 
 /** One free wake gathers every four hours. Not sooner, not stacked. */
 export const FREE_WAKE_MS = 4 * 60 * 60 * 1000;
@@ -201,10 +202,15 @@ export async function getWelcomeStatus(ownerKey: string) {
   const freeRow = await pendingFor(ownerKey, "free");
   const free = freeWakeState(visitor.lastFreeWakeAt, Date.now());
   const greeterId = await greeterIdFor(ownerKey);
+  // THE DOOR (ENTRANCE BUILD 1): an entrance account's greeter
+  // folds into the door's three — no greeting ever seeds for
+  // them, and their greeterId is the first of the three once
+  // woken (greeterIdFor reads the mark wherever it stands).
+  const entrance = isEntranceAccount(ownerKey);
   return {
     welcomeGranted: visitor.welcomeWakesGranted === 1,
     // A Tender who already has their greeted one never seeds another.
-    needsSeed: visitor.welcomeWakesGranted === 1 && visitor.welcomeClaimed !== 1 && greeterId === null,
+    needsSeed: !entrance && visitor.welcomeWakesGranted === 1 && visitor.welcomeClaimed !== 1 && greeterId === null,
     // The greeting no longer waits as a card — it joins (see joinGreeting).
     welcome: null,
     greeterId,
@@ -219,6 +225,10 @@ export async function getWelcomeStatus(ownerKey: string) {
  *  card and no claim step for the first one. Idempotent — a second
  *  call returns the already-joined one instead of making another. */
 export async function seedWelcome(ownerKey: string, ownerName: string, body: unknown) {
+  // THE DOOR (ENTRANCE BUILD 1): the greeting does not seed for
+  // an entrance account — the greeter folds into the door's
+  // three, woken by entranceWakeThree in actions.ts.
+  if (isEntranceAccount(ownerKey)) badRequest("Your greeting wakes with the door's three — walk the door: class, spell, weapon, and then the waking.");
   const { visitor } = await ensureVisitor(ownerKey);
   if (visitor.welcomeClaimed === 1) {
     // THE GREETER LAW, WHOLE (FLOP fix, 2026-10-26): the
@@ -287,6 +297,14 @@ export async function reconstituteWelcome(ownerKey: string, ownerName: string, b
 /** Receive the 4-hourly free wake. One at a time: an unclaimed waiting one
  *  is released back into the matter when the new one arrives. */
 export async function claimFreeWake(ownerKey: string, ownerName: string, body: unknown) {
+  // THE DOOR (ENTRANCE BUILD 1): no free wake gathers ahead of
+  // the door's three — they must be the account's first three.
+  {
+    const door = entranceStateFor(ownerKey);
+    if (door.entrance && door.step !== "done") {
+      throw Object.assign(new Error("The door first: your three wake together before any other waking."), { status: 403 });
+    }
+  }
   const parsed = generationInput.safeParse(body);
   if (!parsed.success) {
     badRequest(`That awakening could not be gathered — ${describeValidationIssues(parsed.error)}.`);

@@ -54,6 +54,10 @@ import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_E
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
+  ENTRANCE_SPELL_KEYS, ENTRANCE_SPELL_NAMES, advanceEntranceStep, entranceStateFor, entranceSpellKeyFor,
+  type EntranceSpellKey,
+} from "./entrance.js";
+import {
   proveKitPiece, matchCandidate, polygonsOverlap, pieceKeyOf, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
   collisionSegments, segmentsCrossProper, pointSegmentDistance, type Pt,
 } from "./buildGeometry.js";
@@ -8790,6 +8794,16 @@ export const handlers = {
       if (!ctx?.tender) {
         throw Object.assign(new Error("Claim your secret code to wake — the vessel belongs to a Tender."), { status: 403 });
       }
+      // THE DOOR (ENTRANCE BUILD 1): an entrance account wakes
+      // its three through the door alone — no credit wake (and
+      // never a spend from the award pool: the pool is not
+      // credits and this ledger is never charged for it) until
+      // the waking is done. After the door, ordinary credit
+      // wakes stand as they stand for everyone.
+      const doorState = entranceStateFor(tenderOwnerKey(ctx.tender.id));
+      if (doorState.entrance && doorState.step !== "done") {
+        throw Object.assign(new Error("The door first: choose your class, your spell, and your weapon — then the three wake together."), { status: 403 });
+      }
       const spent = await spendWakeCredit(tenderOwnerKey(ctx.tender.id));
       if (!spent.ok) {
         throw Object.assign(
@@ -12822,6 +12836,14 @@ export const handlers = {
     const hue = await pageHueFor(ownerKey, spell);
     if (spell.engine === "none") badRequest(`“${spell.name}” is written in the book but not yet seated — give it an engine in the workshop before it can be cast.`);
     const progress = await getTenderProgress(actorKeyFor(ctx));
+    // THE DOOR'S GRANT (ENTRANCE BUILD 1, 2026-11-01): the one
+    // working an entrance Tender chose at the door is theirs
+    // from the start — the Lv 3 ward/rune waking below does
+    // not hold IT back (and holds every other working back
+    // exactly as today). The grant is the door's record
+    // itself (visitors.entrance_spell), read at the cast;
+    // no spell-point system exists and none is invented.
+    const doorSpellKey = entranceSpellKeyFor(actorKeyFor(ctx));
 
     // REAGENT EMPOWERMENT (Nigel, 2026-10-25 10:22; wired
     // 2026-10-25 on his live report — reagentSets.ts holds
@@ -12987,7 +13009,7 @@ export const handlers = {
     // (Lv 1 → 0.5, Lv 10 → 1.5 — fractional, mending part-way
     // into the next hexes).
     if (spell.engine === "springleaf") {
-      if (!progress.wardRuneUnlocked) {
+      if (!progress.wardRuneUnlocked && spell.key !== doorSpellKey) {
         badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
       }
       if (tileId == null) badRequest("The Springleaf roots on a hex — name the ground.");
@@ -13064,8 +13086,9 @@ export const handlers = {
       return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: springleafPrice, radiusHexes, burst, saplings: sapCount, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
     }
 
-    // Wards and runes wake at Tender Lv 3 (the standing law).
-    if (!progress.wardRuneUnlocked) {
+    // Wards and runes wake at Tender Lv 3 (the standing law) —
+    // except the door's one granted working (see doorSpellKey).
+    if (!progress.wardRuneUnlocked && spell.key !== doorSpellKey) {
       badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
     }
 
@@ -17677,6 +17700,18 @@ export const handlers = {
     const ownerKey = ownerKeyFor(ctx);
     const progress = await getTenderProgress(ownerKey);
     if (!progress.classKey) badRequest("The weapon is chosen with a class — the choosing has not opened for you yet.");
+    // THE DOOR (ENTRANCE BUILD 1): inside the entrance flow the
+    // weapon stands AFTER the spell — an entrance account whose
+    // door still waits on its class or spell step, and who holds
+    // no weapon yet, is refused here. (A weapon already named —
+    // the rite/token re-picks below — is untouched, as is every
+    // legacy account: the door's steps exist only for the marked.)
+    {
+      const door = entranceStateFor(ownerKey);
+      if (door.entrance && !progress.weaponKey && (door.step === "class" || door.step === "spell")) {
+        badRequest("The door's order: your spell is chosen before your weapon — choose your spell first.");
+      }
+    }
     const row = sqlite.prepare("SELECT weapon_key, class_free_rite_used, reclass_tokens FROM tender_progress WHERE owner_key = ?")
       .get(ownerKey) as { weapon_key: string | null; class_free_rite_used: number; reclass_tokens: number } | undefined;
     if (!row) badRequest("The choosing has not opened for you yet.");
@@ -17695,7 +17730,162 @@ export const handlers = {
     } else {
       badRequest("Your weapon is sealed — the second-thoughts rite is spent. Only a reclass token from the workshop can unmake it now.");
     }
+    // THE DOOR: a first weapon named at the weapon step moves
+    // the door on to the waking. A no-op for every other road
+    // (advanceEntranceStep judges the mark and the step itself).
+    if (via === "the choosing") advanceEntranceStep(ownerKey, "weapon", "wake");
     return { ok: true as const, weaponKey: want, via, progress: await getTenderProgress(ownerKey) };
+  },
+
+  // ── THE DOOR — ENTRANCE BUILD 1 (Nigel's build word,
+  // 2026-11-01) ─────────────────────────────────────────
+  // The entrance flow for NEW claims only, its own sequence
+  // beside the old road: claim (marked at claim time — see
+  // claimTender in tenders.ts) → class → spell → weapon → the
+  // three wake together. The general chooseClass gate (a first
+  // class below 3 held) is NOT loosened: the door's class step
+  // below is the entrance accounts' own door, judged by the
+  // mark and the step, and legacy accounts cannot use it.
+
+  /** The door's standing for the caller: whether they walk it,
+   *  the step they stand on, the three spells of the choice
+   *  (with the book's own words for each), the chosen spell,
+   *  and the award pool — the 20 recorded as theirs, 0
+   *  spendable until Build 2 pays them out. The tender face
+   *  also reads spendableCredits here so the pool can be shown
+   *  honestly beside the balance it is NOT part of. */
+  async getEntranceStatus(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const ownerKey = ownerKeyFor(ctx);
+    const state = entranceStateFor(ownerKey);
+    await refreshGrimoire();
+    const spellChoices = ENTRANCE_SPELL_KEYS.map((key) => {
+      const spell = spellByKey(key);
+      return {
+        key,
+        name: ENTRANCE_SPELL_NAMES[key],
+        bookName: spell?.name ?? ENTRANCE_SPELL_NAMES[key],
+        kind: spell?.kind ?? null,
+        cost: spell?.cost ?? null,
+        blurb: spell?.blurb ?? "",
+      };
+    });
+    const progress = await getTenderProgress(ownerKey);
+    return {
+      entrance: state.entrance,
+      step: state.step,
+      spellKey: state.spellKey,
+      spellChoices,
+      awardPool: state.awardPool,
+      spendableCredits: await creditBalance(ownerKey),
+      classKey: progress.classKey,
+      weaponKey: progress.weaponKey,
+    };
+  },
+
+  /** THE DOOR'S CLASS STEP: the first choosing, at the door —
+   *  the same class_key the standing choosing writes, laid by
+   *  the door's own gate (marked account, class step, no class
+   *  yet). The standing chooseClass and its 3-held gate are
+   *  untouched; this door refuses everyone unmarked. */
+  async entranceChooseClass(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      classKey: z.enum(["warden", "runewright", "binder", "witch", "sage"]),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name one of the five classes: Warden, Runewright, Binder, Witch, or Sage.");
+    const ownerKey = ownerKeyFor(ctx);
+    const state = entranceStateFor(ownerKey);
+    if (!state.entrance) badRequest("The old road is yours — the choosing opens after your first three wakes.");
+    if (state.step !== "class") badRequest("The door has moved past its class step — walk on from where you stand.");
+    const progress = await getTenderProgress(ownerKey);
+    if (progress.classKey) badRequest("Your class already stands — the door does not choose twice.");
+    sqlite.prepare("INSERT OR IGNORE INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, 0, 0, ?)")
+      .run(ownerKey, Date.now());
+    sqlite.prepare("UPDATE tender_progress SET class_key = ?, class_chosen_at = ? WHERE owner_key = ?")
+      .run(parsed.data.classKey, Date.now(), ownerKey);
+    advanceEntranceStep(ownerKey, "class", "spell");
+    return { ok: true as const, classKey: parsed.data.classKey, via: "the door", progress: await getTenderProgress(ownerKey) };
+  },
+
+  /** THE DOOR'S SPELL STEP: exactly three, Nigel's names —
+   *  Bats, Shard Rain, and Rune Hold. The chosen working is
+   *  granted as the Tender's starting spell by the door's own
+   *  record (visitors.entrance_spell): castMapWorking's Lv 3
+   *  gate reads that record and holds back every OTHER
+   *  working until Lv 3, exactly as today. No spell points
+   *  exist; none are invented — the record is the grant. */
+  async entranceChooseSpell(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      spellKey: z.enum(ENTRANCE_SPELL_KEYS),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Choose one of the three: Bats, Shard Rain, or Rune Hold.");
+    const ownerKey = ownerKeyFor(ctx);
+    const state = entranceStateFor(ownerKey);
+    if (!state.entrance) badRequest("The door's spell step belongs to the entrance — the Grimoire opens its pages as you grow.");
+    if (state.step !== "spell") badRequest("The door's order: class first, then spell, then weapon — walk on from where you stand.");
+    const progress = await getTenderProgress(ownerKey);
+    if (!progress.classKey) badRequest("The door's order: your class is chosen before your spell.");
+    advanceEntranceStep(ownerKey, "spell", "weapon", parsed.data.spellKey);
+    return { ok: true as const, spellKey: parsed.data.spellKey, name: ENTRANCE_SPELL_NAMES[parsed.data.spellKey as EntranceSpellKey], progress: await getTenderProgress(ownerKey) };
+  },
+
+  /** THE DOOR'S WAKING: BOOM — three Awoken wake at once.
+   *  Three FREE wakes: no credit is spent (the award pool is
+   *  not credits and is never charged), no wake XP is paid
+   *  (the 20 credit wakes remain the exact 150-XP road to
+   *  Lv 3 — see tenderExp.ts), and no birth energy is granted
+   *  (the greeting's road, which this trio replaces, granted
+   *  none either). The FIRST of the three carries the greeter
+   *  mark — the greeter folds into the three, and MarginGuide's
+   *  teacher is this one from the account's first moment.
+   *  Each carries a tutorial whisper, drafted at the door in
+   *  client/src/EntranceDoor.tsx beside the ceremony that
+   *  speaks them; the server keeps no copy. */
+  async entranceWakeThree(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const itemShape = z.object({
+      layers: z.array(layerRefShape).min(1).max(5),
+      imageBase64: z.string().min(100).max(16_000_000),
+    });
+    const parsed = z.object({ items: z.array(itemShape).length(3) }).safeParse(args);
+    if (!parsed.success) badRequest("The door wakes exactly three — three forms, gathered together.");
+    const ownerKey = ownerKeyFor(ctx);
+    const state = entranceStateFor(ownerKey);
+    if (!state.entrance) badRequest("The door's waking belongs to the entrance — Wake One is your road.");
+    if (state.step !== "wake") badRequest("The door's order: class, spell, and weapon come before the waking.");
+    const held = await db.select({ id: schema.awakened.id }).from(schema.awakened)
+      .where(eq(schema.awakened.ownerKey, ownerKey));
+    if (held.length > 0) badRequest("Your three already stand — the door wakes them once.");
+    const ownerName = ownerNameFor(ctx);
+    const awakened: unknown[] = [];
+    for (let i = 0; i < parsed.data.items.length; i++) {
+      const item = parsed.data.items[i];
+      const plan = await planAwakening(item.layers);
+      const bytes = Buffer.from(item.imageBase64, "base64");
+      assertPngBytes(bytes);
+      const blobKey = `awakened/${Date.now()}-${randomUUID()}.png`;
+      blobs.put(blobKey, bytes, "image/png");
+      const rows = await db.insert(schema.awakened).values({
+        name: plan.name,
+        mintedName: plan.name,
+        imageBlobKey: blobKey,
+        compositionJson: JSON.stringify(plan.canonicalLayers),
+        collection: "tender",
+        ownerName,
+        ownerKey,
+        greeter: i === 0 ? 1 : 0,
+        identityKey: plan.identityKey,
+        iteration: plan.previousCount,
+        flavorText: plan.flavorText,
+      }).returning({ id: schema.awakened.id });
+      const row = rows[0] as { id: number } | undefined;
+      if (!row) { blobs.delete(blobKey); badRequest("This awakening could not be saved."); }
+      awakened.push(await awakenedPayloadById(row.id));
+    }
+    advanceEntranceStep(ownerKey, "wake", "done");
+    return { ok: true as const, awakened };
   },
 
   /** WIELD (Nigel, 2026-10-19 — the Arsenal law): weapons are

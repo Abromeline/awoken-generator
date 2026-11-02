@@ -15,6 +15,7 @@ import { adoptVisitorState } from "./adopt.js";
 import { suggestTenderName } from "./naming.js";
 import { grantCredits } from "./credits.js";
 import { CREDITS_PER_PACK } from "./config.js";
+import { markEntranceClaim } from "./entrance.js";
 
 export type TenderRow = typeof schema.tenders.$inferSelect;
 
@@ -182,9 +183,9 @@ function badRequest(message: string): never {
  * welcome progress) onto the new account so nothing is stranded — and so
  * an already-welcomed browser does not grant itself a second 20.
  */
-export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean }> {
+export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean; entrance?: boolean }> {
   const parsed = z
-    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional(), email: z.string().trim().email().max(200).optional() })
+    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional(), email: z.string().trim().email().max(200).optional(), entrance: z.boolean().optional() })
     .safeParse(args);
   if (!parsed.success) badRequest("A name and password of at least 8 characters.");
   // The key is given, never chosen — it is the account's immutable lock.
@@ -210,11 +211,13 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
   // adoption declines and the original minimal migration below still
   // carries the credits and waiting welcome across, exactly as before.
   let granted = false;
+  let adoptedState = false;
   if (softVisitorId) {
     const softRows = await db.select().from(schema.visitors).where(eq(schema.visitors.visitorId, softVisitorId)).limit(1);
     const soft = softRows[0];
     if (soft) granted = soft.welcomeWakesGranted === 1;
     const adopted = await adoptVisitorState(softVisitorId, ownerKey);
+    adoptedState = adopted;
     if (!adopted && soft) {
       await db.update(schema.creditLedger).set({ userId: ownerKey }).where(eq(schema.creditLedger.userId, softVisitorId));
       await db.update(schema.pendingWelcomes).set({ visitorId: ownerKey }).where(eq(schema.pendingWelcomes.visitorId, softVisitorId));
@@ -229,6 +232,15 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
       // cannot re-trigger a fresh welcome for the same browser.
     }
   }
+  // THE DOOR (ENTRANCE BUILD 1, 2026-11-01): a claim that asks
+  // for the entrance — and only a claim with no welcomed past
+  // behind it (nothing granted, nothing adopted: a browser that
+  // already received its welcome, or whose state was adopted,
+  // already walks the old road and keeps it whole) — is marked
+  // as an entrance account. Its welcome is NOT 20 spendable
+  // credits: the 20 are recorded as its award pool, 0 spendable
+  // until Build 2's tutorial sections pay them out.
+  const isEntranceClaim = parsed.data.entrance === true && !granted && !adoptedState;
   if (!granted) {
     const existing = await db.select().from(schema.visitors).where(eq(schema.visitors.visitorId, ownerKey)).limit(1);
     if (!existing[0]) {
@@ -238,13 +250,20 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
     } else if (existing[0].welcomeWakesGranted !== 1) {
       await db.update(schema.visitors).set({ welcomeWakesGranted: 1 }).where(eq(schema.visitors.visitorId, ownerKey));
     }
-    await grantCredits(ownerKey, CREDITS_PER_PACK, "welcome");
+    if (isEntranceClaim) {
+      markEntranceClaim(ownerKey);
+    } else {
+      await grantCredits(ownerKey, CREDITS_PER_PACK, "welcome");
+    }
   }
 
   const fresh = await db.select().from(schema.tenders).where(eq(schema.tenders.id, tender.id)).limit(1);
   // Referral: if a refCode was provided, birth a twin of the inviter's champion (or random Awoken)
   let twinBirthed = false;
-  if (parsed.data.refCode) {
+  // An entrance claim births no referral twin: the door's three
+  // must be the account's first three, in hatch order, the first
+  // carrying the greeter mark (ENTRANCE BUILD 1).
+  if (parsed.data.refCode && !isEntranceClaim) {
     const refRows = await db.select().from(schema.referralCodes)
       .where(eq(schema.referralCodes.code, parsed.data.refCode.toUpperCase())).limit(1);
     if (refRows.length) {
@@ -284,7 +303,7 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
   }
 
   const token = await createSession(tender.id);
-  return { token, tender: publicTender(fresh[0] ?? tender), twinBirthed };
+  return { token, tender: publicTender(fresh[0] ?? tender), twinBirthed, entrance: isEntranceClaim };
 }
 
 /** Log in with Tender name + password, or secret key + password as fallback. */
