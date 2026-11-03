@@ -4407,7 +4407,16 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   heart, keeping its 16:9 shape, screen-
                   blended — never the old 80px unblended
                   per-hex marker — and standing 3700 ms while
-                  the gif plays its full 3410 ms through. */}
+                  the gif plays its full 3410 ms through.
+                  HALVED (Nigel, 2026-11-03, on the ported
+                  fall: "Reduce the size of the ui for shard
+                  rain by 50%"): the image stands at HALF the
+                  demo's width — 190px on its measure, 3.225
+                  pitches — its height keeping the 16:9 shape
+                  and its top (120/380 of its width, a
+                  fraction OF the width) scaling with it, the
+                  One-Map Law carrying the homeland's halving
+                  here unchanged. */}
               {(shared.rainFalls ?? []).filter(f => nowMs - f.at < 3700).map(f => {
                 const pts = f.hexes.map(hx => centerOf(hx)).filter((c): c is NonNullable<typeof c> => !!c);
                 if (!pts.length) return null;
@@ -4415,7 +4424,7 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                 const cy = pts.reduce((a, p) => a + p.cy, 0) / pts.length;
                 const step = isoOffset(1, 0, TILE_SIZE);
                 const pitch = Math.hypot(step.px, step.py);
-                const w = pitch * (380 / (Math.sqrt(3) * 34));
+                const w = pitch * (190 / (Math.sqrt(3) * 34));
                 return (
                   <g key={`rain-${f.id}`} pointerEvents="none">
                     <image href={ANIMATED_GLYPH.shardrain}

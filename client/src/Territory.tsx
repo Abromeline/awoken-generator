@@ -5877,6 +5877,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // covered ground (the covered tiles stand symmetric
     // around the writing's hex, so their centroid is
     // that hex's heart), and the window is RAIN_FALL_MS.
+    // HALVED (Nigel, 2026-11-03, on the ported fall:
+    // "Reduce the size of the ui for shard rain by
+    // 50%"): the image stands at HALF the demo's width —
+    // 190px on its measure, 3.225 pitches — its height
+    // keeping the 16:9 shape and its top (120/380 of its
+    // width, a fraction OF the width) scaling with it.
+    // His word amends the port; the file, the blend, the
+    // centroid and the window are the port's, unchanged.
     // ONE image per fall — never a copy per hex. The
     // falls in rainFallFx are the server's witnessed
     // falls (noteRainFalls), never a local guess: a fall
@@ -5894,7 +5902,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const cy = pts.reduce((a, p) => a + p.cy, 0) / pts.length;
           const step = isoOffset(1, 0, size);
           const pitch = Math.hypot(step.px, step.py);
-          const w = pitch * (380 / (Math.sqrt(3) * 34));
+          const w = pitch * (190 / (Math.sqrt(3) * 34));
           return (
             <image key={`rain-${f.id}`} data-rain-fall={f.id}
               href={ANIMATED_GLYPH.shardrain}

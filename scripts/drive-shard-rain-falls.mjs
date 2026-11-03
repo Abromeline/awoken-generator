@@ -36,6 +36,12 @@
 //      play — still falling at ~2.5 s, past the 1800 ms
 //      cut the first pass shipped — then clearing; and
 //      a cast on cursed empty ground puts NOTHING there.
+//      THE SIZE IS HALVED (Nigel's amendment, 2026-11-03:
+//      "Reduce the size of the ui for shard rain by
+//      50%"): the image stands ≈3.225 pitches wide — the
+//      section measures the ground's own E-step pitch
+//      off the hit hexes beside the fall's heart and
+//      holds the rendered width to that measure.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-shard-rain-falls.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -304,6 +310,40 @@ console.log("§E the map draws the rain when it falls — and nothing on empty g
       `count=${fallEl?.count}`);
     ok("the image keeps the proving ground's shape and way: 16:9, screen-blended", !!fallEl && Math.abs(fallEl.w / fallEl.h - 16 / 9) < 0.05 && fallEl.blend === "screen",
       `w=${fallEl?.w} h=${fallEl?.h} blend=${fallEl?.blend}`);
+    // THE HALVED MEASURE (Nigel's amendment, 2026-11-03):
+    // the fall's rendered width against the ground's own
+    // E-step pitch — the pitch the code itself reckons by
+    // (isoOffset(1,0): the lattice's E vector, direction
+    // (1292,470)). Read on the page in CSS px: the fall
+    // image's own rect, and the hit hexes' rect centres —
+    // the nearest centre from the fall's heart along the
+    // E direction is one pitch away.
+    const sizeInfo = await page.evaluate(() => {
+      const el = document.querySelector("[data-rain-fall]");
+      if (!el) return null;
+      const fr = el.getBoundingClientRect();
+      const cx = (fr.left + fr.right) / 2, cy = (fr.top + fr.bottom) / 2;
+      const angE = Math.atan2(470, 1292);
+      let pitch = Infinity;
+      for (const p of document.querySelectorAll('polygon[fill="rgba(0,0,0,0)"]')) {
+        const r = p.getBoundingClientRect();
+        if (!r.width) continue;
+        const dx = (r.left + r.right) / 2 - cx, dy = (r.top + r.bottom) / 2 - cy;
+        const d = Math.hypot(dx, dy);
+        if (d < 6) continue;
+        let da = Math.atan2(dy, dx) - angE;
+        while (da > Math.PI) da -= 2 * Math.PI;
+        while (da < -Math.PI) da += 2 * Math.PI;
+        if (Math.abs(da) < 0.12 && d < pitch) pitch = d;
+      }
+      return { rectW: fr.width, rectH: fr.height, pitch: pitch === Infinity ? 0 : pitch };
+    });
+    const ratio = sizeInfo && sizeInfo.pitch > 0 ? sizeInfo.rectW / sizeInfo.pitch : 0;
+    ok("the fall stands at the halved measure — ≈3.225 pitches wide, 16:9 kept (Nigel's amendment)", !!sizeInfo && sizeInfo.pitch > 0 && ratio > 3.02 && ratio < 3.43 && Math.abs(sizeInfo.rectW / sizeInfo.rectH - 16 / 9) < 0.05,
+      `rectW=${sizeInfo?.rectW?.toFixed(1)} pitch=${sizeInfo?.pitch?.toFixed(1)} ratio=${ratio.toFixed(3)}`);
+    if (fallEl) {
+      await page.screenshot({ path: `${OUT}/06-fall-half-size.png` });
+    }
     if (fallEl) {
       await sleep(500);
       await page.screenshot({ path: `${OUT}/04-fall-correct-file.png` });
