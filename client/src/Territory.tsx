@@ -755,6 +755,56 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (s.hit) setTimeout(() => playElementSound(s.element, "hit"), wait + flightMs);
     }
   };
+  // ── THE RAIN'S WITNESS (Nigel's play report, 2026-11-03:
+  // the rain was "not casting when clicked as it should,
+  // summoning the png flip book") ─────────────────────────
+  // A fall of Shard Rain rides every territory read in the
+  // rainFalls record — the server's own witness that the
+  // sky opened, over which ground, over how many of the
+  // dark. A NEW fall draws Nigel's drawn rain
+  // (ANIMATED_GLYPH.shardrain — shard-rain.gif, the rain he
+  // drew for this spell, bound as its face in the book) AS
+  // THE SPELL'S OWN PROVING GROUND PLAYS IT — the demo of
+  // 2026-10-17 (your_files/shard-rain-demo.html, where the
+  // spell was proven before it was built; Nigel's
+  // correction, 2026-11-03: "Shard rain plays the correct
+  // file in the proving grounds"): ONE image laid over the
+  // whole fall, screen-blended, standing for the gif's
+  // full play — the measures live at the fall layer below
+  // (RAIN_W below). The first read only sets the
+  // watermark — the witness reaches two minutes back, and
+  // the map does not replay a fall it did not watch,
+  // exactly as the strike witness stands. No fall is ever
+  // invented here: the server records one only where the
+  // dark truly stood under the writing.
+  const RAIN_FALL_MS = 3700;
+  const [rainFallFx, setRainFallFx] = useState<{ id: number; at: number; tileIds: number[] }[]>([]);
+  const rainIdSeenRef = useRef(0);
+  const rainWitnessInitRef = useRef(false);
+  const noteRainFalls = (falls: import("./api").HomelandRainFall[] | null | undefined) => {
+    // The watermark is set by the FIRST applied snapshot,
+    // empty list or no — a fall is a rare, single event,
+    // and the strike witness's init-on-first-nonempty-list
+    // would swallow the very first fall whole (the list
+    // would BE that fall). Falls struck before this map
+    // opened stand in the first list and are watermarked,
+    // never replayed; every fall after it is witnessed.
+    if (!rainWitnessInitRef.current) {
+      rainWitnessInitRef.current = true;
+      rainIdSeenRef.current = falls && falls.length ? Math.max(...falls.map(f => f.id)) : 0;
+      return;
+    }
+    if (!falls || !falls.length) return;
+    const maxId = Math.max(...falls.map(f => f.id));
+    const fresh = falls.filter(f => f.id > rainIdSeenRef.current);
+    if (!fresh.length) return;
+    rainIdSeenRef.current = maxId;
+    for (const f of fresh) {
+      const entry = { id: f.id, at: f.at, tileIds: f.tileIds };
+      setRainFallFx(prev => [...prev.slice(-7), entry]);
+      setTimeout(() => setRainFallFx(prev => prev.filter(x => x.id !== f.id)), RAIN_FALL_MS + 120);
+    }
+  };
   // THE WEAPON'S FLIGHT (the Proving Ground's motion, ported
   // 2026-10-20): a witnessed strike becomes a flight of the
   // weapon itself — the bladed forms jab and return on the
@@ -2062,6 +2112,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setDefenceWorks(refreshed.defenceWorks ?? []);
     noteWeaponStrikes(refreshed.weaponStrikes, refreshed.weaponStrike);
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
+    noteRainFalls(refreshed.rainFalls);
     if (typeof refreshed.terrainBank === "number") setTerrainBank(refreshed.terrainBank);
     noteFieldLosses(refreshed);
     if (snap.seeds) setMapSeeds(snap.seeds);
@@ -3763,6 +3814,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             ? `${formName} rises — ${res.shields ?? 0} shield${(res.shields ?? 0) === 1 ? "" : "s"} stand in a line across your aim, each with ${res.shieldHp ?? 0} HP. What strikes them is shoved back a tile.`
             : castSpell.kind === "ward"
             ? `${formName} rises across your aim — the Written Light stands in a line on your land, and the line is guarded.`
+            : castSpell.engine === "shardrain"
+            // SHARD RAIN'S OWN WORDS (Nigel's play report,
+            // 2026-11-03): the cast speaks only what truly
+            // stood under the rain. A fall means the dark
+            // stood there — the old shared line ("the dark
+            // and the curse take its harm") spoke of the
+            // dark even when the rain had sprung on cursed
+            // ground alone with no enemy under it; the rain
+            // no longer springs there at all, and an empty
+            // cast is spoken as what it is: a writing that
+            // waits.
+            ? res.sprung
+              ? res.felled
+                ? `${formName} FALLS as it is written — the sky opens, and the dark standing under it falls.`
+                : res.purified
+                  ? `${formName} FALLS as it is written — the dark under it takes the rain's harm, and the curse on that ground BREAKS.`
+                  : `${formName} FALLS as it is written — the sky opens over the dark standing under it${(res.ground ?? 0) > 0 ? ", and the rain grinds the curse on its ground" : ""}.`
+              : `${formName} is written into the ground — the rain waits for the dark to stand under it.`
             : res.purified
               ? `${formName} springs — and the curse on that ground BREAKS. The hex is yours.`
               : res.felled
@@ -5786,6 +5855,63 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         })}
       </g>
     );
+    // SHARD RAIN FALLS (the rain's witness, 2026-11-03):
+    // when the rain springs, the fall is drawn AS THE
+    // SPELL'S OWN PROVING GROUND PLAYS IT — the demo of
+    // 2026-10-17 (your_files/shard-rain-demo.html, where
+    // the spell was proven before it was built), ported
+    // WHOLE under the porting law (Nigel's correction,
+    // 2026-11-03: "Shard rain plays the correct file in
+    // the proving grounds"). The demo's measures, in its
+    // own numbers: its hexes stand R=34 apart (centre
+    // pitch √3·34 ≈ 58.9px), and the rain is ONE image
+    // 380px wide — 6.45 pitches — centred on the cast
+    // hex, its top 120px (0.316 of its width) above the
+    // hex's centre, keeping its 16:9 shape, laid over
+    // the ground screen-blended ("laid over the hexes
+    // the meteor way: light on black, screen-blended,
+    // so the blades fall"), and it stands 3700 ms while
+    // the gif plays its full 3410 ms once through. Here
+    // the pitch is this ground's own E-step between tile
+    // centres, the anchor is the heart of the fall's
+    // covered ground (the covered tiles stand symmetric
+    // around the writing's hex, so their centroid is
+    // that hex's heart), and the window is RAIN_FALL_MS.
+    // HALVED (Nigel, 2026-11-03, on the ported fall:
+    // "Reduce the size of the ui for shard rain by
+    // 50%"): the image stands at HALF the demo's width —
+    // 190px on its measure, 3.225 pitches — its height
+    // keeping the 16:9 shape and its top (120/380 of its
+    // width, a fraction OF the width) scaling with it.
+    // His word amends the port; the file, the blend, the
+    // centroid and the window are the port's, unchanged.
+    // ONE image per fall — never a copy per hex. The
+    // falls in rainFallFx are the server's witnessed
+    // falls (noteRainFalls), never a local guess: a fall
+    // stands here only because the sky truly opened over
+    // dark standing on that ground.
+    const rainFallLayer = (
+      <g key="rain-falls" pointerEvents="none">
+        {rainFallFx.map((f) => {
+          const pts = f.tileIds
+            .map((tid) => tiles.find((tt) => tt.id === tid))
+            .filter((t): t is NonNullable<typeof t> => !!t)
+            .map((t) => tilePos(t));
+          if (!pts.length) return null;
+          const cx = pts.reduce((a, p) => a + p.cx, 0) / pts.length;
+          const cy = pts.reduce((a, p) => a + p.cy, 0) / pts.length;
+          const step = isoOffset(1, 0, size);
+          const pitch = Math.hypot(step.px, step.py);
+          const w = pitch * (190 / (Math.sqrt(3) * 34));
+          return (
+            <image key={`rain-${f.id}`} data-rain-fall={f.id}
+              href={ANIMATED_GLYPH.shardrain}
+              x={cx - w / 2} y={cy - w * (120 / 380)} width={w} height={w * (360 / 640)}
+              style={{ mixBlendMode: "screen" }} />
+          );
+        })}
+      </g>
+    );
     // The ward aim layer the two-tap flow once drew (the
     // anchor hex's glowing edges) is GONE (Nigel, 2026-10-24
     // 22:35): one tap aims a ward completely now, in a T —
@@ -6981,6 +7107,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {standingsFront.map(it => it.node)}
           {columnsLayer}
           {dropFxLayer}
+          {rainFallLayer}
           {patrolGuideLayer}
           {lineLayer}
           {bandLayer}

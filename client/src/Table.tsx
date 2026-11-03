@@ -4386,22 +4386,53 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                 }
                 return null;
               })}
-              {/* SHARD RAIN FALLS (Phase C): when the rain
-                  springs, Nigel's drawn shard-rain.gif falls
-                  over every covered hex for the fall's moment.
-                  (The standing rune already wears the same gif
-                  as its glyph — ANIMATED_GLYPH.shardrain in
-                  effects.ts IS shard-rain.gif — this is the
-                  fall itself, at the hexes it covers.) */}
-              {(shared.rainFalls ?? []).filter(f => nowMs - f.at < 1800).map(f => (
-                <g key={`rain-${f.id}`} pointerEvents="none">
-                  {f.hexes.map(hx => {
-                    const c = centerOf(hx);
-                    if (!c) return null;
-                    return <image key={hx} href={ANIMATED_GLYPH.shardrain} x={c.cx - 40} y={c.cy - 44} width={80} height={80} opacity={0.92} style={{ filter: "drop-shadow(0 0 6px #cdb9ff)" }} />;
-                  })}
-                </g>
-              ))}
+              {/* SHARD RAIN FALLS (Phase C; the fall's face
+                  corrected 2026-11-03): when the rain springs,
+                  the fall is drawn AS THE SPELL'S OWN PROVING
+                  GROUND PLAYS IT — the demo of 2026-10-17
+                  (your_files/shard-rain-demo.html), ported
+                  WHOLE under the porting law, the One-Map Law
+                  carrying the homeland's corrected fall here
+                  unchanged: Nigel's drawn shard-rain.gif (the
+                  same gif the standing rune wears as its glyph
+                  — ANIMATED_GLYPH.shardrain in effects.ts) as
+                  ONE image over the heart of the fall's
+                  covered ground (the centroid of its hexes —
+                  the covered hexes stand symmetric around the
+                  writing's hex, so the centroid is that hex's
+                  heart), 380px wide on the demo's 58.9px hex
+                  pitch (6.45 pitches; here the pitch is this
+                  ground's own E-step between tile centres),
+                  its top 120/380 of its width above the
+                  heart, keeping its 16:9 shape, screen-
+                  blended — never the old 80px unblended
+                  per-hex marker — and standing 3700 ms while
+                  the gif plays its full 3410 ms through.
+                  HALVED (Nigel, 2026-11-03, on the ported
+                  fall: "Reduce the size of the ui for shard
+                  rain by 50%"): the image stands at HALF the
+                  demo's width — 190px on its measure, 3.225
+                  pitches — its height keeping the 16:9 shape
+                  and its top (120/380 of its width, a
+                  fraction OF the width) scaling with it, the
+                  One-Map Law carrying the homeland's halving
+                  here unchanged. */}
+              {(shared.rainFalls ?? []).filter(f => nowMs - f.at < 3700).map(f => {
+                const pts = f.hexes.map(hx => centerOf(hx)).filter((c): c is NonNullable<typeof c> => !!c);
+                if (!pts.length) return null;
+                const cx = pts.reduce((a, p) => a + p.cx, 0) / pts.length;
+                const cy = pts.reduce((a, p) => a + p.cy, 0) / pts.length;
+                const step = isoOffset(1, 0, TILE_SIZE);
+                const pitch = Math.hypot(step.px, step.py);
+                const w = pitch * (190 / (Math.sqrt(3) * 34));
+                return (
+                  <g key={`rain-${f.id}`} pointerEvents="none">
+                    <image href={ANIMATED_GLYPH.shardrain}
+                      x={cx - w / 2} y={cy - w * (120 / 380)} width={w} height={w * (360 / 640)}
+                      style={{ mixBlendMode: "screen" }} />
+                  </g>
+                );
+              })}
               {/* Everyone standing — and walking — back to front. */}
               {figures.map(f => f.node)}
               {/* The round's strikes, flown from tile to tile
