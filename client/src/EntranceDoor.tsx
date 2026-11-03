@@ -94,6 +94,16 @@ const CLASS_LAW_SHORT: Record<TenderClassId, string> = {
  * ceremony is the standing one, three times over in one
  * presentation, and the way onward is the standing
  * ceremony's own plain control: Keep.
+ *
+ * THE BOX REMOVED (Nigel, 2026-11-03): the three first stood
+ * inside the door panel's own box (.entrance-ceremony-card —
+ * a dark panel with a gold border). He struck it: "remove
+ * the extra box that the cards are poping in but keep the
+ * cards". The ceremony now rides the standing ceremony's own
+ * presentation — WakeRitual's .ceremony-card-layer with its
+ * plain dim backdrop — and the trio's only parent is a bare
+ * structural frame (.entrance-ceremony-frame) that paints
+ * nothing: no background, no border, no shadow.
  */
 export function EntranceCeremony({ trio, whispers, onDone }: {
   trio: Awakened[];
@@ -117,8 +127,9 @@ export function EntranceCeremony({ trio, whispers, onDone }: {
     return el === "neutral" ? null : el;
   };
   return (
-    <div className="entrance-ceremony" role="dialog" aria-label="Three Awoken wake">
-      <div className="entrance-ceremony-card">
+    <div className="ceremony-card-layer entrance-ceremony" role="dialog" aria-label="Three Awoken wake">
+      <div className="ceremony-card-backdrop" aria-hidden="true" />
+      <div className="entrance-ceremony-frame">
         <div className="entrance-trio">
           {trio.map((item, i) => {
             const burnBody = burnFor(item, "body");
