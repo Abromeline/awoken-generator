@@ -661,6 +661,19 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   const [doorPrivacy, setDoorPrivacy] = useState<"public" | "password">("public");
   const [doorWord, setDoorWord] = useState("");
   const [notice, setNotice] = useState("");
+  // THE MISSCASTS (Nigel, 2026-11-03): where MY cast's roll
+  // falls short, no notice line reads the failure — the word
+  // MISSCAST in glowing red pops beside the ground I tapped,
+  // flashes twice on its CSS clock (theme.css's
+  // miscast-flash, 1.2 s — the homeland's one class), and is
+  // gone. The state forgets each pop as its flash ends.
+  const MISCAST_MS = 1200;
+  const [miscastPops, setMiscastPops] = useState<{ id: string; x: number; y: number }[]>([]);
+  const pushMiscastPop = (x: number, y: number) => {
+    const id = `miscast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setMiscastPops((prev) => [...prev.slice(-3), { id, x, y }]);
+    setTimeout(() => setMiscastPops((prev) => prev.filter((p) => p.id !== id)), MISCAST_MS + 120);
+  };
   const [devMode, setDevMode] = useState(false);
   const [devName, setDevName] = useState("");
   const [shared, setShared] = useState<SharedState | null>(null);
@@ -1121,6 +1134,10 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // server's castAt echo and face their newest working.
   const castAnimRef = useRef(new Map<string, { startedAt: number; dir: TenderDir }>());
   const ownCastMarkRef = useRef(0);
+  // The ground my last cast was fired at (stage coords, with
+  // its moment) — the miscast's pop stands beside THAT click
+  // when the referee's tale brings the fizzle home.
+  const ownCastTargetRef = useRef<{ x: number; y: number; at: number } | null>(null);
   // THE SUMMON SEQUENCE'S RECKONING (Nigel, 2026-10-23): the
   // unit keys this screen has already seen standing, and each
   // standing unit's last drawn ground point — the field diff
@@ -1137,6 +1154,7 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
     const dir = from && to ? tenderDirOf(to.cx - from.cx, to.cy - from.cy) : "S";
     castAnimRef.current.set(you.key, { startedAt: Date.now(), dir });
     ownCastMarkRef.current = Date.now();
+    if (to) ownCastTargetRef.current = { x: to.cx, y: to.cy, at: Date.now() };
   };
 
   // THE RUN'S END (Nigel, 2026-10-20): unloading drops the
@@ -1273,7 +1291,22 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
     if (Date.now() - ownCastMarkRef.current > 15000) return;
     const mine = fresh.find(t => t.text.startsWith(`${you.name}'s `) && t.text.includes("unravels —") && t.text.includes("the roll falls short."));
     if (!mine) return;
-    setNotice(`${mine.text} The working stays readied in your hand — tap the ground to cast it again.`);
+    // THE MISSCAST'S FACE (Nigel, 2026-11-03): the tale keeps
+    // the referee's line — the room's record, read by every
+    // seat — but MY screen no longer reads the failure out in
+    // a notice sentence. The word MISSCAST in glowing red
+    // pops beside the ground I tapped for this cast (my own
+    // standing point, if the cast named no ground), flashes
+    // twice, and is gone. The working stays readied exactly
+    // as before; nothing here unloads it.
+    const tgt = ownCastTargetRef.current;
+    const me = shared.players.find(p => p.key === you.key);
+    let fx: number | undefined;
+    let fy: number | undefined;
+    if (tgt && Date.now() - tgt.at < 15000) { fx = tgt.x; fy = tgt.y; }
+    else if (me?.pos) { fx = me.pos.x; fy = me.pos.y; }
+    else if (me?.hex) { const c = centerOf(me.hex); if (c) { fx = c.cx; fy = c.cy; } }
+    if (fx != null && fy != null) pushMiscastPop(fx, fy);
   }, [shared]);
   // WASD GLIDES THE TENDER (Phase B): the lattice's own
   // compass — Q/W/E across the top arc, A/S/D below it,
@@ -4545,6 +4578,15 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   );
                 })}
               </g>
+              {/* THE MISSCASTS (Nigel, 2026-11-03): the glowing
+                  red word, standing above the ground I tapped
+                  for the cast that failed — it flashes twice on
+                  its CSS clock and the state forgets it. Nothing
+                  else is written: no line, no sentence, no
+                  reckoning. */}
+              {miscastPops.map((p) => (
+                <text key={p.id} className="miscast-pop" data-miscast-pop="" x={p.x} y={p.y - 34} fontSize={15} textAnchor="middle" pointerEvents="none">MISSCAST</text>
+              ))}
             </g>
             </svg>
             )}

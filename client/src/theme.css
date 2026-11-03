@@ -2811,6 +2811,16 @@ body.defeat-flash {
 .dock-card.dock-court-champion{box-shadow:0 0 0 2.5px #e3c565,0 0 0 4.5px #6d5518,0 0 0 6px rgba(12,10,5,.94),0 6px 16px rgba(8,6,2,.6),0 0 16px rgba(212,175,55,.45)}
 .hex-notice{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:91;width:min(560px,92vw);padding:10px 14px;background:rgba(43,26,13,0.96);border:1px solid #d08a3e;border-radius:8px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
 .hex-notice p{margin:0;color:#f3ddba}
+/* THE MISSCAST'S FACE (Nigel, 2026-11-03): a failed cast speaks
+   no sentence — the word MISSCAST in glowing red pops beside the
+   target click, flashes twice, and is gone. One class serves
+   both grounds: the homeland's map and the Table's board are
+   both SVG stages and this stylesheet rides both faces. The
+   word's life is this one animation (two bright pulses, then
+   out); the state that carries it forgets it as the animation
+   ends. */
+.miscast-pop{font-family:var(--display);font-weight:700;letter-spacing:.16em;fill:#ff5347;stroke:rgba(56,2,0,0.88);stroke-width:3.5px;paint-order:stroke;filter:drop-shadow(0 0 7px rgba(255,64,44,0.95)) drop-shadow(0 0 2px rgba(255,110,90,0.9));animation:miscast-flash 1.2s ease-out forwards;pointer-events:none}
+@keyframes miscast-flash{0%{opacity:0}14%{opacity:1}36%{opacity:.05}58%{opacity:1}82%{opacity:1}100%{opacity:0}}
 
 .corruption-glow{animation:corruptionPulse 4.2s ease-in-out infinite}
 @keyframes corruptionPulse{0%,100%{opacity:.7}50%{opacity:1}}
