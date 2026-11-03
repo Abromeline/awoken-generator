@@ -10,7 +10,7 @@
  * here, in the same order as the homeland door (EntranceDoor
  * on the front page): account name + password BEFORE anything
  * → choose class → choose spell (Bats, Shard Rain, or Rune
- * Hold — the door's three) → choose favourite weapon → BOOM,
+ * Hold — the door's three) → choose favourite weapon →
  * three Awoken wake at once → the first three stand as her
  * party, and she is seated. The three stand ON TOP of the
  * original twenty: the claim lays no spendable credits — the
@@ -61,6 +61,17 @@
  * door's drafts, mirrored word-for-word from EntranceDoor.tsx
  * (Nigel's polish, when it comes, must touch both faces —
  * they are named as twins below).
+ *
+ * THE PLAIN CEREMONY (Nigel's ruling, 2026-11-02): the
+ * waking is THE STANDING WAKE CEREMONY with three cards
+ * instead of one — the cards, their corner burns, and each
+ * card's own whisper, and NO text of its own around them.
+ * The heading, the eyebrow and the "BOOM" line the first
+ * build dressed the ceremony in are struck, here and at
+ * the wake step before it: the step stands as its button
+ * alone, as a waking is spoken everywhere else in the
+ * game. The choosing steps keep their words whole — Nigel
+ * named the wake.
  *
  * This module is loaded lazily by Table.tsx, only when an
  * unbound visitor takes one of the intro offers — the
@@ -138,14 +149,18 @@ const CLASS_LAW_SHORT: Record<TenderClassId, string> = {
 };
 
 /**
- * THE THREE-CARD CEREMONY, MIRRORED (see the header): three
- * cards at once, on the homeland ceremony's own clock and in
- * its own stylesheet — the stage, the rails, the four corner
- * burns in their elemental colours rippling across the row,
- * the birth frame — with the woken one's own image standing
- * as the card's art, its name beneath, and its whisper
- * landing as the card settles. Tapping a card hastens the
- * ceremony to done, as the single card's does.
+ * THE THREE-CARD CEREMONY, MIRRORED (see the header): the
+ * standing wake ceremony with three cards instead of one —
+ * three cards at once, on the homeland ceremony's own clock
+ * and in its own stylesheet — the stage, the rails, the
+ * four corner burns in their elemental colours rippling
+ * across the row, the birth frame — with the woken one's
+ * own image standing as the card's art, its name beneath,
+ * and its whisper landing as the card settles. No heading
+ * and no text of its own stands around the cards (the
+ * plain ceremony, Nigel's ruling of 2026-11-02). Tapping
+ * a card hastens the ceremony to done, as the single
+ * card's does.
  */
 function IntroCeremony({ trio, whispers, onDone }: {
   trio: Awakened[];
@@ -170,9 +185,6 @@ function IntroCeremony({ trio, whispers, onDone }: {
   return (
     <div className="entrance-ceremony" role="dialog" aria-label="Three Awoken wake">
       <div className="entrance-ceremony-card">
-        <p className="eyebrow">The waking</p>
-        <h2>Three wake at once</h2>
-        <p className="entrance-ceremony-sub">BOOM — the matter gathers, and three forms cross over together. Each whispers as it wakes. Listen.</p>
         <div className="entrance-trio">
           {trio.map((item, i) => {
             const burnBody = burnFor(item, "body");
@@ -625,17 +637,6 @@ export default function TableIntro({
         )}
         {step === "wake" && (
           <>
-            <h2>The waking</h2>
-            <p>
-              Class chosen, spell chosen, weapon named — you are a Tender now, and the
-              matter is listening. Wake your first three, together.
-            </p>
-            <p>
-              Your welcome twenty are not spent here — they wait as your{" "}
-              <strong>award pool: {doorStatus.awardPool} wakes</strong>, earned along the
-              road ahead, five at a time as you learn the land. These three stand on top
-              of them.
-            </p>
             <div className="door-actions">
               <button type="button" className="table-btn primary" disabled={busy} onClick={() => void doorWakeThree()}>
                 {busy ? "The matter gathers…" : "Wake the three"}

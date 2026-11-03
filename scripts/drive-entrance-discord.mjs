@@ -22,13 +22,16 @@
 //      homeland reading shows the door DONE — no second trio
 //      can be woken, no second grant laid.
 //   §D THE DOOR IN A REAL BROWSER (screenshots →
-//      entrance-discord-proof/): RoomSeat's intro — the
+//      entrance-discord-proof/; the plain-ceremony shots →
+//      entrance-ceremony-proof/): RoomSeat's intro — the
 //      Discord door's class, spell and weapon steps, the
-//      wake step speaking the pool, the MIRRORED CEREMONY
-//      (three cards together, three whispers), the party
-//      gathered, the seating in the room — and the ledger
-//      agreeing. (The Test Ground tab's door keeps the old
-//      face whole; the standing intro drive walks that one.)
+//      wake step standing PLAIN (its button alone), the
+//      PLAIN MIRRORED CEREMONY (the standing ceremony,
+//      three cards instead of one — three whispers, no
+//      text of its own), the party gathered, the seating
+//      in the room — and the ledger agreeing. (The Test
+//      Ground tab's door keeps the old face whole; the
+//      standing intro drive walks that one.)
 //   §E THE OLD ROAD AT THIS DOOR: a pre-entrance Tender
 //      binding by the login road walks NO door steps and
 //      seats bound as she always did; and a claim carrying
@@ -57,6 +60,8 @@ const puppeteer = require2("puppeteer");
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = "/home/hatch/workspace/entrance-discord-proof";
 mkdirSync(OUT, { recursive: true });
+const PLAIN_OUT = "/home/hatch/workspace/entrance-ceremony-proof";
+mkdirSync(PLAIN_OUT, { recursive: true });
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "awoken-drive-entrance-discord-"));
 process.env.PORT = "3973";
 // Discord CONFIGURED (dummy keys) — the production door shape;
@@ -205,7 +210,7 @@ const weapon = await api("chooseWeapon", { weaponKey: "arrow" }, token);
 ok("§A the weapon step lands through the standing chooseWeapon", weapon.status === 200 && weapon.data.weaponKey === "arrow",
   `status ${weapon.status} ${JSON.stringify(weapon.data).slice(0, 120)}`);
 const woke = await api("entranceWakeThree", { items: await trioItems() }, token);
-ok("§A BOOM: the three wake at once", woke.status === 200 && (woke.data.awakened ?? []).length === 3,
+ok("§A the three wake at once", woke.status === 200 && (woke.data.awakened ?? []).length === 3,
   `status ${woke.status} ${JSON.stringify(woke.data).slice(0, 140)}`);
 const trioIds = (woke.data.awakened ?? []).map((a) => a.id);
 const expA = await api("getTenderExp", {}, token);
@@ -362,16 +367,25 @@ console.log("§D the Discord door, walked in the browser (screenshots → entran
   ok("§D the WEAPON STEP follows the spell", await waitText(page, "And your favourite weapon"));
   await page.screenshot({ path: `${OUT}/03-weapon-step.png` });
   ok("§D the weapon is named (the Spear)", await clickButtonExactText(page, "Take the Spear"));
-  ok("§D the WAKE STEP follows — and speaks the award pool before the waking",
-    await waitText(page, "Wake the three") && (await pageText(page)).includes("award pool: 20 wakes"));
+  ok("§D the WAKE STEP follows", await waitText(page, "Wake the three"));
+  const wakeStepText = await page.$eval(".table-intro", (el) => el.innerText).catch(() => "");
+  ok("§D the wake step stands PLAIN — its button alone, none of the struck text (no heading, no pool speech, no BOOM)",
+    wakeStepText.includes("Wake the three") && !wakeStepText.includes("The waking")
+      && !wakeStepText.includes("award pool") && !wakeStepText.includes("BOOM"),
+    wakeStepText.slice(0, 300));
   await page.screenshot({ path: `${OUT}/04-wake-step.png` });
+  await page.screenshot({ path: `${PLAIN_OUT}/discord-wake-step.png` });
   ok("§D the waking is spoken (Wake the three)", await clickButtonWithText(page, "Wake the three"));
   const ceremonyShown = await page.waitForFunction(
-    () => document.body.innerText.includes("Three wake at once")
+    () => !!document.querySelector(".entrance-ceremony")
       && document.querySelectorAll(".entrance-trio-one").length === 3,
     { timeout: 60000 }).then(() => true).catch(() => false);
-  ok("§D THE MIRRORED CEREMONY: three cards stand TOGETHER at the Discord door",
+  ok("§D THE PLAIN CEREMONY: three cards stand TOGETHER at the Discord door — the standing ceremony, three cards instead of one",
     ceremonyShown, (await pageText(page)).slice(0, 300));
+  const ceremonyText = await page.$eval(".entrance-ceremony", (el) => el.innerText).catch(() => "");
+  ok("§D the ceremony carries NO text of its own around the cards (no BOOM, no heading — the cards and their whispers are the whole of it)",
+    !ceremonyText.includes("BOOM") && !ceremonyText.includes("Three wake at once"),
+    ceremonyText.slice(0, 300));
   await sleep(1200);
   await page.screenshot({ path: `${OUT}/05-three-card-ceremony.png` });
   for (const [label, needle] of [
@@ -384,6 +398,7 @@ console.log("§D the Discord door, walked in the browser (screenshots → entran
       { timeout: 25000 }, needle).then(() => true).catch(() => false);
     ok(`§D ${label}`, spoken);
   }
+  await page.screenshot({ path: `${PLAIN_OUT}/discord-ceremony.png` });
   ok("§D the ceremony's end gathers the party", await clickButtonWithText(page, "Gather your party"));
   // RoomSeat's completion is the seating itself: the intro
   // hands back to the carried door, and the room opens on
