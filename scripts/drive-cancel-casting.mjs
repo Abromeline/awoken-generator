@@ -26,6 +26,18 @@
 //   §D THE ONE SURVIVOR: Shard Rain's picks still gather
 //      and its "Write the rain" button still stands —
 //      alone now, in no panel — and still casts.
+//   §E THE TENDER IS NOT THE CANCEL (Nigel, 2026-11-03
+//      14:32): "do not make the tender the target for
+//      cancel because the tender can be a target for a
+//      spell." At the Table, with the Blade readied, a tap
+//      on my OWN Tender figure is answered as a cast at my
+//      own tile — never as a set-down. The homeland half
+//      is pinned by code reading: the Tender figure group
+//      in Territory.tsx is pointerEvents="none" (line
+//      6555), so a click passes through her to the ground
+//      beneath; the one touch-form hit circle inside that
+//      group pops her controller and never touches the
+//      readied working either.
 // The box's absence is proven by DOM assertions (no
 // .placing-bar but the unit bar's own, no set-down text
 // anywhere), which is why no screenshot is needed to show
@@ -35,7 +47,7 @@
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-cancel-casting.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import Database from "../node_modules/better-sqlite3/lib/index.js";
 import { WebSocket } from "ws";
@@ -342,7 +354,7 @@ const placingArmed = (pg) => pg.evaluate(() => !!document.querySelector('.table-
 /* ══ §B THE TABLE — the bar never renders; right-click cancels ══ */
 console.log("§B the Table — the placing bar never renders; right-click cancels; the cast still lands");
 {
-  const S = await seatTable("Cancel Table", "cancel-casting");
+  const S = await seatTable("Tester", "cancel-casting");
   const grim = await call("getGrimoire", {}, S.T.token);
   const blade = (grim.spells ?? []).find((s) => s.engine === "blade");
   const bladeLabel = blade.root ?? blade.name;
@@ -351,7 +363,7 @@ console.log("§B the Table — the placing bar never renders; right-click cancel
   await page.setViewport({ width: 1500, height: 1000, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => console.log("[pageerror:table]", String(e).slice(0, 200)));
   await page.evaluateOnNewDocument((sess) => { window.__awokenTableSession = sess; },
-    { authToken: S.tt, room: "cancel-casting", name: "Cancel Table" });
+    { authToken: S.tt, room: "cancel-casting", name: "Tester" });
   await page.goto(BASE + "/table?frame_id=drive", { waitUntil: "domcontentloaded", timeout: 60000 });
   await openTestGround(page);
   await waitFor(() => !!S.mySeat()?.hex, "the watcher reads the seat and its hex", 20000);
@@ -538,6 +550,114 @@ console.log("§C the Table on a touch hand — tap the spell's slot, tap it agai
     `workings ${W0}->${S.workings().length} energy ${E0}->${S.mySeat().energy} tale ${tale0}->${(S.wstate.state?.tale ?? []).length}`);
   await page.close();
   S.wws.close();
+}
+
+/* ══ §E THE TENDER IS NOT THE CANCEL ══════════════════════ */
+console.log("§E the Tender is not the cancel — my own figure takes a cast, never a set-down");
+{
+  // THE LAW (Nigel, 2026-11-03 14:32): "do not make the
+  // tender the target for cancel because the tender can
+  // be a target for a spell." A tap on my own figure while
+  // a working stands readied must be answered as a cast at
+  // the tile I stand on — the Tender is a lawful spell
+  // target — and must NEVER unload the readied working.
+  // The Table's figure for me carries one hit circle
+  // (Table.tsx, the tender figures pass: r 24, fill
+  // transparent, pointerEvents "all" at my standing
+  // point); its handler is onTenderTap, which routes a
+  // placing tap to my own tile (onTileTap) — the Fix Pass
+  // of 2026-10-20 struck the old behaviour, where that
+  // circle swallowed the tap and silently cleared the
+  // readied card. This section pins the law so it cannot
+  // quietly grow back.
+  const S = await seatTable("Tender Tap", "cancel-tender-tap");
+  const grim = await call("getGrimoire", {}, S.T.token);
+  const blade = (grim.spells ?? []).find((s) => s.engine === "blade");
+  const bladeLabel = blade.root ?? blade.name;
+  const bladeCost = blade.cost ?? 2;
+
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1500, height: 1000, deviceScaleFactor: 1 });
+  page.on("pageerror", (e) => console.log("[pageerror:tender-tap]", String(e).slice(0, 200)));
+  await page.evaluateOnNewDocument((sess) => { window.__awokenTableSession = sess; },
+    { authToken: S.tt, room: "cancel-tender-tap", name: "Tender Tap" });
+  await page.goto(BASE + "/table?frame_id=drive", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await openTestGround(page);
+  await waitFor(() => !!S.mySeat()?.hex, "the watcher reads the tender-tap seat and its hex", 20000);
+  const myHex = S.mySeat().hex;
+
+  await page.mouse.click(750, 320, { button: "right" });
+  await page.waitForSelector(".gw-wheel", { timeout: 9000 });
+  await clickDisc(page, ".gw-disc.cat", "Rune");
+  await sleep(500);
+  await clickDisc(page, ".gw-disc", bladeLabel);
+  await sleep(500);
+  ok("§E setup: the Blade stands readied at the Table", await placingArmed(page));
+  const E0 = S.mySeat().energy, W0 = S.workings().length;
+
+  // The tap point: the centre of my figure's one hit
+  // circle — the point a player's tap on the Tender lands
+  // on. The elementFromPoint witness proves the tap truly
+  // falls on HER circle, not on bare ground beside her.
+  // (Probed honestly while this section was written: the
+  // first real tap after the wheel closes is swallowed by
+  // the stage — it neither casts nor unloads — and the
+  // second tap casts. The drive taps twice, as a player's
+  // hand would, and the law is asserted across both: at
+  // no tap may the working be set down.)
+  const tapMyFigure = async () => {
+    const figTap = await page.evaluate((nm) => {
+      const nameEl = [...document.querySelectorAll(".ts-name.tender")].find((x) => (x.textContent ?? "") === nm);
+      if (!nameEl) return null;
+      const g = nameEl.closest("g");
+      const hit = g ? [...g.querySelectorAll("circle")].find((c) => Number(c.getAttribute("r")) >= 20) : null;
+      if (!hit) return null;
+      const r = hit.getBoundingClientRect();
+      const x = r.x + r.width / 2, y = r.y + r.height / 2;
+      return { x, y, onHer: document.elementFromPoint(x, y) === hit };
+    }, "Tender Tap");
+    if (!figTap) throw new Error("§E: my Tender figure's hit circle never rendered");
+    ok("the tap point truly lands on my own Tender figure (her hit circle takes it)", figTap.onHer, JSON.stringify(figTap));
+    await page.mouse.click(figTap.x, figTap.y);
+  };
+  await tapMyFigure();
+  await sleep(1200);
+  ok("after a tap on my own Tender, the working STILL stands readied — the tap did not set it down",
+    await placingArmed(page));
+  await tapMyFigure();
+  // The referee's answer arrives as a written Blade on my
+  // hex, or as the purse paying the cast's price (a fizzle
+  // is still a cast attempted at my tile — the roll comes
+  // after the charge). Wait for either witness, then read
+  // the whole truth.
+  await waitFor(async () => S.workings().length > W0 || S.mySeat().energy < E0 || !(await placingArmed(page)), "the figure tap's answer", 8000).catch(() => {});
+  await sleep(600);
+
+  const castAtOwnTile = S.workings().some((w) => w.engine === "blade" && w.hex === myHex);
+  const stillArmed = await placingArmed(page);
+  const E1 = S.mySeat().energy;
+  ok("the taps on my own Tender were answered as casts at my own tile — a Blade stands written on my hex, or the purse paid the cast's price there",
+    castAtOwnTile || E1 < E0, `workings ${W0}->${S.workings().length} myHex=${myHex} hexes=${JSON.stringify(S.workings().map((w) => w.hex))} energy ${E0}->${E1}`);
+  ok("the taps NEVER set the working down — the placing still stands readied at the end of it",
+    stillArmed, `armed=${stillArmed} castAtOwnTile=${castAtOwnTile}`);
+  ok("the purse moved only in whole cast prices, never for a cancel",
+    (E0 - E1) % bladeCost === 0 && E1 <= E0,
+    `energy ${E0}->${E1} cost=${bladeCost}`);
+  await page.close();
+  S.wws.close();
+
+  // THE HOMELAND HALF, pinned by code reading: the Tender
+  // figure group in Territory.tsx (line 6555) is
+  // pointerEvents="none" — a click passes through her to
+  // the ground beneath, so no homeland tap on her can
+  // reach any cancel. (The one hit circle inside that
+  // group exists only on a touch hand; it pops her
+  // controller and never touches the readied working.)
+  const terrSrc = readFileSync(new URL("../client/src/Territory.tsx", import.meta.url), "utf8");
+  const figAt = terrSrc.indexOf('key="tender-figure"');
+  ok("the homeland half, by code reading: Territory.tsx's tender-figure group is pointerEvents=\"none\" — clicks pass through the Tender",
+    figAt >= 0 && terrSrc.slice(figAt, figAt + 64).includes('pointerEvents="none"'),
+    figAt >= 0 ? terrSrc.slice(figAt, figAt + 64) : "the tender-figure group was not found");
 }
 
 await browser.close();
