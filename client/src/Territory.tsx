@@ -5069,23 +5069,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               turns; it accumulates, and the filling IS the face:
               each element's texture stands at the opacity of its
               own ledger line, in the open. */}
-          {/* One info bar per hex (Nigel, 2026-10-15): the stack's
-              facts ride in the tile's badge cluster — Z (its trays),
-              the whole stack's power, and the top tray's HP, the
-              only skin erosion or an enemy can wound. Every purified
-              tile wears it (Nigel, 2026-10-16): ungrown land reads
-              Z1 · ⚔0 · ♥0 rather than staying silent, and the power
-              carries the crossed-swords mark — the same mark the
-              War-Grounds panel reads stack power by — never ✦,
-              which is the Tender's energy and nothing else's. */}
-          {!t.cursed && (
-            <g pointerEvents="none">
-              <rect x={cx - s * 0.98} y={cy + s * 0.80} width={s * 1.96} height={s * 0.36} rx={s * 0.18} fill="rgba(8,6,10,0.82)" />
-              <text x={cx} y={cy + s * 1.06} textAnchor="middle" fontSize={s * 0.26} fill="#f0e6cc">
-                {`Z${(t as any).height ?? 1} · ⚔${(((t as any).stackPower ?? 0) as number).toFixed(1).replace(/\.0$/, "")} · ♥${(t as any).topHp ?? 0}`}
-              </text>
-            </g>
-          )}
+          {/* The per-hex info bar stood here until 2026-11-03:
+              Z (its trays), the stack's power (⚔) and the top
+              tray's HP (♥) in a dark pill on every purified tile
+              — Nigel's ruling of 2026-10-15, extended to every
+              purified tile 2026-10-16. Struck by Nigel 2026-11-03:
+              "the white number behind the tiles" — the cream text
+              read through his terrain as pale fragments. The facts
+              themselves stand untouched in the tile data and in
+              the panels that read them; the face wears none. */}
           {/* THE BUILDING SYSTEM on the face (Nigel, 2026-10-19):
               a work under construction wears its stage — the
               element it is drinking, and the fill of its pours —
