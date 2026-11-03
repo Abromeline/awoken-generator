@@ -356,8 +356,13 @@ console.log("§2 the Table — one readying of the Blade, cast after cast; the p
   await waitFor(() => !!mySeat() && !!mySeat().hex, "watcher reads the seat and its hex", 20000);
   console.log(`    seat energy: ${mySeat().energy} / ${mySeat().maxEnergy}`);
 
-  const placingArmed = async () => page.evaluate(() => !!document.querySelector(".placing-bar"));
-  const placingText = async () => page.evaluate(() => document.querySelector(".placing-bar")?.textContent ?? "");
+  // RESTATED 2026-11-03 (the cancel build): the placing
+  // bar is struck — the armed signal is the pickable
+  // ground's gold glow, the overlay the placing itself
+  // paints. (The bar's old text check for WHICH working
+  // stands readied is gone with the bar; the casts below
+  // prove the readied working's name by what they stand.)
+  const placingArmed = async () => page.evaluate(() => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'));
   const noticeText = async () => page.evaluate(() => document.querySelector(".notice-line")?.textContent ?? "");
 
   let readyings = 0;
@@ -371,8 +376,8 @@ console.log("§2 the Table — one readying of the Blade, cast after cast; the p
     readyings++;
   };
   await readyCard(bladeRoot);
-  await waitPage(page, () => !!document.querySelector(".placing-bar"), "the placing stands armed");
-  ok("the Blade was readied through the wheel at the Table (readying #1) — the placing bar stands", await placingArmed());
+  await waitPage(page, () => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'), "the placing stands armed");
+  ok("the Blade was readied through the wheel at the Table (readying #1) — the placing stands armed", await placingArmed());
 
   // The tile lattice, solved as the cast-flow drive solves it.
   const buildPerm = async (pg, selector, tiles, size) => pg.evaluate(({ selector, tiles, size }) => {
@@ -488,7 +493,7 @@ console.log("§2 the Table — one readying of the Blade, cast after cast; the p
   ok("ONE readying served at least THREE consecutive casts at the Table", casts >= 3 && readyings === 1, `casts=${casts} readyings=${readyings}`);
   ok("the placing bar NEVER dropped during the run — the readied state stood after every cast", barDropped === 0, `drops=${barDropped}`);
   ok("a fizzle fell among the casts of the one readying at the Table", fizzles >= 1, `fizzles=${fizzles}`);
-  ok("after the fizzle the placing bar still stood (the readied state, made visible)", barAfterFizzle);
+  ok("after the fizzle the placing still stood armed (the readied state, made visible on the ground)", barAfterFizzle);
   ok("the fizzle's notice says the working STAYS readied", fizzleNotice.includes("stays readied"), fizzleNotice.slice(0, 180));
   ok("the tap AFTER the fizzle cast again at the Table, with no second readying", postFizzleCasts >= 1 && readyings === 1, `postFizzle=${postFizzleCasts}`);
   ok("a standing cast also fell in the Table run", standings >= 1, `standings=${standings}`);
@@ -498,8 +503,8 @@ console.log("§2 the Table — one readying of the Blade, cast after cast; the p
   await sleep(400);
   ok("the cancel set the Blade's placing down (the player's own unload still ends a run)", !(await placingArmed()));
   await readyCard(latticeRoot);
-  await waitPage(page, () => !!document.querySelector(".placing-bar"), "the Lattice placing stands armed");
-  ok("the Lattice was readied in the Blade's place (readying #2)", readyings === 2 && (await placingText()).includes("Lattice"), (await placingText()).slice(0, 120));
+  await waitPage(page, () => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'), "the Lattice placing stands armed");
+  ok("the Lattice was readied in the Blade's place (readying #2) — the placing stands armed; the casts below prove its name", readyings === 2 && (await placingArmed()));
   const bladeStandings0 = workings().filter((w) => w.engine === "blade").length;
   let latticeStood = 0, latticeAttempts = 0;
   for (const t of freshTiles()) {
