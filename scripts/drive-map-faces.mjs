@@ -16,6 +16,17 @@
 //   the tile layer — still stands. (Baseline at 9c3d783:
 //   33 "curse Lv N" labels rendered; after the strike: 0.)
 //
+// §BAR (2026-11-03: "i want the white number behind the
+//   tiles to be removed"): the per-hex info bar — a dark
+//   pill on every purified tile reading Z N · ⚔N · ♥N
+//   (Nigel's ruling of 2026-10-15) — is STRUCK. Its cream
+//   text read through his terrain as pale fragments. The
+//   tile facts stand untouched in the data and the panels;
+//   the face wears none. Proven on the rendered map in
+//   every section: no Z·⚔·♥ bar text stands anywhere.
+//   (Staged patch at this strike: 19 bars rendered before,
+//   0 after.)
+//
 // §SEEDS (10:35: "stars are still standing in the place
 //   where the meteor ui should be for the star seed. that
 //   is supposed to be in the faces pass"): an unrisen seed —
@@ -167,6 +178,7 @@ const snapshot = () => page.evaluate(() => {
     calmLabels: texts.filter(s => /^curse Lv \d+$/.test(s.trim())).length,
     curseTexts: texts.filter(s => s.includes("curse Lv")).length,
     hpTexts: texts.filter(s => /^♥\s*\d+$/.test(s.trim())).length,
+    barTexts: texts.filter(s => /^Z\d+ · ⚔/.test(s.trim())).length,
     thornTexts: texts.filter(s => /^🌵\s*\d+$/.test(s.trim())).length,
     goldStrokePolygons: [...document.querySelectorAll("polygon")]
       .filter(p => (p.getAttribute("stroke") || "").toLowerCase() === "#f0d68c").length,
@@ -189,6 +201,10 @@ const snapshot = () => page.evaluate(() => {
 });
 const snap = await snapshot();
 console.log("  rendered:", JSON.stringify(snap));
+
+console.log("§BAR the per-hex info bar is struck — no Z·⚔·♥ reading stands on any tile");
+ok("§BAR no per-hex info bar text (Z N · ⚔N · ♥N) stands anywhere on the rendered map (the bar is struck)",
+  snap.barTexts === 0, `barTexts=${snap.barTexts}`);
 
 if (wantCalm) {
   console.log("§CALM no curse level is read on the map; the HP and the thorns stand");
