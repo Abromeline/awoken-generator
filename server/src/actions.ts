@@ -5620,7 +5620,23 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
         else { const t = tiles.find((tt: any) => tt.id === x.tileId); if (t) cell = { q: t.q, r: t.r }; }
         return cell != null && hexDistTiles(tile, { q: cell.q, r: cell.r } as any) <= areaReach;
       });
-    if (!rainFoes.length && !tile.cursed) return none;
+    // THE RAIN WAITS FOR THE DARK (the page's own words,
+    // grimoire.ts: "when the dark stands on its covered
+    // ground, the sky opens once"; Nigel's play report,
+    // 2026-11-03: the cast "is just saying that it cast an
+    // effect the dark even if there is no enemy"). Until
+    // this fix the rain ALSO sprang on cursed ground alone —
+    // the pool rolled, the curse ground, the writing spent,
+    // and the cast spoke of the dark taking harm when no
+    // dark stood there at all. The curse alone never wakes
+    // it now: it waits for a TARGET, exactly as the Crown
+    // Shard below was ruled ("the curse alone never wakes
+    // it: it waits for a TARGET, as Nigel ruled it"). When
+    // the dark DOES stand under it, the curse on the
+    // writing's own ground is still ground by the whole
+    // pool, as it always has been — that grind rides a
+    // true fall, never replaces one.
+    if (!rainFoes.length) return none;
     // The sky opens ONCE: the pool is rolled whole — the base
     // dice plus one per attunement level snapshotted at the
     // cast — and SPLITS between every foe under the writing
@@ -5650,6 +5666,19 @@ async function springHomelandWorking(ownerKey: string, workingId: number, tiles:
       else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, x.id);
     }
     const g = tile.cursed ? await grindHomelandCurse(ownerKey, tile, pool, w.hue) : { ground: 0, purified: false };
+    // THE FALL IS WITNESSED (Nigel's play report,
+    // 2026-11-03: the rain was "not casting when clicked
+    // as it should, summoning the png flip book"): the
+    // fall is recorded in the rain witness, and the map
+    // draws Nigel's drawn rain (shard-rain.gif) over the
+    // covered ground as it falls — the Table's own law
+    // (table.ts: "THE FALL IS AN EVENT"), carried home.
+    // The covered ground is the writing's hex and, by the
+    // area reach snapshotted at the cast, the rings beyond.
+    const coveredIds = (tiles as any[])
+      .filter((t: any) => hexDistTiles(tile, t) <= areaReach)
+      .map((t: any) => Number(t.id));
+    recordHomelandRainFall(ownerKey, { at: Date.now(), tileIds: coveredIds, pool, foes: rainFoes.length });
     return { sprung: true, felled, ground: g.ground, purified: g.purified, pinned: false, thrown: false };
   }
   if (w.engine === "shard") {
@@ -6721,6 +6750,38 @@ function recordHomelandWeaponStrike(ownerKey: string, s: HomelandWeaponStrike): 
 }
 export function recentHomelandWeaponStrikes(ownerKey: string): HomelandWeaponStrike[] {
   const log = homelandWeaponLog.get(ownerKey) ?? [];
+  const keep = Date.now() - 120000;
+  return log.filter(x => x.at >= keep);
+}
+
+/** THE RAIN'S WITNESS (Nigel's play report, 2026-11-03):
+ *  when Shard Rain falls on this ground, the fall is an
+ *  EVENT, as it has always been at the Table (table.ts's
+ *  rainFalls) — the server records where the sky opened,
+ *  when, the pool it rolled and how many of the dark stood
+ *  under it, and the map draws Nigel's drawn rain over the
+ *  covered ground for the fall's moment. Before this, a
+ *  homeland fall was silent: the writing simply vanished
+ *  from the workings list and no rain ever fell on screen.
+ *  The log is a witness, not a ledger — in memory, the
+ *  same two-minute window as the strike witnesses; a
+ *  restart simply starts it empty. A fall is recorded ONLY
+ *  where the dark truly stood (springHomelandWorking's
+ *  shardrain branch returns none on empty ground), so the
+ *  witness can never show a fall that harmed nothing. */
+export type HomelandRainFall = { id: number; at: number; tileIds: number[]; pool: number; foes: number };
+const homelandRainLog = new Map<string, HomelandRainFall[]>();
+let homelandRainSeq = 0;
+export const HOMELAND_RAIN_WITNESS_CAP = 64;
+function recordHomelandRainFall(ownerKey: string, f: Omit<HomelandRainFall, "id">): void {
+  const log = homelandRainLog.get(ownerKey) ?? [];
+  log.push({ ...f, id: ++homelandRainSeq });
+  const keep = f.at - 120000;
+  homelandRainLog.set(ownerKey, log.filter(x => x.at >= keep).slice(-HOMELAND_RAIN_WITNESS_CAP));
+}
+/** The falls the map has yet to witness, newest last. */
+export function recentHomelandRainFalls(ownerKey: string): HomelandRainFall[] {
+  const log = homelandRainLog.get(ownerKey) ?? [];
   const keep = Date.now() - 120000;
   return log.filter(x => x.at >= keep);
 }
@@ -11979,7 +12040,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
