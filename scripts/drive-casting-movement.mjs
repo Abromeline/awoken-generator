@@ -371,8 +371,11 @@ console.log("§2 the Table — the Tender glides while the placing stands");
   await sleep(500);
   await clickDisc(page, ".gw-disc", bladeLabel);
   await sleep(400);
-  await waitPage(page, () => !!document.querySelector(".placing-bar"), "the placing stands armed");
-  ok("the Blade stands readied at the Table — the placing bar stands", true);
+  // RESTATED 2026-11-03 (the cancel build): the placing
+  // bar is struck — the armed signal is the pickable
+  // ground's gold glow.
+  await waitPage(page, () => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'), "the placing stands armed");
+  ok("the Blade stands readied at the Table — the placing stands armed (its ground glows)", true);
 
   // THE GLIDE WHILE READIED.
   const g0 = myPos();

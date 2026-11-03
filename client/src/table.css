@@ -792,9 +792,21 @@ button { font-family: inherit; }
   position: absolute; left: 50%; transform: translateX(-50%);
   bottom: 56px; z-index: 7; width: max-content; max-width: 94%; padding: 0;
 }
+/* The float the unit bar wears. The placing bar that shared
+   this dress while a working stood readied is struck (Nigel,
+   2026-11-03 — "that set the light down box is unnecessary");
+   the class stays for the unit bar's sake alone. */
 .placing-bar {
   position: absolute; left: 50%; transform: translateX(-50%);
   bottom: 122px; z-index: 8; width: min(780px, 94%); margin: 0;
+}
+/* The struck placing bar's one survivor (Nigel, 2026-11-03):
+   the multi-pick runes' cast button stands alone where the
+   bar floated — no panel, no prompt, just the cast's own
+   control. */
+.placing-commit {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 122px; z-index: 8;
 }
 
 /* The hand drawer that rested half off-screen here — its

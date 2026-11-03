@@ -718,6 +718,12 @@ console.log("§E the Table — the middle pans, the left from empty ground does 
   await tpage.evaluateOnNewDocument((sess) => { window.__awokenTableSession = sess; },
     { authToken: tt, room: "click-law", name: "Clicklaw Table" });
   await tpage.goto(BASE + "/table?frame_id=drive", { waitUntil: "domcontentloaded", timeout: 60000 });
+  // RESTATED 2026-11-03 (the cancel build): since Push 48
+  // the /table face opens on the Discord shell — The Room
+  // stands first and the old Table page is the Test Ground
+  // tab. Walk the shell, then the room as before.
+  await tpage.waitForSelector(".table-shell", { timeout: 30000 });
+  await tpage.click('button[data-tab="test"]');
   await tpage.waitForSelector(".table-room", { timeout: 30000 });
   await tpage.waitForFunction(() => !!document.querySelector(".table-room svg polygon"), { timeout: 30000 });
   await sleep(1500);
@@ -756,14 +762,18 @@ console.log("§E the Table — the middle pans, the left from empty ground does 
   // The cancel road: arm the Blade, right-click cancels
   // (placing bar falls, no wheel), the next right-click
   // opens the wheel.
-  const placingArmed = async () => tpage.evaluate(() => !!document.querySelector(".placing-bar"));
+  // RESTATED 2026-11-03 (the cancel build): the placing
+  // bar is struck — the armed signal is the pickable
+  // ground's gold glow, the overlay the placing itself
+  // paints.
+  const placingArmed = async () => tpage.evaluate(() => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'));
   await tpage.mouse.click(750, 320, { button: "right" });
   await tpage.waitForSelector(".gw-wheel", { timeout: 9000 });
   await clickDisc(tpage, ".gw-disc.cat", "Rune");
   await sleep(500);
   await clickDisc(tpage, ".gw-disc", bladeLabel);
   await sleep(500);
-  ok("at the Table the wheel readied the Blade — the placing bar stands", await placingArmed());
+  ok("at the Table the wheel readied the Blade — the placing stands armed (its ground glows)", await placingArmed());
   await tpage.mouse.click(750, 320, { button: "right" });
   await sleep(700);
   ok("at the Table a right-click while the placing stands CANCELS it — and opens no wheel",

@@ -414,10 +414,14 @@ console.log("§2 the Table — ready the Blade through the wheel, tap hexes, wor
     await clickDisc(page, ".gw-disc", bladeLabel);
     await sleep(400);
   };
-  const placingArmed = async () => page.evaluate(() => !!document.querySelector(".placing-bar"));
+  // RESTATED 2026-11-03 (the cancel build): the placing
+  // bar is struck — the armed signal is the pickable
+  // ground's gold glow, the overlay the placing itself
+  // paints.
+  const placingArmed = async () => page.evaluate(() => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'));
   await readyCard();
-  await waitPage(page, () => !!document.querySelector(".placing-bar"), "the placing stands armed");
-  ok("right-click opened the wheel and the Rune branch readied the Blade — the placing bar stands, no window opened", await placingArmed());
+  await waitPage(page, () => !!document.querySelector('.table-room svg polygon[fill="#ffd977"], .table-room svg polygon[fill="#ff7a33"]'), "the placing stands armed");
+  ok("right-click opened the wheel and the Rune branch readied the Blade — the placing stands armed (its ground glows), no window opened", await placingArmed());
 
   // The tile lattice, solved as the summon drive solves it.
   const buildPerm = async (pg, selector, tiles, size) => pg.evaluate(({ selector, tiles, size }) => {

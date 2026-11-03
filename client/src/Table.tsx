@@ -1150,6 +1150,22 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   const unloadCast = () => {
     setPlacing(null); setWardAnchor(null); setWardAnchorPt(null); setBladePicks([]);
   };
+
+  // THE SPELL BUTTON AGAIN (Nigel, 2026-11-03): "That set
+  // the light down box is unnecessary. Just right click to
+  // cancel on pc and click the spell button again to cancel
+  // on mobile." Choosing the working that already stands
+  // readied — on the wheel or on its hotbar slot, the one
+  // act both mouths run — sets it down instead: no cast, no
+  // cost, no confirmation. Any other choice readies the new
+  // working and clears the half-chosen ground, as choosing
+  // always did. (The PC hand's cancel is the standing click
+  // law: a right-click on the board unloads while a placing
+  // stands.)
+  const readyPlacing = (kind: "ward" | "rune" | "heal" | "attune", root: string) => {
+    if (placing?.kind === kind && placing.root === root) { unloadCast(); return; }
+    setPlacing({ kind, root }); setWardAnchor(null); setBladePicks([]);
+  };
   unloadCastRef.current = unloadCast;
   useEffect(() => {
     if (!shared) return;
@@ -2696,7 +2712,8 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
       }
       if (placing.kind === "heal") {
         // The tap casts — and the placing stays armed: mend
-        // another standing, or set the light down to stop.
+        // another standing, or set it down to stop (a
+        // right-click, or the spell's own button again).
         if (myUnitOn(t.id)) { send({ type: "castHeal", hex: t.id, ...(pt ? { point: pt } : {}) }); beginCast(t.id); }
         return;
       }
@@ -3280,18 +3297,18 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   const buildOfferings = (): { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] => {
     const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
     for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
-      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => readyPlacing("ward", d.key) });
     }
     if (healDef) {
-      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => readyPlacing("heal", "heal") });
     }
     // THE SPRINGLEAF: a binding-school def the server routes
     // through castWard — it places by the ward flow.
     for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
-      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => readyPlacing("ward", d.key) });
     }
     for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
-      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => readyPlacing("rune", d.key) });
     }
     // ABILITY: the ring's last entry opens the weapon
     // sub-ring instead of casting.
@@ -3475,10 +3492,13 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
             label: `${el} · ${held}`,
             lit: placing?.kind === "attune" && placing.root === el,
             act: () => {
+              // The spell button again (Nigel, 2026-11-03):
+              // choosing the attuning that already stands
+              // readied sets it down, like every working.
+              if (placing?.kind === "attune" && placing.root === el) { unloadCast(); return; }
               if (!you?.pools) { setNotice("Attuning draws on your aspect pools — bind your Tender at the Table to attune."); return; }
               if (held < 1) { setNotice(`Your ${el} pool is empty — attuning costs 1 point of the element, laid from the pool.`); return; }
-              setPlacing({ kind: "attune", root: el });
-              setWardAnchor(null); setBladePicks([]);
+              readyPlacing("attune", el);
             },
           };
         });
@@ -3604,7 +3624,8 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
     if (off) {
       const d = Object.values(defs).find(dd => `w-${dd.key}` === key || `b-${dd.key}` === key || `r-${dd.key}` === key);
       const root = key === "heal" ? "heal" : d?.key;
-      return { img: off.glyph, emoji: off.emoji, label: `✦${off.cost}`, dim: off.locked, lit: !!root && placing?.root === root, title: `${d?.root ?? "Heal"} — tap to ready it, then tap its ground (right-click the slot to loose it)` };
+      const slotLit = !!root && placing?.root === root;
+      return { img: off.glyph, emoji: off.emoji, label: `✦${off.cost}`, dim: off.locked, lit: slotLit, title: slotLit ? `${d?.root ?? "Heal"} — readied: tap again to set it down, or tap its ground to cast (right-click the slot to loose it)` : `${d?.root ?? "Heal"} — tap to ready it, then tap its ground (right-click the slot to loose it)` };
     }
     const node = buildAbilityNodes().find(n => n.key === key);
     if (node) return { img: node.img, emoji: node.emoji, label: node.label, dim: node.locked, lit: node.lit, title: node.key === "manifest" ? "Manifest — tap to call the copies (✦4)" : `${node.label} — tap to wield it (right-click the slot to loose it)` };
@@ -4706,31 +4727,35 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                 </>
               )}
             </div>
-            {placing && (
-              <div className="placing-bar">
-                <span className="placing-text">
-                  {placing.kind === "attune" && <>Attuning with <strong>{placing.root}</strong> — tap ground {you?.storytender ? <>anywhere on the field</> : <>within your reach — your hex and its ring{(you?.attuneReach ?? 0) > 0 ? <> and {you?.attuneReach} ring{(you?.attuneReach ?? 0) > 1 ? "s" : ""} more by your skill</> : null}</>} to lay a {placing.root} point on it — 1 point of {placing.root} from your pool ({Math.floor(you?.pools?.[placing.root] ?? 0)} held). The point rests in the ground's own ledger; ground a rune or ward stands on takes the point the same way. Attune on until you set it down or the pool runs dry.</>}
-                  {placing.kind === "heal" && <>Mending — tap one of <strong>your own standing Awokin</strong> to mend it (restores {you?.healAmount ?? 5} HP, ✦{healDef?.cost ?? 2}). The light stays in your hand — mend on until you set it down: a roll that falls short and an empty purse refuse that cast alone; the light stays readied.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap the ground to write it THERE, where you tap, within your reach — range alone gates the writing. Written, it waits ARMED: click a dark thing within two hexes of its ground and its blades rise and spear down into it from above. The writing stays in your hand — write on until you set it down: a roll that falls short and an empty purse refuse that cast alone; the writing stays readied.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine !== "blades" && defs[placing.root]?.engine !== "shardrain" && defs[placing.root]?.engine !== "blade" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap a hex's ground to write it there. It springs the moment the dark stands on it. The writing stays in your hand — write on until you set it down: a roll that falls short and an empty purse refuse that cast alone; the writing stays readied.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "shardrain" && <>Writing the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxHexes ?? 3} hexes to cover ({bladePicks.length}/{defs[placing.root]?.numbers.maxHexes ?? 3} chosen), then let it fall. When the dark stands on its ground, the sky opens once: the dice pool splits over every foe beneath it.</>}
-                  {placing.kind === "rune" && defs[placing.root]?.engine === "blades" && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap up to {defs[placing.root]?.numbers.maxTargets ?? 3} hexes ({bladePicks.length}/{defs[placing.root]?.numbers.maxTargets ?? 3} chosen), then lay them.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && !wardAnchor && <>Planting the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex to anchor the grove; it takes root on a neighbour.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "springleaf" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the grove takes root there, and its glow mends those who stand in it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine === "blackgate" && <>Raising the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap the ground where you point: the Gate rises one hex-length from where you stand, in the direction of your tap. Range alone gates it — beyond your reach, it will not rise. The dark cannot pass it while it stands.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && defs[placing.root]?.engine !== "blackgate" && !wardAnchor && <>Raising the <strong>{defs[placing.root]?.forms[castHueFor(placing.root)] ?? defs[placing.root]?.root}</strong> — tap any hex within your reach: the ward will stand on one of its edges. Range alone gates the cast now — but cursed ground eats what stands on it.</>}
-                  {placing.kind === "ward" && defs[placing.root]?.engine !== "springleaf" && defs[placing.root]?.engine !== "blackgate" && wardAnchor && <>Now tap a <strong>neighbouring hex</strong> — the ward stands on the edge between the two. It stays in your hand — raise another edge when this one lands.</>}
-                </span>
-                {placing.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
-                  <button className="table-btn primary" onClick={() => {
-                    const picks = [...bladePicks];
-                    send({ type: "castRune", root: placing.root, hexes: picks });
-                    beginCast(picks[0] ?? null);
-                    setBladePicks([]);
-                  }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · <span className="spark-glow">✦</span>{defs[placing.root]?.cost ?? 4}</button>
-                )}
-                {myCursed && placing.kind !== "attune" && <span className="curse-note">{curseNote} on this cast — you stand on cursed ground.</span>}
-                <button className="table-btn" onClick={unloadCast}>{placing.kind === "attune" ? "Set the attuning down" : "Set the light down"}</button>
+            {/* THE PLACING BAR IS STRUCK (Nigel, 2026-11-03):
+                "That set the light down box is unnecessary.
+                Just right click to cancel on pc and click the
+                spell button again to cancel on mobile." The
+                bar that stood here while a working stood
+                readied — its wall of instructions, its curse
+                note and its "Set the light down" button — is
+                gone whole: a right-click on the board cancels
+                a readied working (the click law), and choosing
+                the readied working again — wheel or hotbar,
+                the one act — sets it down. The aiming flow
+                proceeds with no panel and no prompt; the
+                pickable ground still glows, the ranges and
+                costs are untouched. What survives is the
+                multi-pick runes' own cast control: the
+                "Lay them" / "Write the rain" button is not a
+                prompt but the cast itself for workings whose
+                ground is chosen in pieces, so it stands alone
+                where the bar's button stood. (The .placing-bar
+                class itself stays: the unit bar below wears
+                it.) */}
+            {placing?.kind === "rune" && (defs[placing.root]?.engine === "blades" || defs[placing.root]?.engine === "shardrain") && bladePicks.length > 0 && (
+              <div className="placing-commit">
+                <button className="table-btn primary" onClick={() => {
+                  const picks = [...bladePicks];
+                  send({ type: "castRune", root: placing.root, hexes: picks });
+                  beginCast(picks[0] ?? null);
+                  setBladePicks([]);
+                }}>{defs[placing.root]?.engine === "shardrain" ? "Write the rain" : "Lay them"} · <span className="spark-glow">✦</span>{defs[placing.root]?.cost ?? 4}</button>
               </div>
             )}
             {/* The readied-summon bar and the unit bar stood

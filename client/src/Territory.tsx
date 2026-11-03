@@ -2825,6 +2825,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           key: `attune-${el}`, emoji: EL_MARK[el], label: `${el} · ${held}`,
           lit: attuneElement === el,
           act: () => {
+            // The spell button again (Nigel, 2026-11-03):
+            // choosing the attuning that already stands
+            // readied sets it down, like every working.
+            if (attuneElement === el) { endMapCastRun(); return; }
             if (held < 1) { showHexNotice(`Your ${el} pool is empty — attuning costs 1 point of the element, laid from the pool.`); return; }
             endMapCastRun();
             setAttuneElement(el);
@@ -2872,6 +2876,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         pinKey: `cast-${sp.key}`,
         dragKey: `cast-${sp.key}`,
         act: () => {
+          // THE SPELL BUTTON AGAIN (Nigel, 2026-11-03): the
+          // lit entry chosen again sets the working down —
+          // the same toggle the hotbar slot has always run,
+          // so the touch hand cancels from the wheel too.
+          if (castSpellKey === sp.key && castMode) { endMapCastRun(); return; }
           setCastMode(true); setCastSpellKey(sp.key); setAttuneElement(null);
           showHexNotice(locked
             ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
