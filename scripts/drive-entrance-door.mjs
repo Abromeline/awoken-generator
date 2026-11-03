@@ -212,7 +212,7 @@ const twoOnly = await api("entranceWakeThree", { items: (await trioItems()).slic
 check("the waking wakes exactly three — two is refused (400)", twoOnly.status === 400, `status ${twoOnly.status}`);
 
 const woke = await api("entranceWakeThree", { items: await trioItems() }, token);
-check("BOOM: the three wake at once — three payloads returned together",
+check("THE THREE WAKE AT ONCE — three payloads returned together",
   woke.status === 200 && Array.isArray(woke.data.awakened) && woke.data.awakened.length === 3,
   `status ${woke.status} ${JSON.stringify(woke.data).slice(0, 160)}`);
 const trioIds = (woke.data.awakened ?? []).map((a) => a.id);
@@ -350,18 +350,35 @@ const weaponStep = await page.waitForFunction(
 check("the weapon step follows the spell step", weaponStep);
 await page.screenshot({ path: `${OUT}/03-weapon-step.png` });
 await clickButtonWithText(page, "Take the Sword");
+// RESTATED for the plain ceremony (Nigel, 2026-11-02): the
+// wake step carries no heading, no explainer and no pool
+// note — only the standing Wake One button. The wait and
+// the click are scoped to the door's own section, because
+// WakeRitual's overlay carries the same button words
+// elsewhere on the face.
 const wakeStep = await page.waitForFunction(
-  () => document.body.innerText.includes("Wake the three"), { timeout: 30000 }).then(() => true).catch(() => false);
-check("the wake step follows the weapon step — and speaks the award pool before the waking",
-  wakeStep && (await pageText(page)).includes("award pool: 20 wakes"), (await pageText(page)).slice(0, 300));
+  () => { const d = document.querySelector(".entrance-door"); return !!d && [...d.querySelectorAll("button")].some((b) => (b.textContent || "").trim() === "Wake One"); },
+  { timeout: 30000 }).then(() => true).catch(() => false);
+const wakeStepText = await page.evaluate(() => document.querySelector(".entrance-door")?.innerText || "");
+check("the wake step follows the weapon step — and stands PLAIN: the standing Wake One button alone (no heading, no explainer, no award pool spoken on the step)",
+  wakeStep && !wakeStepText.includes("award pool") && !wakeStepText.includes("matter is listening"),
+  wakeStepText.slice(0, 300));
 await page.screenshot({ path: `${OUT}/04-wake-step.png` });
-await clickButtonWithText(page, "Wake the three");
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll(".entrance-door button")].find((x) => (x.textContent || "").trim() === "Wake One" && !x.disabled);
+  b?.click();
+});
 const ceremonyShown = await page.waitForFunction(
-  () => document.body.innerText.includes("Three wake at once")
-    && document.querySelectorAll(".entrance-trio-one").length === 3,
+  () => document.querySelectorAll(".entrance-trio-one").length === 3,
   { timeout: 60000 }).then(() => true).catch(() => false);
 check("THE THREE-CARD CEREMONY: three cards stand TOGETHER (three .entrance-trio-one at once)",
   ceremonyShown, (await pageText(page)).slice(0, 300));
+// RESTATED for the plain ceremony (Nigel, 2026-11-02): no
+// heading and no explainer stands over the cards any more.
+const ceremonyText = await page.evaluate(() => document.querySelector(".entrance-ceremony")?.innerText || "");
+check("THE CEREMONY IS PLAIN (Nigel, 2026-11-02): no BOOM, no heading, no explainer over the cards — the standing ceremony's form, three times over",
+  ceremonyShown && !ceremonyText.includes("BOOM") && !ceremonyText.includes("Three wake at once") && !ceremonyText.includes("Each whispers as it wakes"),
+  ceremonyText.slice(0, 300));
 await sleep(1200);
 await page.screenshot({ path: `${OUT}/05-three-card-ceremony.png` });
 const whisperTexts = async () => page.evaluate(
@@ -376,7 +393,16 @@ for (const [label, needle] of [
     { timeout: 20000 }, needle).then(() => true).catch(() => false);
   check(label, spoken, JSON.stringify(await whisperTexts()));
 }
-await clickButtonWithText(page, "To the field — light the beacon");
+// The way onward is the standing ceremony's own plain
+// control — Keep — scoped to the ceremony's own ground.
+const keepFound = await page.waitForFunction(
+  () => [...document.querySelectorAll(".entrance-ceremony button")].some((b) => (b.textContent || "").trim() === "Keep" && !b.disabled),
+  { timeout: 30000 }).then(() => true).catch(() => false);
+check("the ceremony's way onward is the standing ceremony's own plain control: Keep", keepFound);
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll(".entrance-ceremony button")].find((x) => (x.textContent || "").trim() === "Keep" && !x.disabled);
+  b?.click();
+});
 const fieldShown = await page.waitForFunction(
   () => (document.querySelector(".deck-button span")?.textContent || "") === "RETURN",
   { timeout: 30000 }).then(() => true).catch(() => false);

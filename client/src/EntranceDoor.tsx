@@ -87,6 +87,13 @@ const CLASS_LAW_SHORT: Record<TenderClassId, string> = {
  * hastens its ceremony to done, as the single card's does.
  * WakeRitual's path itself is untouched — it is shared with
  * the workshop's waking and keeps its own one-card road.
+ *
+ * THE PLAIN CEREMONY (Nigel, 2026-11-02): no text stands over
+ * the cards — no heading, no explainer, no "BOOM" (his spoken
+ * word for the suddenness, never on-screen copy). The
+ * ceremony is the standing one, three times over in one
+ * presentation, and the way onward is the standing
+ * ceremony's own plain control: Keep.
  */
 export function EntranceCeremony({ trio, whispers, onDone }: {
   trio: Awakened[];
@@ -112,9 +119,6 @@ export function EntranceCeremony({ trio, whispers, onDone }: {
   return (
     <div className="entrance-ceremony" role="dialog" aria-label="Three Awoken wake">
       <div className="entrance-ceremony-card">
-        <p className="eyebrow">The waking</p>
-        <h2>Three wake at once</h2>
-        <p className="entrance-ceremony-sub">BOOM — the matter gathers, and three forms cross over together. Each whispers as it wakes. Listen.</p>
         <div className="entrance-trio">
           {trio.map((item, i) => {
             const burnBody = burnFor(item, "body");
@@ -142,8 +146,8 @@ export function EntranceCeremony({ trio, whispers, onDone }: {
           })}
         </div>
         {phase === "done" && (
-          <div className="class-choosing-row">
-            <button type="button" className="abtn gold" onClick={onDone}>To the field — light the beacon</button>
+          <div className="ceremony-done-actions">
+            <button type="button" className="abtn" onClick={onDone}>Keep</button>
           </div>
         )}
       </div>
@@ -300,12 +304,7 @@ export default function EntranceDoor({ assets, onFinished }: {
         </>
       )}
       {status.step === "wake" && (
-        <>
-          <h2>The waking</h2>
-          <p className="class-choosing-law">Class chosen, spell chosen, weapon named — you are a Tender now, and the matter is listening. Wake your first three, together.</p>
-          <p className="entrance-award-note">Your welcome twenty are not spent here — they wait as your <strong>award pool: {status.awardPool} wakes</strong>, earned along the road ahead, five at a time as you learn the land. These three stand on top of them.</p>
-          <button type="button" className="abtn gold" disabled={busy === "wake"} onClick={() => void wakeThree()}>{busy === "wake" ? "The matter gathers…" : "Wake the three"}</button>
-        </>
+        <button type="button" className="abtn gold" disabled={busy === "wake"} onClick={() => void wakeThree()}>{busy === "wake" ? "Waking…" : "Wake One"}</button>
       )}
       {error && <p className="class-choosing-error">{error}</p>}
     </section>
