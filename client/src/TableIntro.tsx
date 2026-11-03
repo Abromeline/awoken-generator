@@ -161,6 +161,17 @@ const CLASS_LAW_SHORT: Record<TenderClassId, string> = {
  * plain ceremony, Nigel's ruling of 2026-11-02). Tapping
  * a card hastens the ceremony to done, as the single
  * card's does.
+ *
+ * THE BOX IS GONE (Nigel's ruling of 2026-11-03, spoken on
+ * the homeland ceremony: "remove the extra box that the
+ * cards are poping in but keep the cars [cards]"): the
+ * mirrored ceremony at first seated the trio inside a
+ * panel (.entrance-ceremony-card) the standing ceremony
+ * never had. The cards now present directly on the dim,
+ * as the single card presents on its own layer — the
+ * overlay only stacks and centres them (the .intro-
+ * ceremony rule beside the box's definition in theme.css),
+ * with "Gather your party" beneath them.
  */
 function IntroCeremony({ trio, whispers, onDone }: {
   trio: Awakened[];
@@ -183,45 +194,43 @@ function IntroCeremony({ trio, whispers, onDone }: {
     return elementOfPiece((layer as unknown as { element?: string | null }).element);
   };
   return (
-    <div className="entrance-ceremony" role="dialog" aria-label="Three Awoken wake">
-      <div className="entrance-ceremony-card">
-        <div className="entrance-trio">
-          {trio.map((item, i) => {
-            const burnBody = burnFor(item, "body");
-            const burnArms = burnFor(item, "arms");
-            const burnHead = burnFor(item, "head");
-            // The trio burns on one clock; each card's corners
-            // kindle a breath after the card before it.
-            const stagger = i * 0.35;
-            const delay = (base: number) => `${(base + stagger).toFixed(3)}s`;
-            const colorOf = (el: GlyphElement) => elementPalette[el];
-            return (
-              <figure key={item.id} className="entrance-trio-one">
-                <div className="ceremony-card-wrap ceremony-card-form">
-                  <div className="ceremony-card-stage" data-phase={phase} onClick={() => { if (phase !== "done") setPhase("done"); }}>
-                    <img className="intro-ceremony-art" src={item.image_url} alt={item.name} />
-                    {burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": colorOf(burnBody), "--burn-delay": delay(0) } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={colorOf(burnBody)} dotColor={colorOf(burnBody)} width={54} height={22} /></span>)}
-                    {burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": colorOf(burnArms), "--burn-delay": delay(1.025) } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={colorOf(burnArms)} dotColor={colorOf(burnArms)} width={54} height={22} /></span>)}
-                    {burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": colorOf(burnHead), "--burn-delay": delay(2.05) } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={colorOf(burnHead)} dotColor={colorOf(burnHead)} width={54} height={22} /></span>)}
-                    <span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": delay(3.075) } as CSSProperties} aria-hidden="true">{item.power}/{item.toughness}</span>
-                    <img className="birth-frame" src={birthFrame} alt="" aria-hidden="true" />
-                  </div>
+    <div className="entrance-ceremony intro-ceremony" role="dialog" aria-label="Three Awoken wake">
+      <div className="entrance-trio">
+        {trio.map((item, i) => {
+          const burnBody = burnFor(item, "body");
+          const burnArms = burnFor(item, "arms");
+          const burnHead = burnFor(item, "head");
+          // The trio burns on one clock; each card's corners
+          // kindle a breath after the card before it.
+          const stagger = i * 0.35;
+          const delay = (base: number) => `${(base + stagger).toFixed(3)}s`;
+          const colorOf = (el: GlyphElement) => elementPalette[el];
+          return (
+            <figure key={item.id} className="entrance-trio-one">
+              <div className="ceremony-card-wrap ceremony-card-form">
+                <div className="ceremony-card-stage" data-phase={phase} onClick={() => { if (phase !== "done") setPhase("done"); }}>
+                  <img className="intro-ceremony-art" src={item.image_url} alt={item.name} />
+                  {burnBody && (<span className="ceremony-burn burn-tl" style={{ "--elem": colorOf(burnBody), "--burn-delay": delay(0) } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnBody} color={colorOf(burnBody)} dotColor={colorOf(burnBody)} width={54} height={22} /></span>)}
+                  {burnArms && (<span className="ceremony-burn burn-tr" style={{ "--elem": colorOf(burnArms), "--burn-delay": delay(1.025) } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnArms} color={colorOf(burnArms)} dotColor={colorOf(burnArms)} width={54} height={22} /></span>)}
+                  {burnHead && (<span className="ceremony-burn burn-bl" style={{ "--elem": colorOf(burnHead), "--burn-delay": delay(2.05) } as CSSProperties} aria-hidden="true"><ElementGlyph element={burnHead} color={colorOf(burnHead)} dotColor={colorOf(burnHead)} width={54} height={22} /></span>)}
+                  <span className="ceremony-burn burn-br ceremony-burn-pt" style={{ "--elem": "#d98a4a", "--burn-delay": delay(3.075) } as CSSProperties} aria-hidden="true">{item.power}/{item.toughness}</span>
+                  <img className="birth-frame" src={birthFrame} alt="" aria-hidden="true" />
                 </div>
-                <figcaption className="intro-ceremony-name">
-                  {item.name}
-                  {i === 0 ? <span className="intro-guide"> · your guide</span> : null}
-                </figcaption>
-                {phase === "done" && <figcaption className="entrance-whisper">“{whispers[i]}”</figcaption>}
-              </figure>
-            );
-          })}
-        </div>
-        {phase === "done" && (
-          <div className="door-actions">
-            <button type="button" className="table-btn primary" onClick={onDone}>Gather your party</button>
-          </div>
-        )}
+              </div>
+              <figcaption className="intro-ceremony-name">
+                {item.name}
+                {i === 0 ? <span className="intro-guide"> · your guide</span> : null}
+              </figcaption>
+              {phase === "done" && <figcaption className="entrance-whisper">“{whispers[i]}”</figcaption>}
+            </figure>
+          );
+        })}
       </div>
+      {phase === "done" && (
+        <div className="door-actions">
+          <button type="button" className="table-btn primary" onClick={onDone}>Gather your party</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -386,6 +386,8 @@ console.log("§D the Discord door, walked in the browser (screenshots → entran
   ok("§D the ceremony carries NO text of its own around the cards (no BOOM, no heading — the cards and their whispers are the whole of it)",
     !ceremonyText.includes("BOOM") && !ceremonyText.includes("Three wake at once"),
     ceremonyText.slice(0, 300));
+  ok("§D the ceremony's cards stand WITHOUT the extra box (no .entrance-ceremony-card panel around them — Nigel's ruling of 2026-11-03: the box goes, the cards stay)",
+    await page.$(".entrance-ceremony .entrance-ceremony-card").then((el) => el === null).catch(() => false));
   await sleep(1200);
   await page.screenshot({ path: `${OUT}/05-three-card-ceremony.png` });
   for (const [label, needle] of [
@@ -399,6 +401,7 @@ console.log("§D the Discord door, walked in the browser (screenshots → entran
     ok(`§D ${label}`, spoken);
   }
   await page.screenshot({ path: `${PLAIN_OUT}/discord-ceremony.png` });
+  await page.screenshot({ path: `${PLAIN_OUT}/discord-ceremony-nobox.png` });
   ok("§D the ceremony's end gathers the party", await clickButtonWithText(page, "Gather your party"));
   // RoomSeat's completion is the seating itself: the intro
   // hands back to the carried door, and the room opens on
