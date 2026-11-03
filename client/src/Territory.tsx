@@ -763,15 +763,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // sky opened, over which ground, over how many of the
   // dark. A NEW fall draws Nigel's drawn rain
   // (ANIMATED_GLYPH.shardrain — shard-rain.gif, the rain he
-  // drew for this spell, bound as its face in the book)
-  // over every covered hex for the fall's moment (1800 ms,
-  // the Table's own measure for its falls). The first read
-  // only sets the watermark — the witness reaches two
-  // minutes back, and the map does not replay a fall it did
-  // not watch, exactly as the strike witness stands. No
-  // fall is ever invented here: the server records one only
-  // where the dark truly stood under the writing.
-  const RAIN_FALL_MS = 1800;
+  // drew for this spell, bound as its face in the book) AS
+  // THE SPELL'S OWN PROVING GROUND PLAYS IT — the demo of
+  // 2026-10-17 (your_files/shard-rain-demo.html, where the
+  // spell was proven before it was built; Nigel's
+  // correction, 2026-11-03: "Shard rain plays the correct
+  // file in the proving grounds"): ONE image laid over the
+  // whole fall, screen-blended, standing for the gif's
+  // full play — the measures live at the fall layer below
+  // (RAIN_W below). The first read only sets the
+  // watermark — the witness reaches two minutes back, and
+  // the map does not replay a fall it did not watch,
+  // exactly as the strike witness stands. No fall is ever
+  // invented here: the server records one only where the
+  // dark truly stood under the writing.
+  const RAIN_FALL_MS = 3700;
   const [rainFallFx, setRainFallFx] = useState<{ id: number; at: number; tileIds: number[] }[]>([]);
   const rainIdSeenRef = useRef(0);
   const rainWitnessInitRef = useRef(false);
@@ -5850,34 +5856,52 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       </g>
     );
     // SHARD RAIN FALLS (the rain's witness, 2026-11-03):
-    // when the rain springs, Nigel's drawn rain falls over
-    // every covered hex for the fall's moment — the Table's
-    // Phase C law, carried home. The falls in rainFallFx are
-    // the server's witnessed falls (noteRainFalls), never a
-    // local guess: a fall stands here only because the sky
-    // truly opened over dark standing on that ground.
+    // when the rain springs, the fall is drawn AS THE
+    // SPELL'S OWN PROVING GROUND PLAYS IT — the demo of
+    // 2026-10-17 (your_files/shard-rain-demo.html, where
+    // the spell was proven before it was built), ported
+    // WHOLE under the porting law (Nigel's correction,
+    // 2026-11-03: "Shard rain plays the correct file in
+    // the proving grounds"). The demo's measures, in its
+    // own numbers: its hexes stand R=34 apart (centre
+    // pitch √3·34 ≈ 58.9px), and the rain is ONE image
+    // 380px wide — 6.45 pitches — centred on the cast
+    // hex, its top 120px (0.316 of its width) above the
+    // hex's centre, keeping its 16:9 shape, laid over
+    // the ground screen-blended ("laid over the hexes
+    // the meteor way: light on black, screen-blended,
+    // so the blades fall"), and it stands 3700 ms while
+    // the gif plays its full 3410 ms once through. Here
+    // the pitch is this ground's own E-step between tile
+    // centres, the anchor is the heart of the fall's
+    // covered ground (the covered tiles stand symmetric
+    // around the writing's hex, so their centroid is
+    // that hex's heart), and the window is RAIN_FALL_MS.
+    // ONE image per fall — never a copy per hex. The
+    // falls in rainFallFx are the server's witnessed
+    // falls (noteRainFalls), never a local guess: a fall
+    // stands here only because the sky truly opened over
+    // dark standing on that ground.
     const rainFallLayer = (
       <g key="rain-falls" pointerEvents="none">
-        {rainFallFx.flatMap((f) => f.tileIds.map((tid) => {
-          const t = tiles.find((tt) => tt.id === tid);
-          if (!t) return null;
-          const { cx, cy } = tilePos(t);
-          const w = size * 1.7;
-          // The drawn rain is light on pure black (640×360,
-          // no alpha — effects.ts tells the tale): it is
-          // SCREEN-BLENDED against the land it falls on, so
-          // the black gives nothing and only the rain
-          // shows, and it keeps its own 16:9 shape. (The
-          // Table draws the same gif unblended at 80px as a
-          // marker; at the fall's size on this ground the
-          // unblended black would paint a box over the hex.)
+        {rainFallFx.map((f) => {
+          const pts = f.tileIds
+            .map((tid) => tiles.find((tt) => tt.id === tid))
+            .filter((t): t is NonNullable<typeof t> => !!t)
+            .map((t) => tilePos(t));
+          if (!pts.length) return null;
+          const cx = pts.reduce((a, p) => a + p.cx, 0) / pts.length;
+          const cy = pts.reduce((a, p) => a + p.cy, 0) / pts.length;
+          const step = isoOffset(1, 0, size);
+          const pitch = Math.hypot(step.px, step.py);
+          const w = pitch * (380 / (Math.sqrt(3) * 34));
           return (
-            <image key={`rain-${f.id}-${tid}`} data-rain-fall={f.id} data-rain-tile={tid}
+            <image key={`rain-${f.id}`} data-rain-fall={f.id}
               href={ANIMATED_GLYPH.shardrain}
-              x={cx - w / 2} y={cy - w * 0.28} width={w} height={w * (360 / 640)}
-              opacity={0.95} style={{ mixBlendMode: "screen" }} />
+              x={cx - w / 2} y={cy - w * (120 / 380)} width={w} height={w * (360 / 640)}
+              style={{ mixBlendMode: "screen" }} />
           );
-        }))}
+        })}
       </g>
     );
     // The ward aim layer the two-tap flow once drew (the

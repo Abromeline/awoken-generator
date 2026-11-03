@@ -24,12 +24,18 @@
 //      under it — the foe is harmed, the writing spent,
 //      and the fall is served by the very read that
 //      settled it.
-//   §E THE FLIPBOOK ON THE MAP (browser): with the map
-//      open and watching, a cast over a foe puts the
-//      rain's own image (shard-rain.gif — Nigel's drawn
-//      rain, the spell's bound face) into the DOM over
-//      the covered hex for the fall's moment, and a cast
-//      on cursed empty ground puts NOTHING there.
+//   §E THE FALL ON THE MAP (browser): with the map open
+//      and watching, a cast over a foe puts the rain on
+//      the map AS THE SPELL'S OWN PROVING GROUND PLAYS
+//      IT — the demo of 2026-10-17 (your_files/
+//      shard-rain-demo.html; Nigel's correction,
+//      2026-11-03: "Shard rain plays the correct file in
+//      the proving grounds"): ONE image of the drawn
+//      rain (shard-rain.gif), 16:9, screen-blended, over
+//      the covered ground, standing for the gif's full
+//      play — still falling at ~2.5 s, past the 1800 ms
+//      cut the first pass shipped — then clearing; and
+//      a cast on cursed empty ground puts NOTHING there.
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-shard-rain-falls.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -250,12 +256,25 @@ console.log("§E the map draws the rain when it falls — and nothing on empty g
     });
     await sleep(1500); // the first snapshots land; the rain watermark is set
     // The fall watcher: count every rain-fall element that
-    // ever stands in the DOM from here on.
+    // ever stands in the DOM from here on, and stamp the
+    // fall's own DOM lifetime (first appearance → gone) on
+    // the page's clock, so the duration checks below
+    // measure the element itself, not this script's
+    // polling lag.
     await page.evaluate(`(() => {
       window.__rainSeen = 0;
-      new MutationObserver(() => {
-        window.__rainSeen = Math.max(window.__rainSeen, document.querySelectorAll("[data-rain-fall]").length);
-      }).observe(document.body, { childList: true, subtree: true });
+      window.__rainFirstAt = 0;
+      window.__rainGoneAt = 0;
+      window.__rainLateCount = -1;
+      const sample = () => {
+        const n = document.querySelectorAll("[data-rain-fall]").length;
+        window.__rainSeen = Math.max(window.__rainSeen, n);
+        if (n > 0 && !window.__rainFirstAt) window.__rainFirstAt = performance.now();
+        if (window.__rainFirstAt && window.__rainLateCount < 0 && performance.now() - window.__rainFirstAt >= 2500) window.__rainLateCount = n;
+        if (n === 0 && window.__rainFirstAt && !window.__rainGoneAt) window.__rainGoneAt = performance.now();
+      };
+      new MutationObserver(sample).observe(document.body, { childList: true, subtree: true });
+      setInterval(sample, 100);
     })()`);
 
     // — the fall over a foe —
@@ -264,24 +283,55 @@ console.log("§E the map draws the rain when it falls — and nothing on empty g
     const castRes = await castUntilStandsApi(token, { spellKey: "shardrain", tileId: foeTile, pointQ: 0, pointR: -2 });
     ok("the browser section's cast sprang on its foe", castRes.sprung === true, `sprung=${castRes.sprung}`);
     let fallEl = null;
+    let fallFoundAt = 0;
     for (let i = 0; i < 90 && !fallEl; i++) {
       fallEl = await page.evaluate(() => {
-        const el = document.querySelector("[data-rain-fall]");
-        return el ? { href: el.getAttribute("href") || el.getAttribute("src") || "", tile: el.getAttribute("data-rain-tile") } : null;
+        const els = document.querySelectorAll("[data-rain-fall]");
+        const el = els[0];
+        return el ? {
+          count: els.length,
+          href: el.getAttribute("href") || el.getAttribute("src") || "",
+          w: Number(el.getAttribute("width")), h: Number(el.getAttribute("height")),
+          blend: el.style.mixBlendMode || "",
+        } : null;
       });
-      if (!fallEl) await sleep(100);
+      if (!fallEl) await sleep(100); else fallFoundAt = Date.now();
     }
-    ok("the rain's image stands in the DOM over the covered hex during the fall", !!fallEl, JSON.stringify(fallEl));
+    ok("the rain's image stands in the DOM over the covered ground during the fall", !!fallEl, JSON.stringify(fallEl));
     ok("the image is the spell's own drawn rain (shard-rain asset)", !!fallEl && String(fallEl.href).includes("shard-rain"),
       `href=${fallEl?.href}`);
+    ok("ONE image carries the whole fall, as the proving ground plays it — not a copy per hex", !!fallEl && fallEl.count === 1,
+      `count=${fallEl?.count}`);
+    ok("the image keeps the proving ground's shape and way: 16:9, screen-blended", !!fallEl && Math.abs(fallEl.w / fallEl.h - 16 / 9) < 0.05 && fallEl.blend === "screen",
+      `w=${fallEl?.w} h=${fallEl?.h} blend=${fallEl?.blend}`);
     if (fallEl) {
-      await page.screenshot({ path: `${OUT}/01-fall-over-foe.png` });
-      await sleep(550);
-      await page.screenshot({ path: `${OUT}/02-fall-over-foe-later-frame.png` });
+      await sleep(500);
+      await page.screenshot({ path: `${OUT}/04-fall-correct-file.png` });
+      // The proving ground stands the rain for the gif's
+      // full play (3700 ms): it must STILL be falling well
+      // past the 1800 ms cut the first pass shipped. The
+      // page's own sampler records the count standing at
+      // the fall's 2.5 s mark (__rainLateCount), so this
+      // check reads the element's life on the page's
+      // clock, untouched by this script's round-trips.
+      const pageNow = () => page.evaluate(() => performance.now());
+      const firstAt = await page.evaluate(() => window.__rainFirstAt);
+      const untilLateShot = firstAt + 2900 - (await pageNow());
+      if (untilLateShot > 0) await sleep(untilLateShot);
+      await page.screenshot({ path: `${OUT}/05-fall-correct-file-later-frame.png` });
+      const untilGone = firstAt + 5600 - (await pageNow());
+      if (untilGone > 0) await sleep(untilGone);
     }
-    await sleep(2600); // the fall's moment passes
-    const gone = await page.evaluate(() => document.querySelectorAll("[data-rain-fall]").length);
-    ok("the fall clears when its moment ends", gone === 0, `standing=${gone}`);
+    const goneInfo = await page.evaluate(() => ({
+      standing: document.querySelectorAll("[data-rain-fall]").length,
+      lateCount: window.__rainLateCount,
+      stoodMs: window.__rainFirstAt && window.__rainGoneAt ? Math.round(window.__rainGoneAt - window.__rainFirstAt) : -1,
+    }));
+    ok("the rain still falls at the fall's 2.5 s mark — the whole gif plays, not the old 1800 ms cut", goneInfo.lateCount === 1,
+      `lateCount=${goneInfo.lateCount}`);
+    ok("the fall clears when its moment ends", goneInfo.standing === 0, `standing=${goneInfo.standing}`);
+    ok("the fall stood for the gif's full play (its DOM lifetime ≥ 3.0 s; the proving ground's window is 3.7 s)", goneInfo.stoodMs >= 3000,
+      `stoodMs=${goneInfo.stoodMs}`);
 
     // — nothing on cursed empty ground —
     const seenBefore = await page.evaluate(() => window.__rainSeen);

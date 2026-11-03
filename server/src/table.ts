@@ -2350,7 +2350,10 @@ function sharedState(room: Room) {
     // clients' flight.
     pack: room.pack ?? [],
     dropFx: (room.dropFx ?? []).filter(f => Date.now() - f.at < 3000),
-    rainFalls: (room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
+    // Falls are served for the fall's whole moment — the
+    // demo's 3700 ms window (2026-11-03 correction), so a
+    // client can draw the gif's full play, not a cut of it.
+    rainFalls: (room.rainFalls ?? []).filter(f => Date.now() - f.at < 3700),
     bladeFlights: (room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
     bladeCasts: (room.bladeCasts ?? []).filter(f => Date.now() - f.at < 3000),
     manifests: (room.manifests ?? []).filter(m => m.expiresAt > Date.now()).map(m => ({ ownerKey: m.ownerKey, weaponKey: m.weaponKey, count: m.count, expiresAt: m.expiresAt })),
@@ -5375,7 +5378,7 @@ function springOneRune(room: Room, hex: string, rune: Working, fired: Set<string
       let rem = pool - share * foes.length;
       // THE FALL IS AN EVENT (Phase C): clients show Nigel's
       // drawn shard-rain.gif over the covered hexes as it falls.
-      room.rainFalls = [...(room.rainFalls ?? []).filter(f => Date.now() - f.at < 3000),
+      room.rainFalls = [...(room.rainFalls ?? []).filter(f => Date.now() - f.at < 3700),
         { id: randomUUID(), at: Date.now(), hexes: [...hexSet].filter((h): h is string => !!h) }];
       tell(room, `${rune.name} FALLS — the sky opens over ${hexSet.size} hex${hexSet.size === 1 ? "" : "es"}: ${dice} dice (${rolls.join(" + ")}) make a pool of ${pool}, split over ${foes.length} of the dark — ${share} harm each${rem ? `, and ${rem} of them take one more` : ""}.`);
       for (const e of foes) {
