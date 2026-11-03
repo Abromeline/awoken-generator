@@ -39,6 +39,8 @@ import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, sum
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
+import { entranceSpellKeyFor } from "./entrance.js";
+import { spellUnlocked as spellUnlockedSync } from "./spellPoints.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 by Nigel 2026-10-18, the night the map grew to 127 tiles
@@ -173,6 +175,18 @@ interface Player {
   healTier: number;
   healAmount: number;
   wardRuneUnlocked: boolean;
+  /** SPELL POINTS (Nigel, 2026-11-03): the door's granted
+   *  working and the pages this seat's Tender has unlocked
+   *  with spell points — read from the progress view at bind
+   *  and refreshed as EXP lands, so the wheel's face judges
+   *  the same ledger the homeland book does. A seat with no
+   *  Tender behind it holds no book (startingSpellKey null,
+   *  unlockedSpells null) and its offerings stand on the
+   *  Lv 3 law alone, as stand-ins always have. The cast
+   *  doors below read the ledger FRESH at the cast; these
+   *  fields serve the wheel's display only. */
+  startingSpellKey?: string | null;
+  unlockedSpells?: string[] | null;
   /** The Tender's HP for this sitting — full until the
    *  referee deals damage; by level, per the HP law. */
   tenderHp: number;
@@ -2464,6 +2478,8 @@ function sendState(room: Room): void {
         healTier: player.healTier,
         healAmount: player.healAmount,
         wardRuneUnlocked: player.wardRuneUnlocked,
+        startingSpellKey: player.startingSpellKey ?? null,
+        unlockedSpells: player.unlockedSpells ?? null,
         classKey: player.classKey ?? null,
         weaponKey: player.weaponKey ?? null,
         weaponLevel: player.weaponLevel ?? 1,
@@ -2553,6 +2569,11 @@ async function payBattleExp(room: Room, seat: Player, amount: number, why: strin
   const before = seat.tenderLevel;
   const view = await awardTenderExp(seat.expKey, amount).catch(() => null);
   if (!view) return;
+  // SPELL POINTS (Nigel, 2026-11-03): the seat's reading of
+  // the book rides the same refresh, so an unlock spent at
+  // home shows on the wheel without a rebind.
+  seat.startingSpellKey = view.startingSpellKey;
+  seat.unlockedSpells = view.unlockedSpells;
   if (view.level > before) {
     const gained = view.level - before;
     seat.tenderLevel = view.level;
@@ -6640,6 +6661,8 @@ function handleConnection(ws: WebSocket): void {
       let healTier = healTierForLevel(1);
       let healAmount = healAmountForLevel(1);
       let wardRuneUnlocked = false;
+      let boundStartingSpellKey: string | null = null;
+      let boundUnlockedSpells: string[] | null = null;
       let maxTenderHp = tenderMaxHpForLevel(1);
       let expKey: string | null = null;
       let boundClassKey: string | null = null;
@@ -6691,6 +6714,8 @@ function handleConnection(ws: WebSocket): void {
             healTier = progress.healTier;
             healAmount = progress.healAmount;
             wardRuneUnlocked = progress.wardRuneUnlocked;
+            boundStartingSpellKey = progress.startingSpellKey;
+            boundUnlockedSpells = progress.unlockedSpells;
             maxTenderHp = progress.maxTenderHp;
           }
           // Deep Breath (the Heart, 2026-10-18): maximum
@@ -6711,7 +6736,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, startingSpellKey: boundStartingSpellKey, unlockedSpells: boundUnlockedSpells, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       // THE HOLDER'S FLAG, RESTORED (Build 2's drive found
       // this seam): the reclaim roads above return the
       // holder's own seat object, flag and all — but when
@@ -7600,6 +7625,12 @@ function handleConnection(ws: WebSocket): void {
     if (msg.type === "castHeal") {
       if (!player) return;
       if (player.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers hold no mending — bind in the game to cast." })); return; }
+      // SPELL POINTS (Nigel, 2026-11-03): Heal's page locks
+      // like every page of the book — a bound seat casts it
+      // once it stands unlocked for a spell point, judged
+      // fresh from the one ledger. A seat with no Tender
+      // behind it holds no book and is judged by no ledger.
+      if (player.expKey && !spellUnlockedSync(player.expKey, "heal")) { ws.send(JSON.stringify({ type: "error", message: `“${healSpell()?.name ?? "Heal"}” is locked — its page wakes for a spell point, spent in the Grimoire. Condense Shadow Matter in the book's vial to earn one.` })); return; }
       const myKey = player.key;
       // NO HEX-LOCK (Nigel, 2026-10-23 23:04): the mending
       // may be aimed by the tapped POINT — the most-hurt of
@@ -7710,6 +7741,12 @@ function handleConnection(ws: WebSocket): void {
         if (gateRefusal) { ws.send(JSON.stringify({ type: "error", message: gateRefusal })); return; }
       }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
+      // SPELL POINTS (Nigel, 2026-11-03): behind the Lv 3
+      // waking, the unlock — this page casts at the Table
+      // only once a spell point has woken it, judged fresh
+      // from the same ledger the homeland book keeps. The
+      // door's granted working is exempt by its key.
+      if (caster.expKey && def.key !== entranceSpellKeyFor(caster.expKey) && !spellUnlockedSync(caster.expKey, def.key)) { ws.send(JSON.stringify({ type: "error", message: `“${def.name}” is locked — its page wakes for a spell point, spent in the Grimoire. Condense Shadow Matter in the book's vial to earn one.` })); return; }
       // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
       // 2026-10-20 19:35): a hue riding in on this message
       // is inert — the colour is judged from the page's own
@@ -8029,6 +8066,11 @@ function handleConnection(ws: WebSocket): void {
       const def = spellByKey(String(msg.root || ""));
       if (!def || (def.kind !== "rune" && def.kind !== "spell")) { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
       if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
+      // SPELL POINTS (Nigel, 2026-11-03): the rune's page
+      // locks as every page locks — unlocked for a spell
+      // point, judged fresh from the one ledger, the door's
+      // granted working exempt by its key.
+      if (caster.expKey && def.key !== entranceSpellKeyFor(caster.expKey) && !spellUnlockedSync(caster.expKey, def.key)) { ws.send(JSON.stringify({ type: "error", message: `“${def.name}” is locked — its page wakes for a spell point, spent in the Grimoire. Condense Shadow Matter in the book's vial to earn one.` })); return; }
       // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
       // 2026-10-20 19:35), as at the ward's raising above:
       // the message's hue is inert; the book judges.

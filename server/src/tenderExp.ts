@@ -21,6 +21,7 @@ import { db, schema } from "./store.js";
 import { and, eq } from "drizzle-orm";
 import { heartEffects } from "./skills.js";
 import { entranceSpellKeyFor } from "./entrance.js";
+import { spellPointView, unlockedSpellKeys } from "./spellPoints.js";
 
 /**
  * Cumulative EXP at which each level is reached (index 0 = Lv 1).
@@ -113,6 +114,16 @@ export interface TenderProgressView {
    *  from the start, ahead of the Lv 3 ward/rune waking.
    *  Null for every legacy account and before the choice. */
   startingSpellKey: string | null;
+  /** SPELL POINTS (Nigel, 2026-11-03): the Grimoire pages
+   *  this Tender has unlocked with spell points (the door's
+   *  granted spell is NOT among them — it rides
+   *  startingSpellKey above, by its own record), and the
+   *  number of points banked and unspent — the reading the
+   *  book's gold button shows. Attached by withHeart from
+   *  the spell-point ledger, so every face that reads a
+   *  Tender's progress judges the same standing. */
+  unlockedSpells: string[];
+  spellPoints: number;
   /** THE RUNIC WEAPON (Nigel, 2026-10-19): the blade, spear or
    *  bow chosen with the class — null until the choosing's
    *  second gift is taken. */
@@ -155,6 +166,8 @@ function view(totalExp: number, lifetimeWakes: number, cls?: { classKey: string 
     classRiteAvailable: !!cls?.classKey && !cls.classFreeRiteUsed,
     reclassTokens: cls?.reclassTokens ?? 0,
     startingSpellKey: null,
+    unlockedSpells: [],
+    spellPoints: 1,
     weaponKey: cls?.weaponKey ?? null,
     arsenal: extra?.arsenal ?? defaultArsenal(),
     pools: extra?.pools ?? {},
@@ -185,6 +198,11 @@ function withHeart(ownerKey: string, v: TenderProgressView): TenderProgressView 
   // reading, so the Grimoire's face and the cast doors judge
   // the same standing (null on the old road, always).
   v.startingSpellKey = entranceSpellKeyFor(ownerKey);
+  // SPELL POINTS (Nigel, 2026-11-03): the unlocked pages and
+  // the banked points ride the same reading — the wheel, the
+  // book and the cast doors all judge one ledger.
+  v.unlockedSpells = unlockedSpellKeys(ownerKey);
+  v.spellPoints = spellPointView(ownerKey).available;
   return v;
 }
 

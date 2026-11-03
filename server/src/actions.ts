@@ -57,6 +57,7 @@ import {
   ENTRANCE_SPELL_KEYS, ENTRANCE_SPELL_NAMES, advanceEntranceStep, entranceStateFor, entranceSpellKeyFor,
   type EntranceSpellKey,
 } from "./entrance.js";
+import { spellPointView, feedSpellVial as feedSpellVialLedger, unlockSpell as unlockSpellLedger, spellUnlocked as spellUnlockedSync } from "./spellPoints.js";
 import {
   proveKitPiece, matchCandidate, polygonsOverlap, pieceKeyOf, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
   collisionSegments, segmentsCrossProper, pointSegmentDistance, type Pt,
@@ -2622,6 +2623,20 @@ async function buildStudio(ctx: ActionContext | undefined, opts?: { tenderOnly?:
 
 function badRequest(message: string): never {
   throw Object.assign(new Error(message), { status: 400 });
+}
+
+/** SPELL POINTS (Nigel, 2026-11-03): the cast door's unlock
+ *  gate — a page casts only once it stands unlocked for the
+ *  caster (1 spell point, spent in the Grimoire; points are
+ *  condensed there from Shadow Matter). The door's granted
+ *  working stands outside the ledger entirely and is never
+ *  judged here. Read from spellPoints.ts, the one ledger, so
+ *  the homeland and the Table refuse in the same words. */
+function gateSpellUnlock(actorKey: string, spell: GrimoireSpell, doorSpellKey: string | null): void {
+  if (spell.key === doorSpellKey) return;
+  if (!spellUnlockedSync(actorKey, spell.key)) {
+    badRequest(`“${spell.name}” is locked — its page wakes for a spell point, spent in the Grimoire. Condense Shadow Matter in the book's vial to earn one.`);
+  }
 }
 
 /** Player-readable form of a validation failure (fix list #10, Nigel,
@@ -12840,9 +12855,12 @@ export const handlers = {
     // working an entrance Tender chose at the door is theirs
     // from the start — the Lv 3 ward/rune waking below does
     // not hold IT back (and holds every other working back
-    // exactly as today). The grant is the door's record
-    // itself (visitors.entrance_spell), read at the cast;
-    // no spell-point system exists and none is invented.
+    // exactly as today), and the spell-point unlock gate
+    // below it does not hold it back either (Nigel,
+    // 2026-11-03: the door's grant stands outside the
+    // condensing economy — no point, no unlock). The grant
+    // is the door's record itself (visitors.entrance_spell),
+    // read at the cast.
     const doorSpellKey = entranceSpellKeyFor(actorKeyFor(ctx));
 
     // REAGENT EMPOWERMENT (Nigel, 2026-10-25 10:22; wired
@@ -12936,6 +12954,11 @@ export const handlers = {
 
     // HEAL — the binding art, cast on one of your own standing.
     if (spell.engine === "heal") {
+      // SPELL POINTS (Nigel, 2026-11-03): Heal's page locks
+      // like every page — it casts once unlocked for a spell
+      // point. Judged at the branch's head, before any
+      // placement or charge is reckoned.
+      gateSpellUnlock(actorKeyFor(ctx), spell, doorSpellKey);
       if (!awakenedId) badRequest("Heal reaches one of your own standing Awokin — name it.");
       const placements = await db.select().from(schema.fieldPlacements)
         .where(and(eq(schema.fieldPlacements.ownerKey, ownerKey), eq(schema.fieldPlacements.awakenedId, awakenedId)));
@@ -13012,6 +13035,10 @@ export const handlers = {
       if (!progress.wardRuneUnlocked && spell.key !== doorSpellKey) {
         badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
       }
+      // SPELL POINTS (Nigel, 2026-11-03): the Springleaf's
+      // page locks too — unlocked for a spell point, or it
+      // does not cast. The door's grant is exempt by its key.
+      gateSpellUnlock(actorKeyFor(ctx), spell, doorSpellKey);
       if (tileId == null) badRequest("The Springleaf roots on a hex — name the ground.");
       const tile = castTileById.get(tileId) as any;
       if (!tile) badRequest("That hex is not yours to plant.");
@@ -13091,6 +13118,14 @@ export const handlers = {
     if (!progress.wardRuneUnlocked && spell.key !== doorSpellKey) {
       badRequest(`Wards and runes wake at Tender Lv 3 — you stand at Lv ${progress.level}.`);
     }
+
+    // SPELL POINTS (Nigel, 2026-11-03): behind the Lv 3
+    // waking stands the unlock — a page casts only once a
+    // spell point has been spent to wake it for this Tender.
+    // The door's granted working is exempt by its key, as at
+    // every door. Judged here, before the branches reckon
+    // prices or charges, so a locked page costs nothing.
+    gateSpellUnlock(actorKeyFor(ctx), spell, doorSpellKey);
 
     // THE PAGE CARRIES IT (Nigel, 2026-10-20; the slots,
     // 2026-10-21): no pour is named or taken at a cast on
@@ -15726,6 +15761,58 @@ export const handlers = {
     }
     const slots = await pageAttunementsFor(ownerKey);
     return { ok: true as const, spellKey, element, spent: SLOT_COST, laid, inElement, filled: total, slots: slots[spellKey] ?? {} };
+  },
+
+  /** SPELL POINTS, READ (Nigel, 2026-11-03): the Grimoire's
+   *  gold button and its condensing vial read this — the
+   *  points banked and unspent, the pages standing unlocked,
+   *  the vial's fed standing against the next rung of the
+   *  ladder, and the Shadow Matter stock the vial drinks
+   *  from. The first reading grants the free first point
+   *  (spellPoints.ts, the one ledger). */
+  async getSpellPoints(_args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    return { ok: true as const, ...spellPointView(ownerKeyFor(ctx)) };
+  },
+
+  /** FEED THE CONDENSING VIAL (the same ruling): one click
+   *  moves as much Shadow Matter as the vial still needs
+   *  toward the next point — or as much as the stock holds,
+   *  if less — out of the hoard and into the vial. What is
+   *  fed stands committed across sittings; reaching the rung
+   *  consumes exactly the rung's price, banks +1 point and
+   *  writes the milestone's one condensing record. Server-
+   *  side throughout — no client number is trusted. */
+  async feedSpellVial(_args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const fed = feedSpellVialLedger(ownerKeyFor(ctx));
+    if (!fed.ok) badRequest(fed.reason);
+    return { ok: true as const, fed: fed.fed, condensed: fed.condensed, ...fed.view };
+  },
+
+  /** UNLOCK A PAGE OF THE GRIMOIRE (the same ruling): one
+   *  spell point wakes one page for this Tender, forever —
+   *  until it stands unlocked, the page cannot be readied
+   *  or cast on either ground. The door's granted spell is
+   *  never unlocked this way; it stands outside the ledger
+   *  by its own record. No release or refund is offered —
+   *  none was ruled. */
+  async unlockGrimoireSpell(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({
+      spellKey: z.string().min(1).max(80),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("Name a page of the book to unlock.");
+    const ownerKey = ownerKeyFor(ctx);
+    await refreshGrimoire();
+    const spell = spellByKey(parsed.data.spellKey);
+    if (!spell) badRequest("That page is not in the book.");
+    if (entranceSpellKeyFor(ownerKey) === spell.key) {
+      badRequest(`“${spell.name}” was granted at the door — it is yours already, and no point is spent on it.`);
+    }
+    const unlocked = unlockSpellLedger(ownerKey, spell.key);
+    if (!unlocked.ok) badRequest(unlocked.reason);
+    return { ok: true as const, spellKey: spell.key, already: unlocked.already, ...unlocked.view };
   },
 
   /** THE PARTY, READ (Nigel, 2026-10-20; built 2026-10-21):

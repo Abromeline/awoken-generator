@@ -383,6 +383,23 @@ export interface DropEventView {
   drops: { kind: "energy" | "attunement" | "item"; itemKey?: string; element?: string; qty: number }[];
 }
 
+/** SPELL POINTS (Nigel, 2026-11-03): the standing the
+ *  Grimoire's gold button and condensing vial show — points
+ *  banked and unspent, pages unlocked, the vial's fed
+ *  standing against the next rung's price, and the Shadow
+ *  Matter stock the vial drinks from. */
+export interface SpellPointView {
+  ok: true;
+  available: number;
+  earned: number;
+  spent: number;
+  unlocked: string[];
+  vialFed: number;
+  nextPrice: number;
+  nextPoint: number;
+  shadowMatter: number;
+}
+
 export interface PartyView {
   members: PartyFace[];
   deck: PartyFace[];
@@ -885,6 +902,13 @@ export const api = {
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; refunded?: number; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number; hits?: number; targetId?: number; shields?: number; shieldHp?: number; wallHp?: number; facing?: string; wallQ?: number; wallR?: number; gateNodes?: number; line?: { px?: number; pr?: number; len?: number; count?: number } }>("castMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>
     post<{ ok: true; spellKey: string; element: string; spent: number; inElement: number; filled: number; slots: Record<string, number> }>("attuneGrimoirePage", args),
+  // SPELL POINTS (Nigel, 2026-11-03): the Grimoire's gold
+  // button and condensing vial — the points banked, the
+  // pages unlocked, the vial's standing against the next
+  // rung of the ladder; feeding the vial; waking a page.
+  getSpellPoints: () => post<SpellPointView>("getSpellPoints", {}),
+  feedSpellVial: () => post<SpellPointView & { fed: number; condensed: boolean }>("feedSpellVial", {}),
+  unlockGrimoireSpell: (args: { spellKey: string }) => post<SpellPointView & { spellKey: string; already: boolean }>("unlockGrimoireSpell", args),
   // THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
   // membership read the Zodiac's party tab stands on, the
   // deck-fill for an open spot, the benching back to the
@@ -935,7 +959,7 @@ export const api = {
   updateLayerAssetElement: (value: { id: number; element: string | null }) => post<{ ok: boolean }>("updateLayerAssetElement", value),
   claimSpark: (value: { tileId: number }) => post<{ ok: boolean; fireLevel: number }>("claimSpark", value),
   getTenderRank: () => post<{ ok: boolean; myRank: number; myCount: number; totalTenders: number; nearby: { rank: number; name: string; count: number; isMe: boolean }[] }>("getTenderRank", {}),
-  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; startingSpellKey: string | null; weaponKey: string | null; arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[]; pools: Record<string, number>; awokenCount: number }>("getTenderExp", {}),
+  getTenderExp: () => post<{ totalExp: number; lifetimeWakes: number; level: number; expIntoLevel: number; expForNextLevel: number | null; healTier: number; healAmount: number; wardRuneUnlocked: boolean; maxTenderHp: number; classKey: string | null; classRiteAvailable: boolean; reclassTokens: number; startingSpellKey: string | null; unlockedSpells: string[]; spellPoints: number; weaponKey: string | null; arsenal: { key: string; level: number; xp: number; element: string | null; depth: number; manifest: boolean; signature: boolean }[]; pools: Record<string, number>; awokenCount: number }>("getTenderExp", {}),
   /** THE RUNIC WEAPON (2026-10-19; trigger amended
    *  2026-10-23 — chosen with the class at three woken, not
    *  at Lv 3); re-picking rides the second-thoughts economy. */

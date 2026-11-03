@@ -62,6 +62,10 @@ const SIGNATURES: Record<string, { name: string; desc: string }> = {
   swordshield: { name: "Aegis", desc: "+1 AC" },
 };
 const ROMAN = ["0", "I", "II", "III", "IV"];
+/** Shadow Matter is a fractional stock (the lighthouse
+ *  drinks it in fractions) — whole numbers show whole,
+ *  fractions to one decimal. */
+const fmtSm = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 /** THE BOOK'S DRAWN FACES, by working key — the game's own
  *  hand-drawn runes, worn in the book through a gold mask
  *  (the spellbook's ruled face, 2026-10-23). The map follows
@@ -212,6 +216,50 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     },
     onError: charFail,
   });
+  // SPELL POINTS + THE CONDENSING VIAL (Nigel, 2026-11-03):
+  // the book's gold button counts the points banked and
+  // unspent; the glass vial beside it drinks Shadow Matter
+  // toward the next point's ladder price, a click at a time
+  // (as much as the vial still needs or the stock holds,
+  // whichever is less), and at the rung the point banks.
+  // A page locked by the ledger shows its lock and its
+  // unlock — one point — where its attunement orbs would
+  // stand; an unlocked page, and the door's granted page,
+  // carry the orbs as always. The design of the book is
+  // otherwise untouched, as ruled.
+  const spellPointsQ = useQuery({ queryKey: ["spellPoints"], queryFn: () => api.getSpellPoints(), enabled: tab === "grimoire" });
+  const feedVialM = useMutation({
+    mutationFn: () => api.feedSpellVial(),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["spellPoints"] });
+      charOk(r.condensed
+        ? `The vial brims, darkens, and breaks into light — spell point ${r.earned} is yours. ${r.available} now stand${r.available === 1 ? "s" : ""} ready.`
+        : `The vial drinks ${fmtSm(r.fed)} Shadow Matter — ${fmtSm(r.vialFed)} of ${fmtSm(r.nextPrice)} toward point ${r.nextPoint}.`);
+    },
+    onError: charFail,
+  });
+  const unlockPageM = useMutation({
+    mutationFn: (spellKey: string) => api.unlockGrimoireSpell({ spellKey }),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["spellPoints"] });
+      const nm = grimoireQ.data?.spells.find(s => s.key === r.spellKey)?.name ?? r.spellKey;
+      charOk(r.already
+        ? `${nm} already stands unlocked.`
+        : `${nm} wakes — its page is yours to ready and cast. ${r.available} spell point${r.available === 1 ? "" : "s"} remain${r.available === 1 ? "s" : ""}.`);
+    },
+    onError: charFail,
+  });
+  /** Whether a page stands open to this Tender: the door's
+   *  grant by its own record, or an unlock on the ledger.
+   *  While the ledger's first reading is still on its way
+   *  the face follows the book as it stood — the cast doors
+   *  enforce the law regardless. */
+  const pageUnlocked = (s: GrimoireSpell): boolean => {
+    if (exp?.startingSpellKey && s.key === exp.startingSpellKey) return true;
+    const sp = spellPointsQ.data;
+    if (!sp) return true;
+    return sp.unlocked.includes(s.key);
+  };
   // ── THE PARTY (Nigel, 2026-10-20; built 2026-10-21): the
   // party stands in this tab. The arrangement here is the
   // plain working draft — spots in a row, the deck beneath —
@@ -250,7 +298,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
     onError: charFail,
   });
   const partyBusy = addPartyM.isPending || removePartyM.isPending;
-  const charBusy = wieldM.isPending || attuneM.isPending || buyNodeM.isPending || attunePageM.isPending;
+  const charBusy = wieldM.isPending || attuneM.isPending || buyNodeM.isPending || attunePageM.isPending || feedVialM.isPending || unlockPageM.isPending;
   const exp = expQ.data;
   /** Which pool a node buy would draw on — the client mirror of
    *  the server's law (attuned element, else the richest pool);
@@ -426,7 +474,21 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
         <h5 className="book-name">{s.name}</h5>
         <p className="book-marks">{s.kind} · Lv {s.numbers?.level ?? 1} · cost {s.cost}</p>
         {s.blurb ? <p className="book-line">{s.blurb}</p> : null}
-        {pageAttunementBlock(s)}
+        {exp?.startingSpellKey && s.key === exp.startingSpellKey ? (
+          <>
+            <p className="book-mark-line">Your door's grant — this page is yours from the start; no point was spent on it.</p>
+            {pageAttunementBlock(s)}
+          </>
+        ) : pageUnlocked(s) ? pageAttunementBlock(s) : (
+          <div className="page-unlock">
+            <p className="book-mark-line">🔒 Locked — this page wakes for 1 spell point, and casts only once woken.</p>
+            <button type="button" className="zodiac-btn take" disabled={charBusy || !spellPointsQ.data || spellPointsQ.data.available < 1}
+              onClick={() => unlockPageM.mutate(s.key)}>
+              Unlock this page — 1 spell point{spellPointsQ.data ? ` · ${spellPointsQ.data.available} ready` : ""}
+            </button>
+            {spellPointsQ.data && spellPointsQ.data.available < 1 && <p className="book-mark-line">No point stands ready — condense Shadow Matter in the vial above to earn one.</p>}
+          </div>
+        )}
       </section>
     );
   };
@@ -521,7 +583,7 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
             <button key={entryKey(e)} type="button" className="book-index-row" onClick={() => turnToFolio(i + 1)}>
               <span className="book-index-num">{i + 1}</span>
               <span className="book-index-name">{entryName(e)}</span>
-              <span className="book-index-marks">{e.type === "weapon" ? `d${WEAPONS[e.key].die} · ${WEAPONS[e.key].note}` : `${e.spell.kind} · Lv ${e.spell.numbers?.level ?? 1} · cost ${e.spell.cost}`}</span>
+              <span className="book-index-marks">{e.type === "weapon" ? `d${WEAPONS[e.key].die} · ${WEAPONS[e.key].note}` : `${e.spell.kind} · Lv ${e.spell.numbers?.level ?? 1} · cost ${e.spell.cost}${pageUnlocked(e.spell) ? "" : " · locked"}`}</span>
             </button>
           ))}
         </div>
@@ -824,7 +886,29 @@ export default function Zodiac({ onClose, onChooseClass }: { onClose: () => void
                 ) : grimTab === "spells" ? (
                   <p className="book-chapter-marks">Casting — your school +2 · closed schools −3 · the Sage −3 on all · d20 + gift vs Lv + 10 · a failed cast still spends its energy</p>
                 ) : (
-                  <p className="book-chapter-marks">Ward &amp; Rune arts — {exp.wardRuneUnlocked ? "unlocked" : `locked · opens at Tender Lv 3 · you are Lv ${exp.level}`}</p>
+                  <p className="book-chapter-marks">Ward &amp; Rune arts — {exp.wardRuneUnlocked ? `awake at Lv 3 · each page wakes for 1 spell point${spellPointsQ.data ? ` · you hold ${spellPointsQ.data.available}` : ""}` : `locked · opens at Tender Lv 3 · you are Lv ${exp.level}`}</p>
+                )}
+                {grimTab !== "weapons" && spellPointsQ.data && (
+                  <div className="spell-point-bar">
+                    <button type="button" className="spell-point-count" disabled={charBusy}
+                      onClick={() => feedVialM.mutate()}
+                      title="Your spell points — each one wakes a page of this book, for good. Tap to feed the vial beside it."
+                      aria-label={`${spellPointsQ.data.available} spell points ready. Tap to feed the condensing vial.`}>
+                      ✦ {spellPointsQ.data.available} spell point{spellPointsQ.data.available === 1 ? "" : "s"}
+                    </button>
+                    <button type="button" className="spell-vial" disabled={charBusy}
+                      onClick={() => feedVialM.mutate()}
+                      title={`The condensing vial — tap to feed it Shadow Matter from your stock (as much as it still needs, or as much as you hold). At ${fmtSm(spellPointsQ.data.nextPrice)} it condenses into spell point ${spellPointsQ.data.nextPoint}.`}
+                      aria-label={`The condensing vial: ${fmtSm(spellPointsQ.data.vialFed)} of ${fmtSm(spellPointsQ.data.nextPrice)} Shadow Matter toward spell point ${spellPointsQ.data.nextPoint}. You hold ${fmtSm(spellPointsQ.data.shadowMatter)} Shadow Matter. Tap to feed it.`}>
+                      <span className="spell-vial-glass" aria-hidden="true">
+                        <span className="spell-vial-fill" style={{ height: `${spellPointsQ.data.nextPrice > 0 ? Math.min(100, (spellPointsQ.data.vialFed / spellPointsQ.data.nextPrice) * 100) : 0}%` }} />
+                      </span>
+                      <span className="spell-vial-words">
+                        {fmtSm(spellPointsQ.data.vialFed)} / {fmtSm(spellPointsQ.data.nextPrice)} Shadow Matter → point {spellPointsQ.data.nextPoint}
+                        <small>you hold {fmtSm(spellPointsQ.data.shadowMatter)} · tap the vial to feed it</small>
+                      </span>
+                    </button>
+                  </div>
                 )}
                 {grimTab !== "weapons" && grimoireQ.isLoading && <p className="zodiac-note">The book is opening…</p>}
                 {grimTab !== "weapons" && grimoireQ.isError && <p className="zodiac-lock">The book would not open — try again in a moment.</p>}

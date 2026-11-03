@@ -888,6 +888,31 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS grimoire_attunements (
   updated_at INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner_key, spell_key, element)
 )`);
+// SPELL POINTS CONDENSED FROM SHADOW MATTER (Nigel,
+// 2026-11-03): the vial's standing (points earned, Shadow
+// Matter fed toward the next point), the unlock ledger of
+// the Grimoire's pages, and the written record of every
+// grant, condensing and unlock. See spellPoints.ts.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS spell_point_state (
+  owner_key TEXT PRIMARY KEY,
+  points_earned INTEGER NOT NULL DEFAULT 1,
+  vial_fed REAL NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+)`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS spell_unlocks (
+  owner_key TEXT NOT NULL,
+  spell_key TEXT NOT NULL,
+  unlocked_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (owner_key, spell_key)
+)`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS spell_point_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  shadow_matter REAL NOT NULL DEFAULT 0,
+  spell_key TEXT,
+  created_at INTEGER NOT NULL DEFAULT 0
+)`);
 // THE PARTY (Nigel, 2026-10-20; built 2026-10-21): one row
 // per Awokin standing in a Tender's party — the membership
 // ledger both grounds read. Presence in the party IS the

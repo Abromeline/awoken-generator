@@ -325,6 +325,13 @@ interface YouState {
   healTier?: number;
   healAmount?: number;
   wardRuneUnlocked?: boolean;
+  /** SPELL POINTS (Nigel, 2026-11-03): the door's granted
+   *  working and the pages this seat's Tender has unlocked —
+   *  the wheel's lock reads the same ledger as the book.
+   *  Null unlockedSpells = no book behind the seat (a
+   *  stand-in), whose offerings stand on the Lv 3 law. */
+  startingSpellKey?: string | null;
+  unlockedSpells?: string[] | null;
   classKey?: string | null;
   weaponKey?: string | null;
   weaponLevel?: number;
@@ -3279,19 +3286,31 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // very act its wheel entry runs (Nigel, 2026-10-19).
   const buildOfferings = (): { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] => {
     const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
+    // SPELL POINTS (Nigel, 2026-11-03): a page offers itself
+    // open only when the Lv 3 waking stands AND the page
+    // stands unlocked for a spell point — or it is the
+    // door's granted working, which stands outside the
+    // ledger. A seat holding no book (unlockedSpells null)
+    // is judged by the Lv 3 law alone, as stand-ins are.
+    const pageLocked = (key: string, lv3Applies: boolean): boolean => {
+      if (lv3Applies && !you?.wardRuneUnlocked) return true;
+      if (you?.unlockedSpells == null) return false;
+      if (key === you?.startingSpellKey) return false;
+      return !you.unlockedSpells.includes(key);
+    };
     for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
-      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: pageLocked(d.key, true), act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
     }
     if (healDef) {
-      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: pageLocked("heal", false), act: () => { setPlacing({ kind: "heal", root: "heal" }); setWardAnchor(null); setBladePicks([]); } });
     }
     // THE SPRINGLEAF: a binding-school def the server routes
     // through castWard — it places by the ward flow.
     for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
-      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: pageLocked(d.key, true), act: () => { setPlacing({ kind: "ward", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
     }
     for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
-      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: !you?.wardRuneUnlocked, act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
+      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: pageLocked(d.key, true), act: () => { setPlacing({ kind: "rune", root: d.key }); setWardAnchor(null); setBladePicks([]); } });
     }
     // ABILITY: the ring's last entry opens the weapon
     // sub-ring instead of casting.
