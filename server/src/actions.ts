@@ -13586,6 +13586,35 @@ export const handlers = {
       // (the Blade answers by the distance from it), and
       // the view draws the writing where it was laid.
       if (aimPoint) { numsToStore.aimQ = aimPoint.q; numsToStore.aimR = aimPoint.r; }
+      // THE SINGLE BLADE POINTS AWAY FROM ITS CASTER (Nigel,
+      // 2026-11-03): the blade lies on the ground pointing
+      // along the direction from where the caster stood to
+      // the ground it was written on — fixed at this cast,
+      // never tracking the caster after. The direction rides
+      // the writing's numbers in axial terms (faceQ/faceR, a
+      // unit vector in the land's own metric), the one tongue
+      // both grounds' drawings read (the Table stores it the
+      // same way). The caster's point is the server's own
+      // knowledge: his stand tile's point, as the Black Gate
+      // reads it. Written at his own feet there is no
+      // caster→ground direction: then the cast-carried
+      // facing answers (the figure's own, the Black Gate's
+      // road), and with none carried, the map's east.
+      if (spell.engine === "blade") {
+        const landQ = aimPoint ? aimPoint.q : Number(tile.q);
+        const landR = aimPoint ? aimPoint.r : Number(tile.r);
+        let dq = standTile ? landQ - Number((standTile as any).q) : 0;
+        let dr = standTile ? landR - Number((standTile as any).r) : 0;
+        let dLen = Math.sqrt(dq * dq + dq * dr + dr * dr);
+        if (!(dLen > 1e-6)) {
+          const step = facing ? blackGateStepFor(facing) : null;
+          const s = step ?? BLACK_GATE_STEP.E;
+          dq = s[0]; dr = s[1];
+          dLen = Math.sqrt(dq * dq + dq * dr + dr * dr);
+        }
+        numsToStore.faceQ = dq / dLen;
+        numsToStore.faceR = dr / dLen;
+      }
       // THE SIZE OF THE WORK (Nigel, 2026-10-24 22:37): a
       // rune's DIAMETER by the runecasting level, snapshotted
       // into its numbers as HP is — its springs read the
@@ -13640,18 +13669,24 @@ export const handlers = {
 
   /** LOOSE THE SINGLE BLADE (Nigel, 2026-10-20, spec
    *  single-blade-click-spring; re-ruled 2026-10-23 —
-   *  Recovery R4): the player's click on a dark thing is an
-   *  ORDER to the written Blade, not a cast — no roll, no
-   *  energy, seamless casting untouched. The clicked dark
-   *  must stand within TWO HEXES of the rune's hex (the
-   *  book's own spring measure); the NEAREST armed Blade
-   *  answers; the harm is the book's — flat power (6 on the
-   *  page), no die, no AC — and the loose spends one of the
-   *  working's charges, as a spring spent it. Out of reach,
-   *  the click is answered in plain words and every armed
-   *  Blade stays armed. The flight itself is the client's
-   *  to draw (fromTileId is the rune's ground); the harm is
-   *  refereed here, whole. */
+   *  Recovery R4; the volley re-ruled 2026-11-03): the
+   *  player's click on a dark thing is an ORDER to the
+   *  written Blade, not a cast — no roll, no energy,
+   *  seamless casting untouched. THE VOLLEY (Nigel,
+   *  2026-11-03: "clicking the nearest thing launches all
+   *  blades"): one click launches EVERY armed Blade that
+   *  answers it — each flies up and spears down into the
+   *  clicked dark, each dealing the book's flat power (6
+   *  on the page, +1 bright while an Engine ward stands),
+   *  no die, no AC, and each spending ONE of its charges,
+   *  as a spring spent it. There is NO nearest-blade
+   *  selection: the 2026-10-24 delivery's nearest-only
+   *  road is struck. Which blades answer is ONE reckoning
+   *  (bladeAnswersClick below), marked as such. When no
+   *  blade answers, the click is answered in plain words
+   *  and every armed Blade stays armed. The flights are
+   *  the client's to draw (loosedBlades names each blade
+   *  and its ground); the harm is refereed here, whole. */
   async looseBlade(args: unknown, ctx?: ActionContext) {
     const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ wandererId: z.number().int().positive() }).safeParse(args);
@@ -13671,41 +13706,56 @@ export const handlers = {
     if (!markTile) badRequest("That dark thing stands on no ground of yours — the blade stays armed.");
     const blades = sqlite.prepare("SELECT * FROM territory_workings WHERE owner_key = ? AND engine = 'blade' AND kind = 'rune' AND charges > 0 ORDER BY id").all(ownerKey) as any[];
     if (!blades.length) badRequest("No Single Blade stands armed on your land — write one first, and it will wait for your click.");
-    let best: { w: any; tile: any; dist: number } | null = null;
-    for (const w of blades) {
+    // ── THE SCOPE OF THE ANSWER — ONE RECKONING ──────────
+    // (Nigel, 2026-11-03 09:56: "All blades within 2 hexes
+    // of the clicked enemy fly"): every armed Blade lying
+    // within two hexes of the clicked dark looses; blades
+    // beyond two hexes stay armed and waiting. There is no
+    // nearest-blade selection anywhere in this door. WHICH
+    // blades answer is this one predicate and no other.
+    // The reach is reckoned from each blade's own ground
+    // (NO HEX-LOCK, 2026-10-23 23:04): from its written
+    // point where it carries one — the point's distance to
+    // the dark thing's own standing point — else by its
+    // hex, the standing measure.
+    const bladeAnswersClick = (w: any): boolean => {
       const rt = tileById.get(Number(w.tile_id));
-      if (!rt) continue;
-      // NO HEX-LOCK (Nigel, 2026-10-23 23:04; built
-      // 2026-10-24): a Blade written at a tapped point
-      // answers by the DISTANCE from that point to the
-      // dark thing's own standing point — two hexes of
-      // ground, the book's own spring measure. A Blade
-      // written on the hex road keeps its hex measure.
+      if (!rt) return false;
       let wNums: Record<string, number> = {};
       try { wNums = JSON.parse(w.nums ?? "{}"); } catch { wNums = {}; }
       const dist = typeof wNums.aimQ === "number" && typeof wNums.aimR === "number"
         && wanderer.pos_q != null && wanderer.pos_r != null
         ? axialDist({ q: wNums.aimQ, r: wNums.aimR }, { q: Number(wanderer.pos_q), r: Number(wanderer.pos_r) })
         : hexDistTiles(rt, markTile);
-      if (dist <= 2 && (!best || dist < best.dist)) best = { w, tile: rt, dist };
-    }
-    if (!best) badRequest("Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed.");
-    const chosen = best.w;
-    let nums: Record<string, number> = {};
-    try { nums = JSON.parse(chosen.nums ?? "{}"); } catch { nums = {}; }
+      return dist <= 2;
+    };
+    const answering = blades.filter(bladeAnswersClick);
+    if (!answering.length) badRequest("Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing, and no blade of yours stands within reach of this one. Every blade stays armed.");
     const bright = !!sqlite.prepare("SELECT id FROM territory_workings WHERE owner_key = ? AND engine = 'engine' AND kind = 'ward'").get(ownerKey);
-    const power = (nums.power ?? 6) + (bright ? (nums.brightBonus ?? 1) : 0);
     const maxHp = (HOMELAND_DARK_HP[String(wanderer.kind ?? "fray")] ?? 3) + Math.max(0, (Number(wanderer.lvl) || 1) - 1);
     const cur = wanderer.hp == null ? maxHp : Number(wanderer.hp);
-    const next = cur - power;
+    // THE VOLLEY'S RECKONING: each answering blade deals
+    // the book's flat power (its own snapshot, +1 bright
+    // while an Engine ward stands) and spends one charge;
+    // the harm lands on the dark as one volley.
+    let totalHarm = 0;
+    const loosedBlades: { workingId: number; fromTileId: number; harm: number; chargesLeft: number }[] = [];
+    for (const chosen of answering) {
+      let nums: Record<string, number> = {};
+      try { nums = JSON.parse(chosen.nums ?? "{}"); } catch { nums = {}; }
+      const power = (nums.power ?? 6) + (bright ? (nums.brightBonus ?? 1) : 0);
+      totalHarm += power;
+      const chargesLeft = Math.max(0, (chosen.charges ?? 1) - 1);
+      if (chargesLeft <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(chosen.id);
+      else sqlite.prepare("UPDATE territory_workings SET charges = ? WHERE id = ?").run(chargesLeft, chosen.id);
+      loosedBlades.push({ workingId: Number(chosen.id), fromTileId: Number(chosen.tile_id), harm: power, chargesLeft });
+    }
+    const next = cur - totalHarm;
     const felled = next <= 0;
     if (felled) sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(wanderer.id);
     else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, wanderer.id);
-    const chargesLeft = (chosen.charges ?? 1) - 1;
-    if (chargesLeft <= 0) sqlite.prepare("DELETE FROM territory_workings WHERE id = ?").run(chosen.id);
-    else sqlite.prepare("UPDATE territory_workings SET charges = ? WHERE id = ?").run(chargesLeft, chosen.id);
     if (felled) await creditBattleKill(ownerKey, String(wanderer.kind ?? "fray"), markTile.element ?? null, null, undefined, { q: Number(markTile.q), r: Number(markTile.r) });
-    return { ok: true as const, loosed: true as const, workingId: Number(chosen.id), fromTileId: Number(chosen.tile_id), targetId: wandererId, harm: power, felled, chargesLeft: Math.max(0, chargesLeft) };
+    return { ok: true as const, loosed: true as const, workingId: loosedBlades[0].workingId, fromTileId: loosedBlades[0].fromTileId, targetId: wandererId, harm: totalHarm, felled, chargesLeft: loosedBlades[0].chargesLeft, loosedBlades };
   },
 
 

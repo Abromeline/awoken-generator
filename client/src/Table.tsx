@@ -97,6 +97,11 @@ interface WorkingView {
   ownerKey: string; ownerName: string;
   hex: string | null; hexA: string | null; hexB: string | null;
   hp: number; stops: number; charges: number;
+  /** The working's snapshotted numbers, as the server keeps
+   *  them (the state sends the whole record): the Single
+   *  Blade's cast facing (faceQ/faceR, 2026-11-03) rides
+   *  here, as its power does. */
+  nums?: Record<string, number>;
   /** GROVES (the Springleaf, Phase C): centre in stage px,
    *  radius, and expiry — the grove is drawn from these. */
   pos?: { x: number; y: number } | null;
@@ -4351,6 +4356,46 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   const hc = centerOf(w.hex);
                   const c = w.pos ? { cx: w.pos.x, cy: w.pos.y } : hc;
                   if (!c) return null;
+                  if (w.engine === "blade" && img) {
+                    // THE BLADE LIES ON THE GROUND (Nigel,
+                    // 2026-11-03): as on the homeland — the
+                    // Blade FALLS flat on the ground like the
+                    // rune it is, drawn IN THE GROUND'S OWN
+                    // PLANE through this board's iso basis, so
+                    // it foreshortens as the hex face beneath
+                    // it does. The frame's +y (the glyph's own
+                    // tip) lies along the facing stored in the
+                    // writing's numbers at the cast (faceQ/
+                    // faceR, axial): away from where the caster
+                    // stood, fixed since that moment; its +x
+                    // along the ground's perpendicular. A blade
+                    // written before facings were kept lies
+                    // pointing the map's east. Two blades on
+                    // one hex lie where each fell, at its own
+                    // point and facing. (The hue's glow rides
+                    // the outer group, in the board's own
+                    // units, so the ground frame cannot swell
+                    // it.)
+                    const bn = (w.nums ?? {}) as any;
+                    let fq = typeof bn.faceQ === "number" ? bn.faceQ : null;
+                    let fr = typeof bn.faceR === "number" ? bn.faceR : null;
+                    if (fq == null || fr == null) { const eLen = Math.sqrt(0.75); fq = 1 / eLen; fr = -0.5 / eLen; }
+                    const fLen = Math.sqrt(fq * fq + fq * fr + fr * fr) || 1; fq /= fLen; fr /= fLen;
+                    const pq = (-fq - 2 * fr) / Math.sqrt(3), pr = (2 * fq + fr) / Math.sqrt(3);
+                    const { u, v } = isoBasis(TILE_SIZE);
+                    const axx = u[0] * pq + v[0] * pr, axy = u[1] * pq + v[1] * pr;
+                    const bxx = u[0] * fq + v[0] * fr, bxy = u[1] * fq + v[1] * fr;
+                    const bladeLen = 0.58;
+                    const bladeWid = bladeLen * (540 / 640);
+                    return (
+                      <g key={w.id} pointerEvents="none" style={{ filter }} data-blade={w.id} data-face-q={fq.toFixed(4)} data-face-r={fr.toFixed(4)}>
+                        <g transform={`matrix(${axx} ${axy} ${bxx} ${bxy} ${c.cx} ${c.cy})`}>
+                          <image href={img} x={-bladeWid / 2} y={-bladeLen / 2} width={bladeWid} height={bladeLen} />
+                        </g>
+                        <text className="ts-tag" x={c.cx} y={c.cy + 23}>{w.charges}✦</text>
+                      </g>
+                    );
+                  }
                   return (
                     <g key={w.id} pointerEvents="none">
                       {img
