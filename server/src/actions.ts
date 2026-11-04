@@ -4843,7 +4843,49 @@ async function mercyRefundHomeland(ownerKey: string, spent: number): Promise<num
 }
 
 // Standalone game config loader (used by both handlers and internal functions)
+// THE CONFIG CACHE (code audit, 2026-11-03, E3): the built
+// config is memoised per process. Uncached, every call
+// re-selected all of ui_config and rebuilt the whole object —
+// and the slow tick alone called it once per land. The cache
+// is invalidated at every write that can carry a key this
+// loader reads: the workshop's setUiConfig action (the generic
+// ui_config writer the config editor saves through) and
+// writeUiConfigJson. A workshop edit therefore stands on the
+// very next read, exactly as it did uncached. The generation
+// stamp keeps a build that was in flight across an edit from
+// re-seating the pre-edit config.
+let gameConfigCache: Awaited<ReturnType<typeof buildGameConfig>> | null = null;
+let gameConfigBuild: Promise<Awaited<ReturnType<typeof buildGameConfig>>> | null = null;
+let gameConfigGeneration = 0;
+
+function invalidateGameConfigCache(): void {
+  gameConfigGeneration++;
+  gameConfigCache = null;
+  gameConfigBuild = null;
+}
+
 async function loadGameConfig() {
+  if (gameConfigCache) return gameConfigCache;
+  if (!gameConfigBuild) {
+    const generation = gameConfigGeneration;
+    gameConfigBuild = buildGameConfig().then(
+      cfg => {
+        if (generation === gameConfigGeneration) {
+          gameConfigCache = cfg;
+          gameConfigBuild = null;
+        }
+        return cfg;
+      },
+      err => {
+        if (generation === gameConfigGeneration) gameConfigBuild = null;
+        throw err;
+      },
+    );
+  }
+  return gameConfigBuild;
+}
+
+async function buildGameConfig() {
   const rows = await db.select().from(schema.uiConfig);
   const overrides: Record<string, any> = {};
   for (const r of rows) {
@@ -5112,6 +5154,9 @@ async function writeUiConfigJson(key: string, value: unknown): Promise<void> {
   const text = JSON.stringify(value);
   await db.insert(schema.uiConfig).values({ key, value: text })
     .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: text } });
+  // A generic ui_config writer: keep the game-config cache
+  // honest no matter which key a caller writes through here.
+  invalidateGameConfigCache();
 }
 async function cardBorderState() {
   const uploads: CardBorderUpload[] = (await readUiConfigJson("card.border.uploads")) ?? [];
@@ -16219,6 +16264,9 @@ export const handlers = {
     await db.insert(schema.uiConfig)
       .values({ key: parsed.data.key, value: JSON.stringify(parsed.data.value) })
       .onConflictDoUpdate({ target: schema.uiConfig.key, set: { value: JSON.stringify(parsed.data.value) } });
+    // The workshop's config editor saves through this action:
+    // a saved edit must stand on the very next config read.
+    invalidateGameConfigCache();
     return { ok: true };
   },
 

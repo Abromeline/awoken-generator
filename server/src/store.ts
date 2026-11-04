@@ -221,6 +221,16 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS hall_residents (
   housed_at INTEGER NOT NULL
 )`);
 sqlite.exec(DDL);
+// Indexes on the two hottest owner columns (code audit,
+// 2026-11-03, E1): every land read, every 500 ms war beat
+// and every 60 s slow tick selects a land's tiles and its
+// placements by owner_key; without these the planner
+// full-scans every Tender's rows to find one land's. In the
+// house form of the six sibling owner indexes. IF NOT EXISTS:
+// an existing database gains them on this boot; nothing is
+// rebuilt and no row is touched.
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_territory_tiles_owner ON territory_tiles (owner_key);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_field_placements_owner ON field_placements (owner_key);`);
 // Migration: curse attrition watermark (Nigel, 2026-10-19).
 // This MUST run after the DDL above creates field_placements:
 // attempted before it, a fresh database swallowed the failure
