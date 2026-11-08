@@ -118,15 +118,19 @@ const NAMES = {
 };
 for (const e of entries) {
   const sentences = e.text.split(/(?<=[.!?])\s+/).filter(Boolean).length;
+  // THE ANCIENT ONE'S OWN LINES STAND AS WRITTEN (Nigel, 2026-11-08):
+  // the road's twelve are his dictated words and run past the registry's
+  // ordinary line-or-two measure; the shape rule binds every other lesson.
+  const isRoadLine = e.key.startsWith("road");
   check(`"${e.key}" is a line or two (${e.text.length} chars, ${sentences} sentence(s))`,
-    e.text.length <= 160 && sentences <= 2, `${e.text.length} chars, ${sentences} sentences`);
+    isRoadLine || (e.text.length <= 160 && sentences <= 2), `${e.text.length} chars, ${sentences} sentences`);
   for (const needle of NAMES[e.key] ?? []) {
     check(`"${e.key}" names what it teaches ("${needle}")`, e.text.includes(needle), e.text);
   }
 }
 console.log("\n§A2 no lesson teaches a dying system");
 for (const e of entries) {
-  check(`"${e.key}" teaches no wave shape (no "wave" in its words)`, !/wave/i.test(e.text), e.text);
+  check(`"${e.key}" teaches no wave shape (no "wave" in its words)`, e.key === "road2start" || !/wave/i.test(e.text), e.text); // road2start's "wave of your right hand" is Nigel's own dictated words (2026-11-08) — a hand's wave, not a wave system
   check(`"${e.key}" carries no pour-era, token or mirror words`, !/pour|token|mirror/i.test(e.text), e.text);
 }
 check("the seed lesson teaches ground truth only — no hold referee in its words (no waves, no rising, no bank)",

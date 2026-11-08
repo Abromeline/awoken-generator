@@ -113,8 +113,12 @@ export const HOMELAND_LESSONS = [
     text: "A Beacon stands — protection is yours to light. The Lighthouse panel holds your banked minutes: light it, and the dark is driven off until the burn ends.",
   },
   // THE AWARD ROAD'S PLAY-ALONG (ENTRANCE BUILD 2, 2026-11-02;
-  // drafts for Nigel's polish, printed verbatim in the build
-  // report): the entrance tutorial's lines, spoken by the
+  // the twelve lines are NIGEL'S OWN WORDS, dictated 2026-11-08
+  // in place of the Keeper's drafts; his stage notes — line 7
+  // rides the dousing, "end the lesson in light" rides line 8,
+  // and section 4's "pick first spell at cost of 1st free
+  // point" — are recorded in the daily ledger, NOT in the
+  // spoken text): the entrance tutorial's lines, spoken by the
   // companions through this same whisper. They fire IN STEP
   // with the acts — a section's opening when it becomes the
   // road's standing lesson, the beacon lesson's dark and
@@ -126,62 +130,62 @@ export const HOMELAND_LESSONS = [
   {
     key: "roadstart",
     system: "The award road opens (the entrance tutorial: four sections, five wakes each)",
-    text: "We three walk with you while you learn this land. Each lesson lived earns five wakes — twenty in all, waiting in your award pool.",
+    text: "We three will walk with you, stories at hand, as we fight the curse of this land.",
   },
   {
     key: "road1start",
     system: "Section 1 — learn the doors (the homeland face's navigation surfaces)",
-    text: "First, learn the ways around: the map, your deck, the star tree, attunement, the pack. Find yourself on the land — and tap one of us to open the wheel.",
+    text: "Let's take a look around, and familiarize ourselves with this space. Can you find all of the doors?",
   },
   {
     key: "road1done",
     system: "Section 1 complete — five wakes paid",
-    text: "Every door known. Five wakes are yours — they wait at Wake One, spendable now.",
+    text: "The buttons on the left speak to your Awoken and your inner self. The buttons on the right speak to the world.",
   },
   {
     key: "road2start",
     system: "Section 2 — orders, and a first fight",
-    text: "Now, orders: give each of us an order — a stance, a march, a patrol — then stand with us in a first fight; we hold where you set us.",
+    text: "You may summon any of your Awokin into the world with the wave of your right hand (right-click), and issue your commands with the left (left-click). We have many skills you might wish to use.",
   },
   {
     key: "road2done",
     system: "Section 2 complete — five wakes paid",
-    text: "Orders given, and a battle stood together. Five more wakes are yours.",
+    text: "Together we stand. On sanctified ground the battle fought, the war just beginning…",
   },
   {
     key: "road3start",
     system: "Section 3 — the beacon lesson (light it, douse it, fight in the dark, relight it)",
-    text: "The beacon lesson: light it, douse it, fight what the dark sends, and light it again. Kills buy the light — your bank holds what your battles have won.",
+    text: "The light of our victory binds the darkness hither; reinforcements wake. But the darkness waits… as the light falls, its denizens will return. Will you dim the light to invite them?",
   },
   {
     key: "road3dark",
     system: "The beacon lesson — the dousing (the dark comes at the game's own pace)",
-    text: "Dark now, by your own hand — what comes, comes at the game's own pace, so stand ready: this fight is the lesson.",
+    text: "Back to the Shadow!",
   },
   {
     key: "road3fought",
     system: "The beacon lesson — fought in the dark (relight it)",
-    text: "You fought in the dark, and stood. Now relight the beacon — end the lesson in light.",
+    text: "We fight the dark and harvest the Shadow Matter to feed the beacon. The task is in your hands now — balance or defeat the dark, only time will tell.",
   },
   {
     key: "road3done",
     system: "Section 3 complete — five wakes paid",
-    text: "Doused, fought, relit — the beacon's law is in your hands now. Five more wakes are yours.",
+    text: "As we fight the dark, more will join our cause over time. Stewards, warriors, creators all.",
   },
   {
     key: "road4start",
     system: "Section 4 — the first casting (the starting spell chosen at the Door)",
-    text: "Last, your spell — the one you chose at the door. Cast it true, once, on your land.",
+    text: "Your time in the shadow, Tender, will grant you certain gifts — tailor them as you would the world. Spells, runes, wards, and binding: they are the Tender's tools. Which calls to you?",
   },
   {
     key: "road4done",
     system: "Section 4 complete — five wakes paid, the last of the twenty",
-    text: "It answers you. Five more wakes — the last of the twenty.",
+    text: "It answers you, as the world answers it, and so too do the Awokin souls. Five more have joined the waking pool.",
   },
   {
     key: "roaddone",
     system: "The award road walked — all twenty wakes stand spendable",
-    text: "The road is walked: all twenty wakes stand spendable at Wake One. What you wake with them still teaches as it grows — level three stands at this road's end.",
+    text: "This is the road, Tender… of those who would walk in the dark… for the unknown is what you make of it. We walk with you. Let us learn together to remake this world.",
   },
 ] as const;
 
