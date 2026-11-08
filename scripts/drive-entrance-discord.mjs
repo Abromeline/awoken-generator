@@ -87,13 +87,27 @@ console.log("§S the seams in the sources");
 const tableSrv = readFileSync(join(root, "server/src/table.ts"), "utf8");
 const tableCli = readFileSync(join(root, "client/src/Table.tsx"), "utf8");
 const introCli = readFileSync(join(root, "client/src/TableIntro.tsx"), "utf8");
-ok("§S the Table's cast gates read the door's grant (both doors: def.key !== caster.startingSpellKey)",
-  (tableSrv.match(/def\.key !== caster\.startingSpellKey/g) ?? []).length === 2);
+// Restated at Push 65 — the weave laid the spell-point ledger line
+// behind each gate's Lv 3 grant line, so each gate now reads the
+// grant twice over; the guarded behavior is unchanged.
+ok("§S the Table's cast gates read the door's grant (both doors: def.key !== caster.startingSpellKey, and the ledger's def.key !== entranceSpellKeyFor)",
+  (tableSrv.match(/def\.key !== caster\.startingSpellKey/g) ?? []).length === 2
+  && (tableSrv.match(/def\.key !== entranceSpellKeyFor\(caster\.expKey\)/g) ?? []).length === 2);
+// Restated at Push 65 — the seat's grant read changed in the weave
+// (the player object now carries the union of both readings, not
+// the door reading alone); the guarded behavior is unchanged.
 ok("§S the seat is made carrying the grant (entranceSpellKeyFor read at the seat's making)",
   tableSrv.includes("boundDoorSpellKey = entranceSpellKeyFor(expKey)")
+  && tableSrv.includes("startingSpellKey: boundStartingSpellKey ?? boundDoorSpellKey")
   && tableSrv.includes("startingSpellKey: player.startingSpellKey ?? null"));
-ok("§S the Table wheel offers the granted spell below Lv 3 (the castLocked reading)",
-  tableCli.includes("key !== (you?.startingSpellKey ?? null)") && tableCli.includes("startingSpellKey?: string | null"));
+// Restated at Push 65 — the lock helper's name/text changed in the
+// weave (castLocked → pageLocked, the grant exemption standing as
+// its first line); the guarded behavior is unchanged.
+ok("§S the Table wheel offers the granted spell below Lv 3 (the pageLocked reading)",
+  tableCli.includes("const pageLocked = ")
+  && tableCli.includes("if (key === (you?.startingSpellKey ?? null)) return false;")
+  && tableCli.includes("locked: pageLocked(")
+  && tableCli.includes("startingSpellKey?: string | null"));
 ok("§S TableIntro claims WITH the entrance ask and walks the door's own actions",
   introCli.includes("entrance: true") && introCli.includes("api.entranceChooseClass")
   && introCli.includes("api.entranceChooseSpell") && introCli.includes("api.entranceWakeThree"));
