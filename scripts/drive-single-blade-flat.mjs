@@ -134,6 +134,12 @@ async function claim(name, exp, classKey, bench = 0) {
   const benchIds = [];
   for (let i = 0; i < bench; i++) benchIds.push(seedAwokin(ownerKey, name, `${name} Bench ${i + 1}`, 2));
   if (classKey) await call("chooseClass", { classKey }, c.token);
+  // The Blade's page is bought before any cast of it —
+  // unlocked through the spell-point path: Push 65's law,
+  // the page bought before the cast. The free first point
+  // every Tender holds spends on the Blade's page here, by
+  // the same API call the spell-points drive proves (52/0).
+  await call("unlockGrimoireSpell", { spellKey: "blade" }, c.token);
   return { token: c.token, ownerKey, tenderId, benchIds };
 }
 function seedAwokin(ownerKey, tenderName, name, partPower = 2) {
@@ -428,7 +434,24 @@ const clickLoose = async () => {
     const diag = await page.evaluate(() => window.__looseDiag ?? null).catch(() => null);
     throw new Error("the loose's hit circle is not on the map; circle titles seen: " + JSON.stringify(diag));
   }
-  await sleep(2200);
+  // The witness read WAITS for the click's own answer
+  // instead of sleeping once and reading once: on a loaded
+  // box the loose's response sometimes landed after a
+  // single fixed sleep, and the witness logged nothing for
+  // a click the referee provably answered (the state checks
+  // around those very clicks — charges spent, blades gone,
+  // the dark's hp down by the pair's 12 — all passed). The
+  // click above is still fired exactly once — charges are
+  // spent once — only the reading is patient, in the
+  // drive's hand-polled way. The proof standard is
+  // unchanged: the volley must still be witnessed in the
+  // page's own loose response, never inferred from state.
+  const s = Date.now();
+  while (Date.now() - s < 30000) {
+    const n = await page.evaluate(() => window.__looseLog.length).catch(() => 0);
+    if (n > before) break;
+    await sleep(250);
+  }
   const log = await page.evaluate(() => window.__looseLog);
   return log.slice(before);
 };

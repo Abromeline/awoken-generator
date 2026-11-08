@@ -111,6 +111,22 @@ async function claim(name, exp, classKey, bench = 0) {
   const benchIds = [];
   for (let i = 0; i < bench; i++) benchIds.push(seedAwokin(ownerKey, name, `${name} Bench ${i + 1}`, 2));
   if (classKey) await call("chooseClass", { classKey }, c.token);
+  // The Blade's page is bought before any cast of it —
+  // unlocked through the spell-point path: Push 65's law,
+  // the page bought before the cast. The free first point
+  // every Tender holds spends on the Blade's page here, by
+  // the same API call the spell-points drive proves (52/0).
+  await call("unlockGrimoireSpell", { spellKey: "blade" }, c.token);
+  // A second page, a second point — Push 65's law applies
+  // to every page, and the Springing Blade (§A(5b), §B) is
+  // a full book page behind the same gate. Point 2 is
+  // earned by the spell-points drive's §B path, mirrored
+  // exactly: 500 Shadow Matter seeded into the progress
+  // row, one feedSpellVial click condensing it into the
+  // point, the point spent on the Springing Blade's page.
+  db.prepare("UPDATE tender_progress SET shadow_matter = ? WHERE owner_key = ?").run(500, ownerKey);
+  await call("feedSpellVial", {}, c.token);
+  await call("unlockGrimoireSpell", { spellKey: "springblade" }, c.token);
   return { token: c.token, ownerKey, tenderId, benchIds };
 }
 function seedAwokin(ownerKey, tenderName, name, partPower = 2) {
