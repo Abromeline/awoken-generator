@@ -446,6 +446,43 @@ export const grimoireAttunements = sqliteTable("grimoire_attunements", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.spellKey, t.element] })]);
 
+// SPELL POINTS CONDENSED FROM SHADOW MATTER (Nigel,
+// 2026-11-03): "spells should only be available if spell
+// points have been spent to cast them" — a page of the
+// Grimoire is castable only once it stands UNLOCKED for its
+// Tender, and unlocking costs 1 spell point. Points are
+// condensed from Shadow Matter at a ladder price (the first
+// point free; then 500, 1,000, 2,000, 5,000, 7,000, 10,000,
+// 13,000, 16,000, and +3,000 a point thereafter), fed into
+// the book's vial a click at a time. spell_point_state is
+// the vial + the earned count; spell_unlocks is the ledger
+// of pages woken (presence IS the unlock, permanent);
+// spell_point_ledger is the written record — the free
+// grant, one condensing record per milestone, one record
+// per unlock. The door's granted spell stands outside all
+// of this (visitors.entrance_spell, its own record).
+export const spellPointState = sqliteTable("spell_point_state", {
+  ownerKey: text("owner_key").primaryKey(),
+  pointsEarned: integer("points_earned").notNull().default(1),
+  vialFed: real("vial_fed").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const spellUnlocks = sqliteTable("spell_unlocks", {
+  ownerKey: text("owner_key").notNull(),
+  spellKey: text("spell_key").notNull(),
+  unlockedAt: integer("unlocked_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.spellKey] })]);
+
+export const spellPointLedger = sqliteTable("spell_point_ledger", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  kind: text("kind").notNull(),
+  shadowMatter: real("shadow_matter").notNull().default(0),
+  spellKey: text("spell_key"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
 // THE PARTY (Nigel, 2026-10-20; built 2026-10-21): one row
 // per Awokin standing in a Tender's party. Membership is a
 // fact about the Tender and the creature — it stands in the

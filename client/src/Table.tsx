@@ -331,6 +331,12 @@ interface YouState {
    *  below Lv 3, exactly as the homeland's wheel offers it
    *  (Territory's grimGate reads the same record). */
   startingSpellKey?: string | null;
+  /** SPELL POINTS (Nigel, 2026-11-03): the pages this seat's
+   *  Tender has unlocked — the wheel's lock reads the same
+   *  ledger as the book. Null unlockedSpells = no book
+   *  behind the seat (a stand-in), whose offerings stand on
+   *  the Lv 3 law. */
+  unlockedSpells?: string[] | null;
   classKey?: string | null;
   weaponKey?: string | null;
   weaponLevel?: number;
@@ -3351,25 +3357,36 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // very act its wheel entry runs (Nigel, 2026-10-19).
   const buildOfferings = (): { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] => {
     const offerings: { key: string; glyph: string | null; emoji: string; cost: number; locked: boolean; keepOpen?: boolean; act: () => void }[] = [];
-    // THE DOOR'S GRANT (ENTRANCE BUILD 3): below Lv 3 every
-    // working locks — except the one starting spell the
-    // Tender chose at the door, which the server's gates
-    // honour from Lv 1; the wheel offers what the gates
-    // honour, no more and no less.
-    const castLocked = (key: string) => !you?.wardRuneUnlocked && key !== (you?.startingSpellKey ?? null);
+    // SPELL POINTS (Nigel, 2026-11-03) ON THE DOOR'S GRANT
+    // (ENTRANCE BUILD 3): a page offers itself open only
+    // when the Lv 3 waking stands AND the page stands
+    // unlocked for a spell point — or it is the door's
+    // granted working, which stands outside both gates:
+    // the one starting spell the Tender chose at the door
+    // is offered from Lv 1, exactly as the server's gates
+    // honour it; the wheel offers what the gates honour,
+    // no more and no less. A seat holding no book
+    // (unlockedSpells null) is judged by the Lv 3 law
+    // alone, as stand-ins are.
+    const pageLocked = (key: string, lv3Applies: boolean): boolean => {
+      if (key === (you?.startingSpellKey ?? null)) return false;
+      if (lv3Applies && !you?.wardRuneUnlocked) return true;
+      if (you?.unlockedSpells == null) return false;
+      return !you.unlockedSpells.includes(key);
+    };
     for (const d of Object.values(defs).filter(d => d.kind === "ward")) {
-      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: castLocked(d.key), act: () => readyPlacing("ward", d.key) });
+      offerings.push({ key: `w-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: pageLocked(d.key, true), act: () => readyPlacing("ward", d.key) });
     }
     if (healDef) {
-      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: false, act: () => readyPlacing("heal", "heal") });
+      offerings.push({ key: "heal", glyph: healDef.glyph, emoji: "✚", cost: healDef.cost, locked: pageLocked("heal", false), act: () => readyPlacing("heal", "heal") });
     }
     // THE SPRINGLEAF: a binding-school def the server routes
     // through castWard — it places by the ward flow.
     for (const d of Object.values(defs).filter(d => d.kind === "binding" && d.engine === "springleaf")) {
-      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: castLocked(d.key), act: () => readyPlacing("ward", d.key) });
+      offerings.push({ key: `b-${d.key}`, glyph: d.glyph ?? ANIMATED_GLYPH.trees, emoji: "🌿", cost: d.cost, locked: pageLocked(d.key, true), act: () => readyPlacing("ward", d.key) });
     }
     for (const d of Object.values(defs).filter(d => d.kind === "rune" || d.kind === "spell")) {
-      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: castLocked(d.key), act: () => readyPlacing("rune", d.key) });
+      offerings.push({ key: `r-${d.key}`, glyph: d.glyph, emoji: "✦", cost: d.cost, locked: pageLocked(d.key, true), act: () => readyPlacing("rune", d.key) });
     }
     // ABILITY: the ring's last entry opens the weapon
     // sub-ring instead of casting.

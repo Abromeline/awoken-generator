@@ -1332,7 +1332,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const anyTransientFx = workings.some((w) => w.engine === "bats" || w.engine === "holdrune");
   // Transient workings' frames ride the map's ONE clock (below).
   const [grim, setGrim] = useState<GrimoireState | null>(null);
-  const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number; startingSpellKey: string | null }>({ level: 1, wardRuneUnlocked: false, healAmount: 5, startingSpellKey: null });
+  const [grimGate, setGrimGate] = useState<{ level: number; wardRuneUnlocked: boolean; healAmount: number; startingSpellKey: string | null; unlockedSpells: string[] }>({ level: 1, wardRuneUnlocked: false, healAmount: 5, startingSpellKey: null, unlockedSpells: [] });
   const [castMode, setCastMode] = useState(false);
   // THE ATTUNE ABILITY (Nigel, 2026-10-21): Attune is an
   // ability on the wheel — Ability → Attune → element —
@@ -2019,7 +2019,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   useEffect(() => {
     api.getGrimoire().then(setGrim).catch(() => {});
-    api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount, startingSpellKey: g.startingSpellKey ?? null })).catch(() => {});
+    api.getTenderExp().then((g) => setGrimGate({ level: g.level, wardRuneUnlocked: g.wardRuneUnlocked, healAmount: g.healAmount, startingSpellKey: g.startingSpellKey ?? null, unlockedSpells: g.unlockedSpells ?? [] })).catch(() => {});
   }, []);
 
   // The read loop's turn-keeping (see THE READ LOOP below):
@@ -2906,9 +2906,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const spellWnd = Math.min(spellPage, spellPageCount - 1);
     const entries = kindSpells.slice(spellWnd * 6, spellWnd * 6 + 6).map(sp => {
       // THE DOOR (ENTRANCE BUILD 1): the one working chosen at
-      // the door stands unlocked from the start — the Lv 3
-      // lock below keeps every other page, exactly as today.
-      const locked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked && sp.key !== grimGate.startingSpellKey;
+      // the door stands unlocked from the start — exempt from
+      // both locks below, by its own record.
+      // SPELL POINTS (Nigel, 2026-11-03): behind the Lv 3
+      // waking stands the unlock — a page readies only once
+      // a spell point has woken it in the Grimoire; Heal's
+      // page locks the same way (it never stood under the
+      // Lv 3 law, and it stands under this one). The server
+      // judges the same ledger at the cast; this face only
+      // keeps the wheel honest.
+      const spellPointLocked = sp.key !== grimGate.startingSpellKey && !grimGate.unlockedSpells.includes(sp.key);
+      const levelLocked = sp.engine !== "heal" && !grimGate.wardRuneUnlocked && sp.key !== grimGate.startingSpellKey;
+      const locked = spellPointLocked || levelLocked;
       return {
         key: `cast-${sp.key}`,
         img: grimGlyphImg(sp.key),
@@ -2926,7 +2935,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           if (castSpellKey === sp.key && castMode) { endMapCastRun(); return; }
           setCastMode(true); setCastSpellKey(sp.key); setAttuneElement(null);
           showHexNotice(locked
-            ? `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`
+            ? (spellPointLocked
+              ? `${sp.name} is locked — spend a spell point in the Grimoire to wake its page.`
+              : `${sp.name} wakes at Tender Lv 3 — the book will refuse it until then.`)
             : `${sp.name} readied — tap the land to cast it.`);
         },
       } as WheelEntry;

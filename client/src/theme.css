@@ -3275,6 +3275,27 @@ body.defeat-flash {
 .book-line{order:4;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:12.5px;line-height:1.5;color:#d9cba3;margin:2px auto 8px}
 .book-mark-line{order:5;font-size:11.5px;color:#b8ab8a;margin:3px 0;line-height:1.45}
 .page-attune{order:5}
+.page-unlock{order:5}
+/* SPELL POINTS + THE CONDENSING VIAL (Nigel, 2026-11-03):
+   the gold button counts the points banked and unspent —
+   glowing gold, in keeping with the book's frame — and the
+   empty glass vial beside it fills with condensed Shadow
+   Matter toward the next point's price; a tap on either
+   feeds the vial from the Tender's stock. The row stands
+   over the open book, under the chapter's marks; the book
+   itself is otherwise untouched. */
+.spell-point-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0 2px}
+.spell-point-count{padding:9px 16px;border-radius:999px;border:1px solid #d8b66a;background:linear-gradient(160deg,#f7e08a 0%,#d8b66a 55%,#a37f33 100%);color:#241a05;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;font-weight:700;letter-spacing:0.03em;cursor:pointer;box-shadow:0 0 14px rgba(240,200,90,0.55),0 0 30px rgba(240,200,90,0.22),inset 0 1px 0 rgba(255,246,218,0.8)}
+.spell-point-count:hover:not(:disabled){box-shadow:0 0 18px rgba(240,200,90,0.8),0 0 38px rgba(240,200,90,0.3),inset 0 1px 0 rgba(255,246,218,0.9)}
+.spell-point-count:disabled{opacity:.6;cursor:wait}
+.spell-vial{display:flex;align-items:center;gap:10px;padding:6px 12px 6px 8px;border-radius:12px;border:1px solid rgba(216,182,106,0.45);background:rgba(10,9,16,0.55);cursor:pointer;color:#efe3c2;text-align:left}
+.spell-vial:hover:not(:disabled){border-color:rgba(216,182,106,0.8);background:rgba(20,17,28,0.65)}
+.spell-vial:disabled{opacity:.6;cursor:wait}
+.spell-vial-glass{position:relative;flex:0 0 auto;width:20px;height:44px;border:1.5px solid rgba(232,220,195,0.75);border-radius:6px 6px 9px 9px;background:linear-gradient(120deg,rgba(255,255,255,0.14),rgba(255,255,255,0.03) 55%);overflow:hidden;box-shadow:inset 0 0 6px rgba(232,220,195,0.25),0 0 8px rgba(216,182,106,0.25)}
+.spell-vial-glass::before{content:"";position:absolute;top:-1px;left:50%;transform:translateX(-50%);width:12px;height:5px;border:1.5px solid rgba(232,220,195,0.75);border-bottom:none;border-radius:4px 4px 0 0;background:rgba(10,9,16,0.55)}
+.spell-vial-fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#5a4a8a 0%,#241a3d 60%,#120c22 100%);box-shadow:0 0 8px rgba(120,96,200,0.65);transition:height .45s ease}
+.spell-vial-words{font-size:12.5px;line-height:1.35;color:#e8dcc3}
+.spell-vial-words small{display:block;font-size:11px;color:#b8ab8a}
 .book-page>.attune-row,.book-page>.weapon-actions,.book-page>.weapon-nodes,.book-page>.zodiac-held{order:5}
 /* THE ATTUNEMENT ORBS (Nigel, 2026-10-25 23:43): small
    orbs under every working of the book — the element by
