@@ -197,6 +197,13 @@ export interface HomelandStrike {
   /** The striker's dominant element, as the referee reckoned
    *  it (absent only from a server older than the tint). */
   element?: string;
+  /** THE FLIGHT LAW (Nigel, 2026-11-07): the striking
+   *  placement's level, served by the referee beside the
+   *  tint — the map paces and sizes her shard by it (with
+   *  her parts, which the page already holds, for her march
+   *  pace). Absent on the dark's blows and from a server
+   *  older than the law; the map defaults it to 1. */
+  level?: number;
 }
 
 /** A fall of Shard Rain on the homeland, served by

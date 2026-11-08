@@ -27,10 +27,13 @@
 //      on the real map — every strike served fresh in the
 //      window is drawn (counted element by element); peak
 //      concurrent shards pass the old keep of 25; every
-//      shard's drawn width is 216 (three times the first
-//      72); placement flights live ~1056 ms (half speed),
-//      dark flights ~1584 ms (a third speed); flight starts
-//      are STAGGERED across the batch, not bunched at a read.
+//      shard's drawn width is 216 at level 1 (three times
+//      the first 72 — the FLIGHT LAW, 2026-11-07, grows it
+//      only with the firer's level); placement flights live
+//      at their firers' pace (these Tide firers ≈ 915 ms by
+//      the law, against the old flat 1056), dark flights
+//      ~1584 ms (a third speed); flight starts are
+//      STAGGERED across the batch, not bunched at a read.
 //   §T (the Table, in the browser + socket actors): a
 //      sculpted dense fight (the element-sounds drive's
 //      choreography: a keeper's page observes, a striker
@@ -40,8 +43,9 @@
 //      the struck 40-gate; every shot wears the Matter Shard
 //      face (hrefs name matter-shard, never proj-*), no SMIL
 //      rides the shots layer, the drawn width is the
-//      homeland's measure on this stage's hexes (160), and
-//      light shots live ~1056 ms.
+//      homeland's measure on this stage's hexes (160, at
+//      level 1), and light shots live at their Sky firers'
+//      pace (≈ 563 ms by the flight law).
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-projectile-rendering.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -339,7 +343,7 @@ console.log(`  browser window: served ${servedInWindow.length} strikes, drawn ${
 ok("§B1 every strike served fresh in the window is drawn on the map", drawnInWindow.length >= servedInWindow.length - 2 && servedInWindow.length >= 60,
   `drawn=${drawnInWindow.length} served=${servedInWindow.length}`);
 ok("§B2 peak concurrent shards pass the old keep of 25 — no live flight is dropped unseen", brec.peak >= 26, `peak=${brec.peak}`);
-ok("§B3 every shard stands three times its first size (drawn width 216)", brec.flights.length > 0 && brec.flights.every(f => f.w === 216),
+ok("§B3 every level-1 shard stands three times its first size (drawn width 216) — the FLIGHT LAW (2026-11-07) grows a shard only with its firer's level, and every fighter here stands at level 1", brec.flights.length > 0 && brec.flights.every(f => f.w === 216),
   `widths=${[...new Set(brec.flights.map(f => f.w))].join(",")}`);
 const completed = brec.flights.filter(f => f.last < recEndWall - 200 && f.last - f.first > 300);
 const darkFlights = completed.filter(f => f.dFirst < 45);
@@ -365,7 +369,22 @@ ok("§B4 a dark blow flies at a third speed (drawn life ~1584 ms)", darkFlights.
    third — stands cleanly separated at the new floor:
    placement medians ~890 against dark ~1460, the ratio
    of the code's own 1056 to 1584. */
-ok("§B4 a placement's shard flies at half speed (drawn life ~1056 ms)", placementFlights.length >= 5 && placementLife >= 750 && placementLife <= 1300, `n=${placementFlights.length} median=${placementLife}ms`);
+/* RESTATED FOR THE FLIGHT LAW (Nigel, 2026-11-07): the
+   placement Assertion's BAND widens — a placement's shard
+   no longer flies one flat 1056 ms for every firer. Her
+   life is her own march pace made time (1056 ms at the
+   neutral gait, scaled by pace/3.0, banded 450–2400):
+   these fighters are all Tide (gait 2.6, level 1), so the
+   law's measure here is 1056 × 2.6/3.0 ≈ 915 ms, and the
+   sampled life sits lower by the recorder's grain, exactly
+   as the two-gears restatement below measured the old
+   flat law. The band keeps the separation the law §B4
+   proves — a placement's shard against the dark's third
+   speed — with the dark's own band untouched. The focused
+   proof of the pace law itself (stone against sky, level
+   against level, the arc's rise) stands in
+   drive-projectile-flight.mjs. */
+ok("§B4 a placement's shard flies at her pace (Tide firers: drawn life ~915 ms by the flight law)", placementFlights.length >= 5 && placementLife >= 650 && placementLife <= 1300, `n=${placementFlights.length} median=${placementLife}ms`);
 const firsts = drawnInWindow.map(f => f.first).sort((a, b) => a - b);
 let bestSpread = 0;
 for (let i = 0; i < firsts.length; i++) {
@@ -626,12 +645,20 @@ ok("§T4 the served ledger outgrows the struck 40-gate — no struck blow is dro
 ok("§T1 every shot wears the homeland's Matter Shard face — no element-GIF bolt remains in the layer", trec.shots.length > 0 && trec.badHref === 0 && trec.shots.every(s => s.href.includes("matter-shard")),
   `shots=${trec.shots.length} badHref=${trec.badHref}`);
 ok("§T1 no SMIL rides the shots layer (the old bolts' animateMotion is struck)", trec.smil === 0, `smil samples=${trec.smil}`);
-ok("§T2 every shot stands at the homeland's measure on this stage's hexes (drawn width 160)", trec.shots.length > 0 && trec.shots.every(s => s.w === 160),
+ok("§T2 every level-1 shot stands at the homeland's measure on this stage's hexes (drawn width 160) — the FLIGHT LAW (2026-11-07) grows a shot only with its firer's level, and the Table's hands here stand at level 1", trec.shots.length > 0 && trec.shots.every(s => s.w === 160),
   `widths=${[...new Set(trec.shots.map(s => s.w))].join(",")}`);
 const tCompleted = trec.shots.filter(s => s.last < lastServeWall && s.last - s.first > 300);
 const tLife = median(tCompleted.map(s => s.last - s.first));
 console.log(`  Table shot lives: n=${tCompleted.length} median=${tLife}ms`);
-ok("§T5 shots fly at the homeland's pace (median drawn life ~1056 ms, the light measure)", tCompleted.length >= 20 && tLife >= 850 && tLife <= 1350, `n=${tCompleted.length} median=${tLife}ms`);
+/* RESTATED FOR THE FLIGHT LAW (2026-11-07): the light
+   shots here are loosed by Sky hands (gait 1.6, level 1),
+   so the law's measure is 1056 × 1.6/3.0 ≈ 563 ms, not the
+   old flat 1056 — the band follows the firers, and the
+   dark's shots in the same layer keep their 1584 (they
+   only widen the completed set's tail, never its median's
+   floor). The dark-flight proof stands in §B4 and in
+   drive-projectile-flight.mjs. */
+ok("§T5 shots fly at their firers' pace (Sky hands: median drawn life ~563 ms by the flight law)", tCompleted.length >= 20 && tLife >= 380 && tLife <= 1350, `n=${tCompleted.length} median=${tLife}ms`);
 
 await tpage.close();
 try { actor.ws.close(); } catch { /* already gone */ }

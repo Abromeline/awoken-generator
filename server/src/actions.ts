@@ -6742,6 +6742,13 @@ export type HomelandStrike = {
    *  shot she loosed by it, so a shot's colour and its effect
    *  always name the same element (Nigel, 2026-10-24). */
   element: string;
+  /** THE FLIGHT LAW (Nigel, 2026-11-07): the striker's own
+   *  level, read by the map beside the shot's tint — a
+   *  placement's shard flies at her march pace and stands at
+   *  her level's size (client/src/flightLaw.ts). Present only
+   *  on a placement's blow; the dark's bites carry none, and
+   *  clients default an absent level to 1. */
+  level?: number;
 };
 const homelandStrikeLog = new Map<string, HomelandStrike[]>();
 let homelandStrikeSeq = 0;
@@ -7885,7 +7892,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         // The witness keeps misses too (the weaponStrike
         // record's own shape): the map lunges only where the
         // referee struck, hit or miss.
-        recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false, element: f.dominant });
+        recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false, element: f.dominant, level: f.level });
         continue;
       }
       const payload = await awakenedPayloadById(f.awakenedId);
@@ -7928,7 +7935,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // is recorded where the referee struck it — the point
       // the dark stood on at the striking, before any shove
       // carries it — so the map's projectile flies true.
-      recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant });
+      recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant, level: f.level });
       if (!target.dead) {
         if (f.dominant === "tide") tideWetOnDark(target, tNow);
         if (f.dominant === "stone") target.cracked = Math.min(3, target.cracked + 1);

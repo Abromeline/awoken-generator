@@ -76,6 +76,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { flightMsForPace, sizeScaleForLevel, arcPoint } from "./flightLaw";
 import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
@@ -467,6 +468,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const homeland = useHomelandLessons();
   const homelandTouchRef = useRef(homeland.touch);
   homelandTouchRef.current = homeland.touch;
+  // The hand's Awoken as a ref, for the strike witness (the
+  // FLIGHT LAW, 2026-11-07): a placement's shard is paced
+  // by its firer's own march, reckoned from the Awoken the
+  // page already holds — notePlacementStrikes reads them
+  // here, never from a second fetch.
+  const tenderItemsRef = useRef(tenderItems);
+  tenderItemsRef.current = tenderItems;
   const [buildings, setBuildings] = useState<any[]>([]);
 
   const [gameConfig, setGameConfig] = useState<any>(null);
@@ -701,7 +709,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // every live flight of the ruled density — it once held
   // 25, and the eldest live flight fell unseen.
   const STRIKE_FLIGHT_KEEP = 240;
-  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; startsAt: number; flightMs: number; dark: boolean }[]>([]);
+  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; startsAt: number; flightMs: number; dark: boolean; level: number }[]>([]);
   const strikeIdSeenRef = useRef(0);
   const strikeWitnessInitRef = useRef(false);
   const notePlacementStrikes = (strikes: import("./api").HomelandStrike[] | null | undefined, tilesList: TerritoryTile[]) => {
@@ -736,11 +744,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const to = pointOf(s.tileId, s.toQ, s.toR);
       if (!from || !to) continue;
       const dark = s.kind === "dark";
-      const flightMs = shardFlightMsFor(dark);
+      // THE FLIGHT LAW (Nigel, 2026-11-07): a placement's
+      // shard flies at the FIRER's own march pace — her gait
+      // reckoned from the Awoken the page already holds, by
+      // the same marchSecondsPerHex the walking reads — and
+      // stands at her level's size (the level the referee
+      // stamped on the blow; 1 when an older server served
+      // none). The dark's blow is no part of this law: it
+      // keeps its ruled third speed and its standing size.
+      const striker = dark ? undefined : tenderItemsRef.current.find(x => x.id === s.awakenedId);
+      const flightMs = dark ? shardFlightMsFor(true) : flightMsForPace(shardFlightMsFor(false), striker ? marchSecondsPerHex(striker) : MARCH_SECONDS_PER_HEX.neutral);
+      const level = dark ? 1 : Math.max(1, s.level ?? (striker ? Math.max(1, (striker as any).level ?? Math.floor(Math.sqrt(((striker as any).experience ?? 0) / 100)) ?? 1) : 1));
       const startsAt = strikeStartsAt(s.at, firstAt, lastAt, now);
       const wait = Math.max(0, startsAt - now);
       const id = `strike-${s.id}`;
-      setStrikeFlights(prev => [...prev.slice(-(STRIKE_FLIGHT_KEEP - 1)), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", startsAt, flightMs, dark }]);
+      setStrikeFlights(prev => [...prev.slice(-(STRIKE_FLIGHT_KEEP - 1)), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", startsAt, flightMs, dark, level }]);
       setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), wait + flightMs + 60);
       // THE STRIKE'S VOICE (Nigel, 2026-10-26: "add these
       // sounds for he elemental attacks"): the loosed
@@ -8451,20 +8469,36 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             // stands three times its first size, and a flight
             // whose staggered moment has not yet come is not
             // drawn at all.
+            // THE FLIGHT LAW (Nigel, 2026-11-07) rides on
+            // that measure now: a placement's life is her
+            // firer's own march pace made time (notePlacement-
+            // Strikes reckons it), her shard stands at her
+            // level's size over the standing three-times
+            // measure, and her road is no longer straight —
+            // the shot flies the battle view's parabola,
+            // rising off the chord and diving onto the mark,
+            // its head turned onto the arc's tangent (the
+            // arcPoint reckoning in flightLaw.ts). The dark's
+            // blow keeps its ruled third speed, its standing
+            // size, and its straight road, untouched.
             const elapsed = marchNow - f.startsAt;
             if (elapsed < 0) return null;
             const road = f.flightMs > 0 ? Math.min(elapsed / f.flightMs, 1) : 1;
-            const x = f.fx + (f.tx - f.fx) * road;
-            const y = f.fy + (f.ty - f.fy) * road;
-            const heading = Math.atan2(f.ty - f.fy, f.tx - f.fx) * 180 / Math.PI;
+            const chordX = f.tx - f.fx, chordY = f.ty - f.fy;
+            const arc = f.dark ? null : arcPoint(chordX, chordY, road);
+            const x = f.fx + (arc ? arc.x : chordX * road);
+            const y = f.fy + (arc ? arc.y : chordY * road);
+            const heading = arc ? arc.headingDeg : Math.atan2(f.ty - f.fy, f.tx - f.fx) * 180 / Math.PI;
             const sliceMs = f.flightMs / MATTER_SHARD_FRAMES.length;
             const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / sliceMs));
             const within = Math.min(1, Math.max(0, (elapsed - slice * sliceMs) / sliceMs));
             const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
             if (fade <= 0) return null;
+            const sizeScale = f.dark ? 1 : sizeScaleForLevel(f.level);
+            const drawW = SHARD_DRAW_W * sizeScale, drawH = SHARD_DRAW_H * sizeScale;
             return (
               <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
-                <image href={MATTER_SHARD_FRAMES[slice]} x={-SHARD_DRAW_W / 2} y={-SHARD_DRAW_H / 2} width={SHARD_DRAW_W} height={SHARD_DRAW_H} opacity={fade}
+                <image href={MATTER_SHARD_FRAMES[slice]} x={-drawW / 2} y={-drawH / 2} width={drawW} height={drawH} opacity={fade}
                   filter={tint ? `url(#${tint})` : undefined} />
               </g>
             );

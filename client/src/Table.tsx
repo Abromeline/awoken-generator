@@ -41,6 +41,7 @@ import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { flightMsForPace, sizeScaleForLevel, arcPoint } from "./flightLaw";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import { brambleFrameAt, brambleMoteFrameAt, BRAMBLE_DRAW_W, BRAMBLE_ASPECT, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE } from "./brambleFx";
 import seedSaplingArt from "./assets/starseed/sapling.png";
@@ -244,7 +245,7 @@ interface SharedState {
    *  the fed energy banked toward the next stage, and that
    *  stage's fed measure while one stands. */
   seed?: { level: number; stage: string; fedEnergy: number; nextStageAt: number | null };
-  strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean }[];
+  strikes?: { id?: number; at?: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; side: "light" | "dark"; hit: boolean; killed: boolean; weapon: string | null; pierce?: boolean; copy?: boolean; level?: number; pace?: number }[];
   /** MANIFEST (Phase C): live copies of a Tender's weapon,
    *  orbiting their figure until they fade. */
   manifests?: { ownerKey: string; weaponKey: string; count: number; expiresAt: number }[];
@@ -852,7 +853,7 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
    * same measure against its own ground. */
   const SHOT_W = SHARD_DRAW_W * TILE_SIZE / 54;
   const SHOT_H = SHARD_DRAW_H * TILE_SIZE / 54;
-  const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean; startsAt: number; flightMs: number }[]>([]);
+  const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean; startsAt: number; flightMs: number; level: number }[]>([]);
   const shotIdRef = useRef(0);
   // Each shot's timers, kept by the shot's own id (the Fix
   // Pass, 2026-10-20): a shot's life is ITS OWN, held in
@@ -891,13 +892,21 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
     const batchLastAt = Math.max(...freshStrikes.map((st) => st.at ?? now));
     const fresh = freshStrikes.map((st) => {
       const dark = st.side === "dark";
+      // THE FLIGHT LAW (Nigel, 2026-11-07): an Awoken unit's
+      // shot flies at her own march pace and stands at her
+      // level's size — the referee stamps both on her blows
+      // (absent from workings' ripostes, weapon blows and an
+      // older server alike, where the neutral pace and level
+      // 1 stand). The dark's blow keeps its ruled third
+      // speed and standing size, untouched.
       return {
         id: ++shotIdRef.current,
         from: st.from, to: st.to,
         element: st.element ?? null,
         dark, hit: st.hit, killed: st.killed, idx: shotIdRef.current % 1000, pierce: st.pierce,
         startsAt: strikeStartsAt(st.at ?? now, batchFirstAt, batchLastAt, now),
-        flightMs: shardFlightMsFor(dark),
+        flightMs: dark ? shardFlightMsFor(true) : flightMsForPace(shardFlightMsFor(false), st.pace ?? 3.0),
+        level: dark ? 1 : Math.max(1, st.level ?? 1),
       };
     });
     setShots(prev => [...prev.slice(-(SHOT_KEEP - fresh.length)), ...fresh]);
@@ -4580,18 +4589,29 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   const elapsed = nowMs - shot.startsAt;
                   if (elapsed < 0 || elapsed > shot.flightMs) return null;
                   const road = shot.flightMs > 0 ? elapsed / shot.flightMs : 1;
-                  const x = shot.from.x + (shot.to.x - shot.from.x) * road;
-                  const y = shot.from.y + (shot.to.y - shot.from.y) * road;
-                  const heading = Math.atan2(shot.to.y - shot.from.y, shot.to.x - shot.from.x) * 180 / Math.PI;
+                  // THE FLIGHT LAW (Nigel, 2026-11-07): the
+                  // shot's road arcs — the battle view's
+                  // parabola laid over the straight chord,
+                  // the head turned onto its tangent — and
+                  // an Awoken's shard stands at her level's
+                  // size. A dark blow keeps its straight
+                  // road and its standing size.
+                  const chordX = shot.to.x - shot.from.x, chordY = shot.to.y - shot.from.y;
+                  const arc = shot.dark ? null : arcPoint(chordX, chordY, road);
+                  const x = shot.from.x + (arc ? arc.x : chordX * road);
+                  const y = shot.from.y + (arc ? arc.y : chordY * road);
+                  const heading = arc ? arc.headingDeg : Math.atan2(shot.to.y - shot.from.y, shot.to.x - shot.from.x) * 180 / Math.PI;
                   const sliceMs = shot.flightMs / MATTER_SHARD_FRAMES.length;
                   const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / sliceMs));
                   const within = Math.min(1, Math.max(0, (elapsed - slice * sliceMs) / sliceMs));
                   const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
                   if (fade <= 0) return null;
                   const tint = shot.dark ? null : shardTintFilterId(shot.element);
+                  const sizeScale = shot.dark ? 1 : sizeScaleForLevel(shot.level);
+                  const shotW = SHOT_W * sizeScale, shotH = SHOT_H * sizeScale;
                   return (
                     <g key={shot.id} pointerEvents="none" opacity={shot.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
-                      <image href={MATTER_SHARD_FRAMES[slice]} x={-SHOT_W / 2} y={-SHOT_H / 2} width={SHOT_W} height={SHOT_H} opacity={fade}
+                      <image href={MATTER_SHARD_FRAMES[slice]} x={-shotW / 2} y={-shotH / 2} width={shotW} height={shotH} opacity={fade}
                         filter={tint ? `url(#${tint})` : undefined} />
                     </g>
                   );

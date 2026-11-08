@@ -975,6 +975,17 @@ interface Strike {
   pierce?: boolean;
   /** Struck by a Manifest copy, not the true weapon. */
   copy?: boolean;
+  /** THE FLIGHT LAW (Nigel, 2026-11-07): the striking
+   *  Awoken's own level and march pace (seconds per hex, the
+   *  Table's own march reckoning — marchSecondsPerHexFor),
+   *  read by the seat beside the shot's tint: her shard flies
+   *  at her pace and stands at her level's size
+   *  (client/src/flightLaw.ts). Stamped only on an Awoken
+   *  unit's blows; workings' ripostes, weapon blows and the
+   *  dark's bites carry neither, and clients default an
+   *  absent pace to neutral and an absent level to 1. */
+  level?: number;
+  pace?: number;
 }
 
 /** A CAMPAIGN at the Table (Phase B, 2026-10-18; design of
@@ -4834,7 +4845,7 @@ function waterMoteAtTable(room: Room, unit: FieldUnit, now: number): boolean {
   // The watering is witnessed as a strike is (the referee's
   // witness lives inside runRound; the record is written
   // here in its exact shape).
-  witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos({ x: mote.x, y: mote.y }), element: "tide", side: "light", hit: true, killed: false, weapon: null });
+  witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos({ x: mote.x, y: mote.y }), element: "tide", side: "light", hit: true, killed: false, weapon: null, level: Math.max(1, unit.card.level ?? 1), pace: marchSecondsPerHexFor(unit.card) });
   const livingMotes = () => (work!.nodes ?? []).filter(n => n.mote && n.hp > 0).length;
   while ((mote.bank ?? 0) >= BRAMBLE_MOTE_SPREAD_COST && livingMotes() < BRAMBLE_MOTE_CAP) {
     const parent = { x: mote.px ?? unit.pos.x, y: mote.py ?? unit.pos.y };
@@ -5670,8 +5681,8 @@ async function runRound(room: Room): Promise<void> {
         tell(room, "The manifested weapons fade back into the light that lent them.");
       }
     }
-    const witness = (from: Pt, to: Pt, element: string | null, side: "light" | "dark", hit: boolean, killed: boolean, weapon?: string | null, extra?: { copy?: boolean; pierce?: boolean }) => {
-      witnessStrike(room, { at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" || extra?.pierce ? { pierce: true } : {}), ...(extra?.copy ? { copy: true } : {}) });
+    const witness = (from: Pt, to: Pt, element: string | null, side: "light" | "dark", hit: boolean, killed: boolean, weapon?: string | null, extra?: { copy?: boolean; pierce?: boolean; level?: number; pace?: number }) => {
+      witnessStrike(room, { at: now, from: roundPos(from), to: roundPos(to), element, side, hit, killed, weapon: weapon ?? null, ...(weapon === "arrow" || extra?.pierce ? { pierce: true } : {}), ...(extra?.copy ? { copy: true } : {}), ...(extra?.level != null ? { level: extra.level } : {}), ...(extra?.pace != null ? { pace: extra.pace } : {}) });
     };
     if (beatDue) {
       await refreshGrimoire().catch(() => {});
@@ -5774,6 +5785,10 @@ async function runRound(room: Room): Promise<void> {
     // speed gauge fills: the gauge banks (speed − 1) a
     // round, and every 5 banked buys another strike.
     const strikeOnce = async (unit: FieldUnit): Promise<void> => {
+      // THE FLIGHT LAW (Nigel, 2026-11-07): this unit's own
+      // level and march pace ride her witnessed blows, so the
+      // seat flies her shard at her speed and her size.
+      const unitFlight = { level: Math.max(1, unit.card.level ?? 1), pace: marchSecondsPerHexFor(unit.card) };
       let target: EnemyUnit | null = null;
       let best = Infinity;
       for (const e of room.dark.values()) {
@@ -5818,7 +5833,7 @@ async function runRound(room: Room): Promise<void> {
       const crit = roll >= critAt;
       const hit = crit || (roll !== 1 && roll + bonus >= target.armor);
       if (!hit) {
-        witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", false, false);
+        witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", false, false, null, unitFlight);
         if (roll === 1) tell(room, `${unit.card.name}'s strike goes wide — a cast of one, and the dark keeps its ground.`);
         return;
       }
@@ -5835,7 +5850,7 @@ async function runRound(room: Room): Promise<void> {
         if (!per) { per = new Map(); room.dmgBy.set(target.id, per); }
         per.set(unit.card.awokenId, (per.get(unit.card.awokenId) ?? 0) + dmg);
       }
-      witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", true, target.hp <= 0);
+      witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", true, target.hp <= 0, null, unitFlight);
       if (crit) tell(room, roll === 20
         ? `${unit.card.name} rolls a natural twenty — the blow lands true and terrible (${dmg})!`
         : `${unit.card.name}'s strike lands critical on a ${roll} — the blow lands true and terrible (${dmg})!`);
@@ -5874,7 +5889,7 @@ async function runRound(room: Room): Promise<void> {
           unit.nextStrike = now + lightIntervalMs(unit);
           const amt = dN(FATE_DIE[unit.card.element] ?? 6);
           ally.hp = Math.min(ally.maxHp, ally.hp + amt);
-          witness(unit.pos, ally.pos, unit.card.element ?? "unaligned", "light", true, false);
+          witness(unit.pos, ally.pos, unit.card.element ?? "unaligned", "light", true, false, null, { level: Math.max(1, unit.card.level ?? 1), pace: marchSecondsPerHexFor(unit.card) });
         }
         continue;
       }
@@ -7459,7 +7474,7 @@ function handleConnection(ws: WebSocket): void {
       const purified = tile.curseHp <= 0;
       // The witness: the blow flies to the TILE, on the same
       // ledger the referee's strikes fly by.
-      witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos(tileCenter(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null });
+      witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos(tileCenter(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null, level: Math.max(1, unit.card.level ?? 1), pace: marchSecondsPerHexFor(unit.card) });
       if (purified) {
         tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
         // The striker's dominant element claims the tile; a
