@@ -4132,20 +4132,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (touchMode) raiseHexConfirm("move", tile.id);
       else { setTargetHexId(tile.id); handleMove(tile.id); }
     }
-    // A plain tap on open ground, with a classed Tender standing
-    // on it: his body glides to the tapped hex — the tap is a road
-    // for him, as the keys are. Every armed flow above claimed its
-    // own tap and returned; the trailing chain's taps are
-    // re-checked here, so a tap that reaches this line unclaimed
-    // and unarmed is his to answer. The tap's old behaviour is
-    // untouched — a plain tap never did anything else.
-    if (tenderStandRef.current && !selectedBuilding && !attackTargeting && !moveTargeting) {
-      const full = tiles.find(t => t.id === tile.id);
-      if (full) {
-        const c = tileCenterScreen(full, pan, zoom);
-        tenderTargetRef.current = { x: c.cx, y: c.cy };
-      }
-    }
+    // THE TAP IS NOT A ROAD (Nigel, 2026-11-03): a plain tap on
+    // open ground used to leave a tap-road here — the fall-through
+    // set tenderTargetRef to the tapped hex's centre, the stride
+    // glided his body to it, and reportTenderAnchor wrote the new
+    // stand to the server (setTenderTile) as he crossed. Struck:
+    // clicking the map never moves the Tender. His body answers
+    // the keys, the controller's pad and the leap alone, and
+    // every armed flow above keeps its own tap exactly as it
+    // stood — a tap that reaches this line unclaimed does nothing.
   };
 
   const handleDefend = async () => {
