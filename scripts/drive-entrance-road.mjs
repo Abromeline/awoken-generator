@@ -387,12 +387,33 @@ await page.waitForFunction(() => document.body.innerText.includes("Now — choos
 await clickButtonWithText(page, "Choose Bats");
 await page.waitForFunction(() => document.body.innerText.includes("And your favourite weapon"), { timeout: 30000 });
 await clickButtonWithText(page, "Take the Sword");
-await page.waitForFunction(() => document.body.innerText.includes("Wake the three"), { timeout: 30000 });
-await clickButtonWithText(page, "Wake the three");
+// RESTATED for Push 55's plain ceremony (Nigel, 2026-11-03),
+// mirroring drive-entrance-door: the wake step's button is the
+// standing "Wake One", waited for and clicked scoped to
+// .entrance-door (WakeRitual elsewhere on the face carries the
+// same button words — the scoping exists for that reason); the
+// trio wait stands on the three .entrance-trio-one alone (the
+// "Three wake at once" heading it once also waited for was
+// struck copy); and the ceremony is closed by its own "Keep"
+// button scoped to .entrance-ceremony. The struck "Wake the
+// three" and "To the field — light the beacon" buttons are gone.
 await page.waitForFunction(
-  () => document.body.innerText.includes("Three wake at once") && document.querySelectorAll(".entrance-trio-one").length === 3,
+  () => { const d = document.querySelector(".entrance-door"); return !!d && [...d.querySelectorAll("button")].some((b) => (b.textContent || "").trim() === "Wake One"); },
+  { timeout: 30000 });
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll(".entrance-door button")].find((x) => (x.textContent || "").trim() === "Wake One" && !x.disabled);
+  b?.click();
+});
+await page.waitForFunction(
+  () => document.querySelectorAll(".entrance-trio-one").length === 3,
   { timeout: 60000 });
-await clickButtonWithText(page, "To the field — light the beacon");
+await page.waitForFunction(
+  () => [...document.querySelectorAll(".entrance-ceremony button")].some((b) => (b.textContent || "").trim() === "Keep" && !b.disabled),
+  { timeout: 30000 });
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll(".entrance-ceremony button")].find((x) => (x.textContent || "").trim() === "Keep" && !x.disabled);
+  b?.click();
+});
 const mapOpen = await page.waitForFunction(
   () => (document.querySelector(".deck-button span")?.textContent || "") === "RETURN", { timeout: 30000 }).then(() => true).catch(() => false);
 check("the door's end opens the map (Territory stands — the map door of §1 is pinged by its mounting)", mapOpen);
