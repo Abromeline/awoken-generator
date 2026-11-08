@@ -1536,6 +1536,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setBladeCastFlights((prev) => [...prev.slice(-6), { id, workingId, fx, fy, tx, ty, bornAt: Date.now() }]);
     setTimeout(() => setBladeCastFlights((prev) => prev.filter((f) => f.id !== id)), BLADE_CAST_MS + 80);
   };
+  // THE MISSCASTS (Nigel, 2026-11-03): where a cast's roll
+  // falls short, no text box reads the failure — the word
+  // MISSCAST in glowing red pops beside the target click,
+  // flashes twice on its CSS clock (theme.css's
+  // miscast-flash, 1.2 s), and is gone. The state forgets
+  // each pop as its flash ends, on the blade flights' own
+  // discipline.
+  const MISCAST_MS = 1200;
+  const [miscastPops, setMiscastPops] = useState<{ id: string; x: number; y: number }[]>([]);
+  const pushMiscast = (x: number, y: number) => {
+    const id = `miscast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setMiscastPops((prev) => [...prev.slice(-3), { id, x, y }]);
+    setTimeout(() => setMiscastPops((prev) => prev.filter((p) => p.id !== id)), MISCAST_MS + 120);
+  };
   // THE BLADE'S CLOCK (the delivery, 2026-10-24): while any
   // blade flight is live — a loose or a cast — the map's
   // clock ticks at the stride's 50 ms, the shard's cadence,
@@ -3768,8 +3782,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // cast's own transient (a ward's chosen anchor) is
       // spent, as a standing cast spends it; the Witch's
       // mercy refund rides unchanged.
+      // THE MISSCAST'S FACE (Nigel, 2026-11-03): the failure
+      // is no longer READ — no text box spells out the roll,
+      // the spent price or the staying-readied law. The word
+      // MISSCAST in glowing red pops beside the target click
+      // (the tapped hex's centre, or the cast's own free
+      // point where the cast named one — the Blade flight's
+      // reckoning), flashes twice, and is gone. A cast that
+      // named no ground answers beside the caster himself.
       if (res.fizzled) {
-        showHexNotice(`${formName} unravels — the roll falls short (rolled ${res.roll}, ${res.mod != null && res.mod >= 0 ? "+" : ""}${res.mod} against DC ${res.dc}); the ${res.cost}✦ is spent — and the working stays readied in your hand.${res.refunded ? ` The Witch's mercy returns ✦${res.refunded} of the spent energy.` : ""} Tap the land to cast it again.`);
+        let mx = targetC?.cx;
+        let my = targetC?.cy;
+        if (args.pointQ != null && args.pointR != null && targetTile && targetC) {
+          const size = HEX_BASE_SIZE * tenderZoomRef.current;
+          const dp = isoOffset(args.pointQ, args.pointR, size);
+          const dc = isoOffset(targetTile.q, targetTile.r, size);
+          mx = targetC.cx + (dp.px - dc.px);
+          my = targetC.cy + (dp.py - dc.py);
+        }
+        if (mx == null || my == null) { mx = tenderFig?.x; my = tenderFig?.y; }
+        if (mx != null && my != null) pushMiscast(mx, my);
         await refreshWorkings();
         void refreshEnergy();
         return;
@@ -8412,6 +8444,14 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </g>
             );
           })}
+          {/* THE MISSCASTS (Nigel, 2026-11-03): the glowing red
+              word, standing above the target click that failed —
+              it flashes twice on its CSS clock and the state
+              forgets it. Nothing else is written: no box, no
+              sentence, no reckoning. */}
+          {miscastPops.map((p) => (
+            <text key={p.id} className="miscast-pop" data-miscast-pop="" x={p.x} y={p.y - 36} fontSize={15} textAnchor="middle" pointerEvents="none">MISSCAST</text>
+          ))}
           {/* THE PLACEMENT STRIKE FLIGHTS (the Token Strip,
               2026-10-23; the shot itself ruled 2026-10-24):
               what flies from the striking Awokin's standing
