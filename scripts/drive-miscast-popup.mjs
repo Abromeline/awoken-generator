@@ -369,15 +369,32 @@ console.log("§B the Table — a fizzle pops MISSCAST beside the tapped tile; th
   await waitFor(() => !!mySeat() && !!mySeat().hex, "watcher reads the seat and its hex", 20000);
   await page.evaluate(RECORDER);
 
-  // Ready the Blade through the wheel; the placing bar is the witness.
-  const placingArmed = async () => page.evaluate(() => !!document.querySelector(".placing-bar"));
+  // Ready the Blade through the wheel. THE READIED WITNESS
+  // RESTATED (Push 64, 2026-11-08): this section once
+  // witnessed the readied placing by ".placing-bar" — the
+  // bar Push 58 struck whole (Nigel, 2026-11-03: "That set
+  // the light down box is unnecessary"); the only
+  // .placing-bar left in the app is the tender unit bar,
+  // gated on !placing, so it can never witness a readied
+  // working. The readied state is now witnessed by the
+  // pickable ground's glow — Push 58's own words left it
+  // standing: "the pickable ground still glows". The board
+  // paints exactly that while a placing stands armed (an
+  // #ffd977 overlay at 0.22 on every tilePickable tile,
+  // Table.tsx's render), and for the Blade every tile is
+  // pickable, so the glow covers the board's tiles; no
+  // placing, no glow. Hand-polled, in this drive's manner.
+  const placingArmed = async () => page.evaluate(() => {
+    const polys = [...document.querySelectorAll('.table-room svg polygon[fill="#ffd977"]')];
+    return polys.filter((p) => Math.abs(parseFloat(p.getAttribute("opacity") ?? "1") - 0.22) < 0.03).length >= 10;
+  });
   await page.mouse.click(750, 320, { button: "right" });
   await page.waitForSelector(".gw-wheel", { timeout: 9000 });
   await clickDisc(page, ".gw-disc.cat", "Rune");
   await sleep(500);
   await clickDisc(page, ".gw-disc", bladeLabel);
   await sleep(400);
-  ok("the Blade stands readied at the Table (placing bar armed)", await placingArmed());
+  ok("the Blade stands readied at the Table (the pickable ground glows)", await placingArmed());
 
   const buildPerm = async (pg, selector, tiles, size) => pg.evaluate(({ selector, tiles, size }) => {
     const els = [...document.querySelectorAll(selector)];
@@ -491,8 +508,23 @@ console.log("§B the Table — a fizzle pops MISSCAST beside the tapped tile; th
       console.log(`    table tap ${taps}: outcome=${outcome ?? "none"}`);
     }
     if (!(await placingArmed())) {
-      // No cast outcome unloads the placing; if it ever
-      // stands down, re-ready so the drive can tap on.
+      // The placing stands down — re-ready so the drive can
+      // tap on. THE WALK RESTATED with the witness (Push 64,
+      // 2026-11-08): a board right-click obeys Push 58's
+      // cancel law — while a placing stands it is SPENT
+      // unloading it and never opens the wheel; only with
+      // nothing readied does it open the wheel. So first
+      // fall silent: right-click until the glow is gone (the
+      // first click unloads a placing the glow-witness
+      // missed; if none stood, that click opened the wheel
+      // instead and the next click closes it — either way
+      // the ground ends bare and wheel-less). Then one more
+      // right-click opens the wheel for certain.
+      for (let k = 0; k < 3; k++) {
+        if (!(await placingArmed()) && !(await page.evaluate(() => !!document.querySelector(".gw-wheel")))) break;
+        await page.mouse.click(750, 320, { button: "right" });
+        await sleep(500);
+      }
       await page.mouse.click(750, 320, { button: "right" });
       await page.waitForSelector(".gw-wheel", { timeout: 9000 });
       await clickDisc(page, ".gw-disc.cat", "Rune");
