@@ -2960,6 +2960,11 @@ body.defeat-flash {
    on the map, the fully grown Starseed Beacon from that
    lighting onward. */
 .side-dock.beacon-dock{top:auto;bottom:calc(50% + 104px);transform:none}
+/* Mobile keeps the main page clear of the two side docks
+   (Nigel, 2026-11-08): on narrow screens neither The Table's
+   dock nor the Bastion's beacon dock stands on the main page.
+   Both live on at full width, untouched. */
+@media (max-width: 768px){.side-dock.right{display:none}}
 .beacon-dock-face{width:30px;height:auto;display:block}
 .beacon-choice{display:block;width:100%;text-align:left;background:rgba(255,255,255,.03);border:1px solid rgba(201,162,39,.55);border-radius:10px;padding:10px 12px;margin:0 0 10px;color:inherit;font:inherit;cursor:pointer}
 .beacon-choice:hover{background:rgba(201,162,39,.12)}
