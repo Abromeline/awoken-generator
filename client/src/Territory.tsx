@@ -1595,27 +1595,53 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const attemptLooseBlade = async (w: { id: number; tileId: number; posQ: number; posR: number }): Promise<{ loosed: boolean; refusal?: string }> => {
     try {
       const res = await api.looseBlade({ wandererId: w.id });
-      const fromTile = tiles.find((t) => t.id === res.fromTileId);
       const wTile = tiles.find((t) => t.id === w.tileId);
-      if (fromTile && wTile) {
-        const fc = tileCenterScreen(fromTile, pan, zoom);
+      if (wTile) {
         const base = tileCenterScreen(wTile, pan, zoom);
         const size = HEX_BASE_SIZE * zoom;
         const dp = isoOffset(w.posQ, w.posR, size);
         const dc = isoOffset(wTile.q, wTile.r, size);
-        pushBladeFlight(fc.cx, fc.cy, base.cx + (dp.px - dc.px), base.cy + (dp.py - dc.py));
+        const markX = base.cx + (dp.px - dc.px), markY = base.cy + (dp.py - dc.py);
+        // THE VOLLEY'S FLIGHTS (Nigel, 2026-11-03): the click
+        // launched EVERY blade that answered — each flies
+        // from its OWN written ground: the point it was laid
+        // at, where the writing carries one, else its hex's
+        // heart. (The referee's loosedBlades names them all;
+        // an older answer naming only the first still flies
+        // that one.)
+        const flown = res.loosedBlades ?? [{ workingId: res.workingId, fromTileId: res.fromTileId, harm: res.harm, chargesLeft: res.chargesLeft }];
+        for (const lb of flown) {
+          const bt = tiles.find((t) => t.id === lb.fromTileId);
+          if (!bt) continue;
+          const bc = tileCenterScreen(bt, pan, zoom);
+          let fx = bc.cx, fy = bc.cy;
+          const bw = workings.find((x) => x.id === lb.workingId);
+          const bn = (bw?.nums ?? {}) as any;
+          if (typeof bn.aimQ === "number" && typeof bn.aimR === "number") {
+            const dp2 = isoOffset(bn.aimQ, bn.aimR, size);
+            const dc2 = isoOffset(bt.q, bt.r, size);
+            fx = bc.cx + (dp2.px - dc2.px); fy = bc.cy + (dp2.py - dc2.py);
+          }
+          pushBladeFlight(fx, fy, markX, markY);
+        }
       }
       // THE LOOSE'S VOICE (Nigel, 2026-10-26): the written
       // Blade rises with its hue's cast sound, and its hit
       // sounds as the blades spear down (the flight's own
       // 1200 ms) — a loose always lands on the dark thing
       // it was loosed at; the referee has already said so.
-      const bladeHue = workings.find((x) => x.engine === "blade" && x.tileId === res.fromTileId)?.hue;
+      const bladeHue = workings.find((x) => x.id === res.workingId)?.hue
+        ?? workings.find((x) => x.engine === "blade" && x.tileId === res.fromTileId)?.hue;
       playElementSound(bladeHue, "cast");
       setTimeout(() => playElementSound(bladeHue, "hit"), 1200);
+      const volleyN = (res.loosedBlades ?? []).length;
       showHexNotice(res.felled
-        ? `The Single Blade is loosed — its blades rise and spear down from above, and the dark falls (${res.harm} harm).`
-        : `The Single Blade is loosed — its blades rise and spear down from above (${res.harm} harm).`);
+        ? volleyN > 1
+          ? `Every armed blade is loosed — ${volleyN} blades rise and spear down from above, and the dark falls (${res.harm} harm in all).`
+          : `The Single Blade is loosed — its blades rise and spear down from above, and the dark falls (${res.harm} harm).`
+        : volleyN > 1
+          ? `Every armed blade is loosed — ${volleyN} blades rise and spear down from above (${res.harm} harm in all).`
+          : `The Single Blade is loosed — its blades rise and spear down from above (${res.harm} harm).`);
       void refreshTerritory();
       return { loosed: true };
     } catch (e) {
@@ -3988,6 +4014,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       void doCastMap({ tileId: tile.id, heldMs, ...pointArgs });
       return;
     }
+    if (castSpell.engine === "blade") {
+      // THE BLADE'S FACING RIDES THE CAST (Nigel, 2026-11-03;
+      // the Black Gate's road): the Blade lies pointing away
+      // from the caster — a direction the server reads off
+      // the caster's stand and the tapped point. Written at
+      // his own feet there is no such direction, and then
+      // the figure's own facing answers: it rides the cast
+      // so the server can swear to it in that one case.
+      void doCastMap({ tileId: tile.id, ...pointArgs, ...(tenderFig?.dir ? { facing: tenderFig.dir } : {}) });
+      return;
+    }
     void doCastMap({ tileId: tile.id, ...pointArgs });
   };
 
@@ -5910,6 +5947,46 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 <g>
                   <animateTransform attributeName="transform" type="translate" values={`0 ${(-size * 0.05).toFixed(2)}; 0 ${(size * 0.05).toFixed(2)}; 0 ${(-size * 0.05).toFixed(2)}`} dur="2.6s" repeatCount="indefinite" />
                   {img && <image href={img} x={drawCx - shardW / 2} y={drawCy - size * 0.98} width={shardW} height={shardW} style={{ filter }} pointerEvents="none" />}
+                </g>
+              </g>
+            );
+          }
+          if (w.engine === "blade") {
+            // THE BLADE LIES ON THE GROUND (Nigel, 2026-11-03):
+            // written, the Blade FALLS flat on the ground like
+            // the rune it is — no more an upright post on its
+            // hex. It is drawn IN THE GROUND'S OWN PLANE: the
+            // frame's axes are the land's iso basis itself, so
+            // the blade foreshortens exactly as the hex face
+            // beneath it does. The frame's +y (the glyph's own
+            // tip — the art points down its canvas) is laid
+            // along the facing stored in the writing's numbers
+            // at the cast (faceQ/faceR, axial): away from where
+            // the caster stood, fixed since that moment; its
+            // +x along the ground's perpendicular of that
+            // facing. A blade written before facings were kept
+            // lies pointing the map's east — the fallback the
+            // server itself swears by. Two blades on one hex
+            // lie where each fell, at its own point and facing
+            // — nothing stacks them on the hex's heart. (The
+            // hue's glow rides the outer group, in the map's
+            // own units, so the ground frame cannot swell it.)
+            const bn = (w.nums ?? {}) as any;
+            let fq = typeof bn.faceQ === "number" ? bn.faceQ : null;
+            let fr = typeof bn.faceR === "number" ? bn.faceR : null;
+            if (fq == null || fr == null) { const eLen = Math.sqrt(0.75); fq = 1 / eLen; fr = -0.5 / eLen; }
+            const fLen = Math.sqrt(fq * fq + fq * fr + fr * fr) || 1; fq /= fLen; fr /= fLen;
+            const pq = (-fq - 2 * fr) / Math.sqrt(3), pr = (2 * fq + fr) / Math.sqrt(3);
+            const { u, v } = isoBasis(size);
+            const axx = u[0] * pq + v[0] * pr, axy = u[1] * pq + v[1] * pr;
+            const bxx = u[0] * fq + v[0] * fr, bxy = u[1] * fq + v[1] * fr;
+            const bladeLen = 0.58 * diaScale;
+            const bladeWid = bladeLen * (540 / 640);
+            return (
+              <g key={w.id} opacity={0.92} style={{ filter }} data-blade={w.id} data-face-q={fq.toFixed(4)} data-face-r={fr.toFixed(4)}>
+                <title>{title}</title>
+                <g transform={`matrix(${axx} ${axy} ${bxx} ${bxy} ${drawCx} ${drawCy})`}>
+                  {img && <image href={img} x={-bladeWid / 2} y={-bladeLen / 2} width={bladeWid} height={bladeLen} pointerEvents="none" />}
                 </g>
               </g>
             );

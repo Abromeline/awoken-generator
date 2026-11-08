@@ -946,7 +946,7 @@ export const api = {
   convertRuneShards: (args: { element: string }) =>
     post<{ ok: true; pack: PackView }>("convertRuneShards", args),
   looseBlade: (args: { wandererId: number }) =>
-    post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number }>("looseBlade", args),
+    post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number; loosedBlades?: { workingId: number; fromTileId: number; harm: number; chargesLeft: number }[] }>("looseBlade", args),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; heldMs?: number; facing?: string; pointQ?: number; pointR?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; refunded?: number; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number; hits?: number; targetId?: number; shields?: number; shieldHp?: number; wallHp?: number; facing?: string; wallQ?: number; wallR?: number; gateNodes?: number; line?: { px?: number; pr?: number; len?: number; count?: number } }>("castMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>

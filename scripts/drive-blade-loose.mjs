@@ -1,15 +1,37 @@
 // THE SINGLE BLADE, CLICK-TO-LOOSE — RECOVERY R4'S DRIVE
 // (Nigel, 2026-10-20 spec; re-ruled 2026-10-23).
+// RESTATED 2026-11-03 under the settled VOLLEY rule
+// (Nigel, 2026-11-03 09:52 + 09:56): one click on an enemy
+// launches EVERY armed Blade within two hexes of it —
+// each deals the book's flat 6 and spends one charge.
+// The nearest-only loose this drive once asserted (§A(4),
+// and §B's single-answer loose) was the struck Keeper
+// gloss, never Nigel's law; those assertions now assert
+// the volley. Two drive-side repairs ride the same
+// restatement, all named here: the choosing now stands
+// after a Tender's first three wakes (the Door's order),
+// so claim() wakes its bench BEFORE chooseClass; the
+// Table's dark no longer enters by a startWave door (the
+// door was removed 2026-10-25) — §B enters it by the
+// PROVOKE, striking the curse with a fielded hand, as the
+// standing game is played; and §B's Springing Blade tail
+// now closes with its dark before casting (the cast is
+// range-gated from the caster) and watches the sprung
+// charge while the writing stands, where the old loop
+// could guard-spin past the spring it meant to prove.
 // Boots the real server on a scratch DATA_DIR and proves:
 //   §A THE HOMELAND (the server referee, actions.ts):
 //      (1) a written Blade WAITS armed — a dark thing
 //          standing on its ground does NOT spring it;
 //      (2) a click on a dark thing within two hexes looses
-//          it for the book's flat harm (6) and spends a
-//          charge;
+//          every armed Blade in reach — here the one
+//          written Blade — for the book's flat harm (6)
+//          and spends a charge;
 //      (3) a click out of reach is answered plainly (400,
 //          the reach named) and the Blade stays armed;
-//      (4) with two armed Blades, the NEAREST answers;
+//      (4) with two armed Blades in reach of the mark,
+//          the click looses BOTH — the volley: the harm
+//          is the pair's 12, and each spends a charge;
 //      (5) the new proximity rune — the Springing Blade —
 //          springs on proximity as the Blade used to, and
 //          a cast one springs at its writing, as the Blade
@@ -17,10 +39,11 @@
 //   §B THE TABLE (the server referee, table.ts, over the
 //      real websocket): a cast Blade waits while the dark
 //      stands on it; a looseBlade order naming a dark with
-//      no Blade armed is answered plainly; the click
-//      looses the Blade for exactly 6 and spends a charge,
-//      and the flight is served in the state; the Springing
-//      Blade cast on a dark's ground springs at the cast.
+//      no Blade armed is answered plainly; with two Blades
+//      written on the dark's ground, ONE click looses
+//      BOTH — the pair's 12, a charge from each, and both
+//      flights served in the state; the Springing Blade
+//      cast on a dark's ground springs at the cast.
 // Run: node scripts/drive-blade-loose.mjs
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -75,15 +98,20 @@ try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 
 
 const hexDist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 
-async function claim(name, exp, classKey) {
+async function claim(name, exp, classKey, bench = 0) {
   const c = await call("claimTender", { password: PW, tenderName: name });
   const tenderId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(c.tender.code).id;
   const ownerKey = `tender:${tenderId}`;
   const now = Date.now();
   db.prepare("INSERT INTO tender_progress (owner_key, total_exp, lifetime_wakes, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(owner_key) DO UPDATE SET total_exp = excluded.total_exp").run(ownerKey, exp, now);
   db.prepare("INSERT INTO tender_resources (owner_key, energy, updated_at) VALUES (?, 5000, ?) ON CONFLICT(owner_key) DO UPDATE SET energy = 5000").run(ownerKey, now);
+  // The choosing opens after the first three wakes — the
+  // Door's standing order (chooseClass's own gate): the
+  // bench is woken BEFORE the class is chosen, never after.
+  const benchIds = [];
+  for (let i = 0; i < bench; i++) benchIds.push(seedAwokin(ownerKey, name, `${name} Bench ${i + 1}`, 2));
   if (classKey) await call("chooseClass", { classKey }, c.token);
-  return { token: c.token, ownerKey, tenderId };
+  return { token: c.token, ownerKey, tenderId, benchIds };
 }
 function seedAwokin(ownerKey, tenderName, name, partPower = 2) {
   const nowT = Date.now();
@@ -99,7 +127,14 @@ function seedAwokin(ownerKey, tenderName, name, partPower = 2) {
 
 /* ══ §A THE HOMELAND ══════════════════════════════════════ */
 console.log("§A the homeland — the Blade waits, the click looses, the Springing Blade springs");
-const T = await claim("Blade Tender", 3800, "runewright");
+const T = await claim("Blade Tender", 3800, "runewright", 3);
+// The bench was woken only to open the choosing. Stand it
+// down before the land is read: a standing party of the
+// first three would field itself on every territory read
+// and shoot the seeded darks, and §A's ground belongs to
+// the blades alone.
+db.prepare("DELETE FROM field_placements WHERE owner_key = ?").run(T.ownerKey);
+db.prepare("DELETE FROM awakened WHERE owner_key = ?").run(T.ownerKey);
 const tileId = new Map();
 {
   const insTile = db.prepare("INSERT INTO territory_tiles (owner_key, q, r, element, cursed, created_at) VALUES (?, ?, ?, 'root', 0, ?)");
@@ -144,6 +179,9 @@ ok("(5) the spring spent one of its two charges", workingRow(spring1)?.charges =
 const d3 = seedDark(1, 1);
 const loose1 = await call("looseBlade", { wandererId: d3 }, T.token);
 ok("(2) the loose is answered as a loose (no cast, no roll)", loose1?.loosed === true && loose1?.workingId === blade1, JSON.stringify(loose1));
+ok("(2) the volley names its blades — the one armed Blade in reach, no other",
+  Array.isArray(loose1?.loosedBlades) && loose1.loosedBlades.length === 1 && loose1.loosedBlades[0].workingId === blade1,
+  JSON.stringify(loose1?.loosedBlades));
 ok("(2) the harm is the book's flat 6 — no die, no AC", loose1?.harm === 6 && darkHp(d3) === 14, `harm=${loose1?.harm} hp=${darkHp(d3)}`);
 ok("(2) the loose spent one charge; the Blade hums on with one", workingRow(blade1)?.charges === 1, JSON.stringify(workingRow(blade1)));
 
@@ -155,15 +193,22 @@ ok("(3) an out-of-reach click is refused in plain words that name the reach",
 ok("(3) the Blade stayed armed (charge unspent) and the dark unharmed",
   workingRow(blade1)?.charges === 1 && darkHp(d4) === 20, `charges=${workingRow(blade1)?.charges} hp=${darkHp(d4)}`);
 
-// (4) Two armed Blades — the nearest answers.
+// (4) Two armed Blades, BOTH within the mark's two hexes —
+// the click looses the VOLLEY: both fly (Nigel, 2026-11-03).
+// The struck nearest-only assertion stood here until the
+// 2026-11-03 restatement; there is no nearest any more.
 const blade2 = seedWorking("blade", "blade", 0, 2);
-const d5 = seedDark(1, 2); // 1 hex from blade2 (0,2); 2 hexes from blade1 (2,0)
+const d5 = seedDark(1, 2); // 1 hex from blade2 (0,2); 2 hexes from blade1 (2,0) — both in reach
 const loose2 = await call("looseBlade", { wandererId: d5 }, T.token);
-ok("(4) the NEAREST armed Blade answered the click", loose2?.workingId === blade2, JSON.stringify(loose2));
-ok("(4) the nearer Blade spent its charge; the farther kept its own",
-  workingRow(blade2)?.charges === 1 && workingRow(blade1)?.charges === 1,
-  `near=${workingRow(blade2)?.charges} far=${workingRow(blade1)?.charges}`);
-ok("(4) the mark took the flat 6", darkHp(d5) === 14, `hp=${darkHp(d5)}`);
+ok("(4) ONE click loosed BOTH armed Blades — the volley names each of them",
+  Array.isArray(loose2?.loosedBlades) && loose2.loosedBlades.length === 2
+    && loose2.loosedBlades.some((b) => b.workingId === blade1) && loose2.loosedBlades.some((b) => b.workingId === blade2),
+  JSON.stringify(loose2?.loosedBlades));
+ok("(4) each Blade spent ONE charge — blade2 hums on with one; blade1, down to its last, is spent and gone",
+  workingRow(blade2)?.charges === 1 && workingRow(blade1) === undefined,
+  `blade2=${workingRow(blade2)?.charges} blade1=${JSON.stringify(workingRow(blade1))}`);
+ok("(4) the mark took the volley's whole harm — flat 6 and flat 6", loose2?.harm === 12 && darkHp(d5) === 8,
+  `harm=${loose2?.harm} hp=${darkHp(d5)}`);
 
 // (5b) + the cast-time truth, through the real cast door:
 // a cast Blade does NOT spring at its writing; a cast
@@ -186,7 +231,7 @@ ok("(5b) a Springing Blade cast onto the dark's ground springs at its writing �
 
 /* ══ §B THE TABLE ═════════════════════════════════════════ */
 console.log("§B the Table — the Blade waits at the Table too, and the click looses it there");
-const TT = await claim("Blade Table Tender", 3800, "runewright");
+const TT = await claim("Blade Table Tender", 3800, "runewright", 3);
 for (let i = 0; i < 25; i++) seedAwokin(TT.ownerKey, "Blade Table Tender", `Table Bench ${i + 1}`, 2);
 const { issueTableToken } = await import("../server/dist/table.js");
 const tt = issueTableToken({ id: "disc-blade-table", name: "Blade Table Tender" });
@@ -227,8 +272,41 @@ const axDist = (state, a, b) => { const ta = axOf(state, a), tb = axOf(state, b)
 const actor = new Actor();
 await actor.join(tt, "blade-loose");
 await waitFor(() => !!actor.you, "the Table seat");
-actor.send({ type: "startWave" });
-await waitFor(() => (actor.state?.dark ?? []).length >= 3, "the wave stands on the field");
+// THE PROVOKE (Nigel, 2026-10-25): the Table's dark does
+// not enter until the curse is struck — the startWave door
+// this drive once knocked on was removed that day, and a
+// startWave message now meets silence. Field a hand,
+// strike the curse, and the dark answers on its own
+// (settleCasualEntry, a trickle at a time).
+await call("addToParty", { awakenedId: TT.benchIds[0] }, TT.token);
+let unit = null;
+for (let i = 0; i < 25 && !unit; i++) {
+  actor.send({ type: "summonCast", awakenedId: TT.benchIds[0] });
+  await sleep(600);
+  unit = (actor.state?.field ?? []).find((u) => u.ownerKey === actor.you.key) ?? null;
+}
+ok("a hand stands on the Table's field to strike the curse", !!unit, JSON.stringify(actor.errors.slice(-2)));
+if (unit) {
+  actor.send({ type: "setStance", cardId: unit.cardId, stance: "binding" });
+  await sleep(300);
+  const tgt = (actor.state?.map ?? []).filter((t) => t.cursed && t.id !== "0,0")
+    .sort((a, b) => axDist(actor.state, a.id, unit.hex) - axDist(actor.state, b.id, unit.hex))[0];
+  if (tgt && axDist(actor.state, tgt.id, unit.hex) > 2) {
+    // March the hand to a hex within reach (2) of it.
+    const step = (actor.state?.map ?? []).filter((t) => t.id !== unit.hex && axDist(actor.state, t.id, tgt.id) <= 2)
+      .sort((a, b) => axDist(actor.state, a.id, unit.hex) - axDist(actor.state, b.id, unit.hex))[0];
+    if (step) {
+      actor.send({ type: "march", from: unit.hex, to: step.id, cardId: unit.cardId });
+      await waitFor(() => {
+        const u = (actor.state?.field ?? []).find((x) => x.cardId === unit.cardId);
+        return u && !u.moving && axDist(actor.state, tgt.id, u.hex) <= 2;
+      }, "the hand marches within reach of the curse", 30000).catch(() => false);
+      unit = (actor.state?.field ?? []).find((x) => x.cardId === unit.cardId) ?? unit;
+    }
+  }
+  if (tgt) actor.send({ type: "strikeCurse", cardId: unit.cardId, hex: unit.hex, target: tgt.id });
+}
+await waitFor(() => (actor.state?.dark ?? []).length >= 2, "the dark answers the struck curse and takes the field", 90000);
 const dark1 = actor.state.dark[0];
 const dark1Hp0 = dark1.hp;
 
@@ -261,37 +339,78 @@ ok("the written Blade WAITS at the Table — the dark standing on its ground is 
   !!dark1Now && dark1Now.hp === dark1Hp0 && bladeW?.charges === 2,
   `hp=${dark1Now?.hp}/${dark1Hp0} charges=${bladeW?.charges}`);
 
-// The click looses it — flat 6, a charge spent, the flight served.
+// A second Blade written on the dark's ground — both wait.
+// (The volley restatement: §B's loose once asserted the
+// single answering Blade of the struck nearest-only rule;
+// now two Blades stand in reach and the click must loose
+// BOTH, as §C of the lies-flat drive also proves.)
+let bladeW2 = null;
+for (let i = 0; i < 30 && !bladeW2; i++) {
+  const hex = actor.state.dark.find((e) => e.id === dark1.id)?.hex ?? bladeW.hex;
+  actor.send({ type: "castRune", root: "blade", hexes: [hex] });
+  const s = Date.now();
+  while (Date.now() - s < 1200) {
+    const bs = (actor.state?.workings ?? []).filter((x) => x.root === "blade" && x.ownerKey === actor.you.key);
+    if (bs.length >= 2) { bladeW2 = bs.find((x) => x.id !== bladeW.id); break; }
+    await sleep(120);
+  }
+}
+ok("a second Blade stands written on the dark's ground — both wait armed, charges whole",
+  !!bladeW2 && bladeW2.charges === 2 && (actor.state?.workings ?? []).find((x) => x.id === bladeW.id)?.charges === 2,
+  `w2=${JSON.stringify(bladeW2 && { hex: bladeW2.hex, charges: bladeW2.charges })}`);
+
+// The click looses the VOLLEY — both Blades fly: the
+// pair's 12, a charge spent from EACH, both flights served.
 const hpBeforeLoose = actor.state.dark.find((e) => e.id === dark1.id)?.hp;
 actor.send({ type: "looseBlade", enemyId: dark1.id });
 await waitFor(() => {
-  const w = (actor.state?.workings ?? []).find((x) => x.id === bladeW.id);
-  return w && w.charges === 1;
-}, "the Table loose spends the Blade's charge");
+  const bs = (actor.state?.workings ?? []).filter((x) => x.root === "blade" && x.ownerKey === actor.you.key);
+  return bs.length === 2 && bs.every((x) => x.charges === 1);
+}, "the Table volley spends a charge from EACH Blade");
 const dark1After = actor.state.dark.find((e) => e.id === dark1.id);
-ok("the Table loose dealt the book's flat 6 (or felled the dark outright)",
-  dark1After ? dark1After.hp === hpBeforeLoose - 6 : hpBeforeLoose <= 6,
+ok("the Table volley dealt the pair's harm — flat 6 and flat 6 (or felled the dark outright)",
+  dark1After ? dark1After.hp === hpBeforeLoose - 12 : hpBeforeLoose <= 12,
   `before=${hpBeforeLoose} after=${dark1After?.hp ?? "felled"}`);
-ok("the flight was served in the state — from the rune's hex, at the mark",
-  (actor.state?.bladeFlights ?? []).some((f) => f.fromHex === bladeW.hex),
+ok("both flights were served in the state — one from each Blade's ground",
+  (actor.state?.bladeFlights ?? []).length >= 2
+    && (actor.state?.bladeFlights ?? []).some((f) => f.fromHex === bladeW.hex)
+    && (actor.state?.bladeFlights ?? []).some((f) => f.fromHex === bladeW2.hex),
   JSON.stringify((actor.state?.bladeFlights ?? []).map((f) => f.fromHex)));
 
 // The Springing Blade at the Table: cast on a standing
-// dark's ground, it springs at the writing.
+// dark's ground, it springs at the writing. (Restated
+// setup, 2026-11-03: the cast is range-gated from the
+// caster — reach 6 — and a far dark's ground refuses it
+// plainly, as the probe of this restatement watched it
+// do; so the caster first CLOSES with the dark, gliding
+// to its ground as the lies-flat drive's §C closes before
+// its own casts. And the sprung charge is watched for
+// while the writing stands, not only in the breath after
+// a cast: a dark lingering on the ground springs the
+// writing again and can spend it whole between glances,
+// which is its law — the old loop's guard could spin on
+// the standing writing forever and never see the spring.)
 const dark2 = actor.state.dark.find((e) => e.id !== dark1.id) ?? actor.state.dark[0];
 const dark2Hp0 = actor.state.dark.find((e) => e.id === dark2.id)?.hp;
+{
+  const d0 = actor.state.dark.find((e) => e.id === dark2.id) ?? actor.state.dark[0];
+  if (d0) {
+    actor.send({ type: "glide", tx: d0.pos.x, ty: d0.pos.y });
+    await waitFor(() => {
+      const p = (actor.state?.players ?? []).find((x) => x.key === actor.you.key)?.pos;
+      const d = actor.state.dark.find((e) => e.id === dark2.id) ?? actor.state.dark[0];
+      return !!p && !!d && Math.hypot(p.x - d.pos.x, p.y - d.pos.y) < 170;
+    }, "the caster closes with the second dark", 30000).catch(() => false);
+  }
+}
 let sprungSpring = null;
-for (let i = 0; i < 20 && !sprungSpring; i++) {
+for (let i = 0; i < 40 && !sprungSpring; i++) {
+  const standing = (actor.state?.workings ?? []).find((x) => x.root === "springblade" && x.ownerKey === actor.you.key);
+  if (standing && standing.charges < (standing.maxCharges ?? 2)) { sprungSpring = standing; break; }
   const target = actor.state.dark.find((e) => e.id === dark2.id) ?? actor.state.dark[0];
   if (!target) break;
-  if ((actor.state.workings ?? []).some((x) => x.root === "springblade" && x.hex === target.hex)) { await sleep(200); continue; }
-  actor.send({ type: "castRune", root: "springblade", hexes: [target.hex] });
-  const s = Date.now();
-  while (Date.now() - s < 1200) {
-    const w = (actor.state?.workings ?? []).find((x) => x.root === "springblade" && x.charges === 1);
-    if (w) { sprungSpring = w; break; }
-    await sleep(120);
-  }
+  if (!standing) actor.send({ type: "castRune", root: "springblade", hexes: [target.hex] });
+  await sleep(200);
 }
 ok("the Springing Blade cast at the Table springs at its writing — a charge spent by the spring itself",
   !!sprungSpring, JSON.stringify((actor.state?.workings ?? []).filter((x) => x.root === "springblade").map((x) => ({ hex: x.hex, charges: x.charges }))));

@@ -8345,6 +8345,31 @@ function handleConnection(ws: WebSocket): void {
           hp, maxHp: hp, pour: slots, stops: 0, charges: chargesNow, maxCharges: chargesNow,
           group,
         };
+        if (def.engine === "blade") {
+          // THE SINGLE BLADE POINTS AWAY FROM ITS CASTER
+          // (Nigel, 2026-11-03): the cast's direction — from
+          // the caster's standing point to the writing's
+          // ground — kept in the writing's numbers as an
+          // axial unit vector (faceQ/faceR), the one tongue
+          // both grounds' drawings read; the homeland stores
+          // it the same way. This ground speaks pixels, so
+          // the delta is carried through the iso basis'
+          // inverse into axial terms here. Fixed at the
+          // cast; it never tracks the caster after. A cast
+          // at his own feet has no direction: the map's
+          // east answers, as at home.
+          const fromPt = casterPointOf(caster);
+          const landPt = aimPoints[aimIdx] ?? tileCenter(hx);
+          let dq = 0, dr = 0;
+          if (fromPt && landPt) {
+            const k = TILE_SIZE / ISO_DEN;
+            dq = (landPt.x - fromPt.x) / (ISO_E[0] * k);
+            dr = ((landPt.y - fromPt.y) - ISO_E[1] * k * dq) / (ISO_SE[1] * k);
+          }
+          let dLen = Math.sqrt(dq * dq + dq * dr + dr * dr);
+          if (!(dLen > 1e-6)) { dq = 1; dr = -0.5; dLen = Math.sqrt(0.75); }
+          wNew.nums = { ...wNew.nums, faceQ: dq / dLen, faceR: dr / dLen };
+        }
         // The Ground Remembers (tranche one): the FIRST rune
         // a holder writes each battle is marked to wait.
         if (eff.groundRemembers && !caster.groundRemembered) {
@@ -8438,15 +8463,20 @@ function handleConnection(ws: WebSocket): void {
     if (msg.type === "looseBlade") {
       // LOOSE THE SINGLE BLADE (Nigel, 2026-10-20, spec
       // single-blade-click-spring; re-ruled 2026-10-23 —
-      // Recovery R4): the click on a dark thing is an ORDER
-      // to the written Blade, not a cast — no roll, no
-      // energy. The mark must stand within TWO HEXES of the
-      // rune's hex (the book's own spring measure); the
-      // NEAREST of the clicker's armed Blades answers; the
-      // harm is the book's — flat power (6 on the page),
-      // no die, no AC — and the loose spends a charge, as
-      // a spring spent it. Out of reach, the answer is
-      // plain and the Blade stays armed.
+      // Recovery R4; the volley re-ruled 2026-11-03): the
+      // click on a dark thing is an ORDER to the written
+      // Blade, not a cast — no roll, no energy. THE VOLLEY
+      // (Nigel, 2026-11-03: "clicking the nearest thing
+      // launches all blades"): one click launches EVERY
+      // armed Blade of the clicker's that answers it — each
+      // dealing the book's flat power (6 on the page), no
+      // die, no AC, and each spending a charge, as a spring
+      // spent it. There is NO nearest-blade selection: the
+      // 2026-10-24 delivery's nearest-only road is struck.
+      // Which blades answer is ONE reckoning
+      // (bladeAnswersClick below), marked as such. When no
+      // blade answers, the answer is plain and every Blade
+      // stays armed.
       if (!player) return;
       const caster = player;
       if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers loose no blades — bind in the game to write and loose." })); return; }
@@ -8454,40 +8484,65 @@ function handleConnection(ws: WebSocket): void {
       if (!enemy) { ws.send(JSON.stringify({ type: "error", message: "That dark thing is gone — no blade answers, and every armed blade stays armed." })); return; }
       const armed = room.workings.filter(w => w.kind === "rune" && w.engine === "blade" && w.ownerKey === caster.key && !!w.hex && (w.charges ?? 0) > 0);
       if (!armed.length) { ws.send(JSON.stringify({ type: "error", message: "No Single Blade of yours stands armed — write one, and it will wait for your click." })); return; }
-      let best: { w: Working; dist: number } | null = null;
-      for (const w of armed) {
-        // NO HEX-LOCK (Nigel, 2026-10-23 23:04): a blade
-        // written at a tapped point answers by the DISTANCE
-        // from that point to the dark thing — two hexes of
-        // ground, the book's own spring measure. A blade
-        // written on the old hex road keeps its hex measure.
+      // ── THE SCOPE OF THE ANSWER — ONE RECKONING ──────
+      // (Nigel, 2026-11-03 09:56: "All blades within 2
+      // hexes of the clicked enemy fly"): every armed
+      // Blade lying within two hexes of the clicked dark
+      // looses; blades beyond two hexes stay armed and
+      // waiting. There is no nearest-blade selection
+      // anywhere in this door. WHICH blades answer is
+      // this one predicate and no other. The reach is
+      // reckoned from each blade's own ground (NO
+      // HEX-LOCK, 2026-10-23 23:04): from its written
+      // point where it carries one, else by its hex —
+      // exactly as its twin in the homeland's looseBlade
+      // door (actions.ts).
+      const bladeAnswersClick = (w: Working): boolean => {
         const dist = w.pos ? distPx(w.pos, enemy.pos) / HEX_PX : axialDist(w.hex!, enemy.hex);
-        if (dist <= 2 && (!best || dist < best.dist)) best = { w, dist };
-      }
-      if (!best) { ws.send(JSON.stringify({ type: "error", message: "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing. The blade stays armed." })); return; }
-      const rune = best.w;
+        return dist <= 2;
+      };
+      const answering = armed.filter(bladeAnswersClick);
+      if (!answering.length) { ws.send(JSON.stringify({ type: "error", message: "Beyond its reach — a Single Blade answers only a dark thing within two hexes of its writing, and no blade of yours stands within reach of this one. Every blade stays armed." })); return; }
       const eff = workingEffects(caster.expKey);
       // The spring's own honours ride the loose, as they
       // rode the spring (springHex's preamble): Lore keeps
-      // the tale, and a first loose pays as a first spring.
+      // the tale (once for the order), and a first loose
+      // pays as a first spring (each blade's own first).
       if (caster.expKey && eff.rememberingRay) void awardTenderExp(caster.expKey, 1).catch(() => {});
-      if (eff.loreRunewright && !rune.firstPaid) {
-        rune.firstPaid = true;
-        caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + 1);
-      }
       const bright = engineBright(room, caster.key) ? 1 : 0;
-      const power = (rune.nums.power ?? 6) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
-        + (eff.warRunewright && !enemy.struck ? 2 : 0);
-      room.bladeFlights = [...(room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
-        { id: randomUUID(), at: Date.now(), fromHex: rune.hex!, fromPos: rune.pos ? { ...rune.pos } : null, to: { ...enemy.pos } }];
-      tell(room, `${rune.name} is LOOSED at ${caster.name}'s word — its blades rise from the written ground and spear down into the ${enemy.label} from above: ${power} harm.`);
-      enemy.hp -= power;
+      const wasStruck = !!enemy.struck;
+      // THE VOLLEY'S RECKONING: each answering blade deals
+      // the book's flat power (its own snapshot, the bright
+      // and the War-Runewright's riders as they stood at
+      // the click), flies its own flight from its own
+      // ground, and spends one charge; the harm lands on
+      // the dark as one volley.
+      let totalHarm = 0;
+      const spent: Working[] = [];
+      for (const rune of answering) {
+        if (eff.loreRunewright && !rune.firstPaid) {
+          rune.firstPaid = true;
+          caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + 1);
+        }
+        const power = (rune.nums.power ?? 6) + bright * ((rune.nums.brightBonus ?? 1) + (eff.millwright ? 1 : 0))
+          + (eff.warRunewright && !wasStruck ? 2 : 0);
+        totalHarm += power;
+        room.bladeFlights = [...(room.bladeFlights ?? []).filter(f => Date.now() - f.at < 3000),
+          { id: randomUUID(), at: Date.now(), fromHex: rune.hex!, fromPos: rune.pos ? { ...rune.pos } : null, to: { ...enemy.pos } }];
+        rune.charges--;
+        if (rune.charges <= 0) spent.push(rune);
+      }
+      tell(room, answering.length === 1
+        ? `${answering[0].name} is LOOSED at ${caster.name}'s word — its blades rise from the written ground and spear down into the ${enemy.label} from above: ${totalHarm} harm.`
+        : `At ${caster.name}'s word EVERY armed Blade answers — ${answering.length} blades rise from their written ground and spear down into the ${enemy.label} from above: ${totalHarm} harm in all.`);
+      enemy.hp -= totalHarm;
       let felledByBlade = 0;
       if (enemy.hp <= 0) { felledByBlade = 1; fellDark(room, enemy, caster); }
       if (eff.hungryInk && felledByBlade > 0) caster.energy = Math.min(caster.maxEnergy + 10, caster.energy + felledByBlade);
-      rune.charges--;
-      if (rune.charges <= 0) retireSprungRune(room, rune);
-      else tell(room, `${rune.name} hums on, waiting for one more word.`);
+      for (const rune of spent) retireSprungRune(room, rune);
+      const humming = answering.filter(r => r.charges > 0);
+      if (humming.length === 1) tell(room, `${humming[0].name} hums on, waiting for one more word.`);
+      else if (humming.length > 1) tell(room, `${humming.length} Blades hum on, waiting for one more word.`);
       sendState(room);
       return;
     }
