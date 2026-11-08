@@ -93,6 +93,21 @@ CREATE TABLE IF NOT EXISTS front_lessons_seen (
   seen_at INTEGER NOT NULL,
   PRIMARY KEY (owner_key, lesson_key)
 );
+CREATE TABLE IF NOT EXISTS entrance_road_sections (
+  owner_key TEXT NOT NULL,
+  section INTEGER NOT NULL,
+  completed_at INTEGER NOT NULL,
+  paid INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (owner_key, section)
+);
+CREATE TABLE IF NOT EXISTS entrance_road_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  detail TEXT,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entrance_road_events_owner ON entrance_road_events (owner_key, kind);
 CREATE TABLE IF NOT EXISTS tenders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,

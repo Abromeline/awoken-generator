@@ -303,6 +303,34 @@ export const frontLessonsSeen = sqliteTable("front_lessons_seen", {
     .$defaultFn(() => new Date()),
 }, (t) => [primaryKey({ columns: [t.ownerKey, t.lessonKey] })]);
 
+// THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02; Nigel's build
+// word 2026-11-01): the entrance account's four tutorial
+// sections and the act-ledger that proves them. A section row
+// exists only once the server has verified the section's acts
+// and paid its five wakes from the award pool (visitors'
+// entrance_award_pool); `paid` flips only with the credit
+// grant itself, so a completion is paid exactly once. The
+// events table is the road's witness: one row per real act,
+// written by the standing actions at the moment they execute
+// (a navigation surface opened, an order given, a battle
+// fought in the living battle, the beacon lit or doused by
+// the Tender's own hand, the door's spell cast true) — never
+// by a client's say-so about the past.
+export const entranceRoadSections = sqliteTable("entrance_road_sections", {
+  ownerKey: text("owner_key").notNull(),
+  section: integer("section").notNull(),
+  completedAt: integer("completed_at").notNull(),
+  paid: integer("paid").notNull(),
+}, (t) => [primaryKey({ columns: [t.ownerKey, t.section] })]);
+
+export const entranceRoadEvents = sqliteTable("entrance_road_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  kind: text("kind").notNull(),
+  detail: text("detail"),
+  at: integer("at").notNull(),
+});
+
 // Tender decks: named gatherings of Awoken, each with a chosen face card.
 // Decks belong to one owner key (a Tender account, or a soft visitor).
 // Membership lives in deck_cards; the awakened rows themselves are never

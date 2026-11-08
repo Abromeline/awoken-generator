@@ -3622,6 +3622,28 @@ svg.eye-glyph .pupil{fill:#8e3a28; stroke:none}
 .entrance-award-note{margin:12px auto;max-width:640px;padding:10px 14px;border:1px solid rgba(216,178,92,.55);border-radius:10px;line-height:1.45}
 .entrance-ceremony{z-index:96}
 .entrance-ceremony-frame{position:relative;width:100%;max-width:1060px;margin:auto;display:flex;flex-direction:column;align-items:center;color:#e8dcc3}
+/* THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the pool
+   note grown into the road itself — same gold-edged dress,
+   the four sections in their written order. (The branch's
+   restatement of the old boxed .entrance-ceremony /
+   .entrance-ceremony-card rules is NOT carried: Push 55
+   struck the ceremony box on main, and the plain-ceremony
+   rules above stand in their place.) */
+.entrance-road{margin:12px auto;max-width:640px;padding:12px 16px 6px;border:1px solid rgba(216,178,92,.55);border-radius:10px;line-height:1.45}
+.entrance-road-pool{margin:4px 0 10px}
+.entrance-road-list{list-style:none;margin:0;padding:0}
+.entrance-road-one{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid rgba(216,178,92,.22);opacity:.62}
+.entrance-road-one.active{opacity:1}
+.entrance-road-one.done{opacity:.85}
+.entrance-road-mark{font-size:15px;line-height:1.5;min-width:16px;text-align:center}
+.entrance-road-one.done .entrance-road-mark{color:#9fc97f}
+.entrance-road-one.active .entrance-road-mark{color:#d8b25c}
+.entrance-road-body{flex:1}
+.entrance-road-body h3{margin:0 0 2px;font-size:15px;font-family:Georgia,serif;font-weight:600}
+.entrance-road-line{margin:0 0 2px;font-style:italic}
+.entrance-road-progress{margin:0;font-size:13px;opacity:.85}
+.entrance-road-pay{font-size:12px;white-space:nowrap;padding-top:3px;color:#d8b25c}
+.entrance-road-one.done .entrance-road-pay{color:#9fc97f}
 .entrance-ceremony-card h2{margin:2px 0 8px;font-family:Georgia,serif;font-weight:600}
 .entrance-ceremony-sub{max-width:72ch;line-height:1.45}
 .entrance-trio{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin:16px 0}

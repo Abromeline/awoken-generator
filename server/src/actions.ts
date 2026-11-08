@@ -54,9 +54,12 @@ import { reagentEmpowermentFor, consumeReagentSet, empoweredCastPrice, REAGENT_E
 export { enemyACFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { storyPromptFor, storyThreadNameFor } from "./storyPrompts.js";
 import {
-  ENTRANCE_SPELL_KEYS, ENTRANCE_SPELL_NAMES, advanceEntranceStep, entranceStateFor, entranceSpellKeyFor,
+  ENTRANCE_SPELL_KEYS, ENTRANCE_SPELL_NAMES, advanceEntranceStep, entranceStateFor, entranceSpellKeyFor, isEntranceAccount,
   type EntranceSpellKey,
 } from "./entrance.js";
+import {
+  ROAD_NAV_SURFACES, evaluateEntranceRoad, pokeEntranceRoad, recordRoadEvent,
+} from "./entranceRoad.js";
 import {
   proveKitPiece, matchCandidate, polygonsOverlap, pieceKeyOf, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
   collisionSegments, segmentsCrossProper, pointSegmentDistance, type Pt,
@@ -8009,6 +8012,35 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     if (w.gone || w.nodes.every(n => n.hp <= 0)) { sqlite.prepare("DELETE FROM defence_works WHERE id = ?").run(w.id); continue; }
     if (w.dirty) sqlite.prepare("UPDATE defence_works SET nodes = ? WHERE id = ?").run(JSON.stringify(w.nodes), w.id);
   }
+  // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2 + §3): a
+  // battle FOUGHT — this land's own Awoken dealt harm in this
+  // settle (the darkDamage ledger), or one of them stood a
+  // defence an assailant struck (the defence pots). Recorded
+  // here, at the battle's own write-back, for the land's
+  // owner alone; a room's guest bodies fighting on a host's
+  // land are not the host's lesson (guestBodies non-empty
+  // stands the witness down), and nothing here touches the
+  // battle itself — no spawn, no pace, no count.
+  try {
+    if (guestBodies.length === 0 && isEntranceAccount(ownerKey)) {
+      const mine = new Set(
+        (sqlite.prepare("SELECT id FROM awakened WHERE owner_key = ?").all(ownerKey) as { id: number }[])
+          .map((r) => Number(r.id)),
+      );
+      let fought = false;
+      for (const dealt of darkDamage.values()) {
+        for (const id of dealt.keys()) if (mine.has(Number(id))) { fought = true; break; }
+        if (fought) break;
+      }
+      if (!fought) {
+        for (const pot of defencePots) if (mine.has(Number(pot.victimAwakenedId))) { fought = true; break; }
+      }
+      if (fought) {
+        recordRoadEvent(ownerKey, "battle");
+        await pokeEntranceRoad(ownerKey);
+      }
+    }
+  } catch { /* the road never breaks a battle */ }
 }
 /** The Table's element hit bonus, mirrored for the homeland's
  *  strike roll (table.ts ELEMENT_HIT_BONUS — test61's mirror
@@ -12437,6 +12469,14 @@ export const handlers = {
       }
     }
     await db.update(schema.fieldPlacements).set({ follow: parsed.data.follow ? 1 : 0 }).where(eq(schema.fieldPlacements.id, parsed.data.placementId));
+    // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2): a
+    // follow order given or lifted is an order, recorded at
+    // the giving.
+    if (!ctx?.room) {
+      const orderedId = (own[0] as any)?.awakenedId as number | undefined;
+      if (orderedId) recordRoadEvent(actorKeyFor(ctx), "order", String(orderedId));
+      await pokeEntranceRoad(actorKeyFor(ctx));
+    }
     return { ok: true, follow: parsed.data.follow };
   },
 
@@ -13527,6 +13567,14 @@ export const handlers = {
           VALUES (?, ?, 'bats', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
           .run(ownerKey, spell.key, spell.kind, hue, standTile!.id, standTile!.q, standTile!.r,
             JSON.stringify({ bornAt: nowCast, nextBiteAt: nowCast + BATS_BITE_MS, bites: 0, targetId: null }), nowCast);
+        // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §4): a
+        // cast that LANDED — the working's row above is its
+        // artifact; a fizzle returned earlier and wrote
+        // nothing. Only the door's own spell, only at home.
+        if (spell.key === doorSpellKey && actorKeyFor(ctx) === ownerKey) {
+          recordRoadEvent(ownerKey, "cast", spell.key);
+          await pokeEntranceRoad(ownerKey);
+        }
         return { ok: true as const, id: Number(info.lastInsertRowid), tileId: standTile!.id, cost: newWorkingPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key };
       }
       if (spell.engine === "holdrune") {
@@ -13568,6 +13616,12 @@ export const handlers = {
           VALUES (?, ?, 'holdrune', ?, ?, ?, NULL, ?, ?, NULL, ?, 0, 0, 0, 0, 0, ?)`)
           .run(ownerKey, spell.key, spell.kind, hue, tileId, tile.q, tile.r,
             JSON.stringify({ bornAt: nowCast, targetId: Number(target.id), struckAt: null, holdUntil: 0 }), nowCast);
+        // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §4): as
+        // the Bats above — a landed cast of the door's spell.
+        if (spell.key === doorSpellKey && actorKeyFor(ctx) === ownerKey) {
+          recordRoadEvent(ownerKey, "cast", spell.key);
+          await pokeEntranceRoad(ownerKey);
+        }
         return { ok: true as const, id: Number(info.lastInsertRowid), tileId, cost: newWorkingPrice, roll: cast.roll, mod: cast.mod, dc: cast.dc, spellKey: spell.key, targetId: Number(target.id) };
       }
       // RUNE SHATTER — a straight shot at the named ground,
@@ -13733,6 +13787,13 @@ export const handlers = {
         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`)
         .run(ownerKey, spell.key, spell.engine, spell.kind, hue, tileId, tile.q, tile.r, JSON.stringify(numsToStore), hp, charges, slots, hp, Date.now());
       const newId = Number(info.lastInsertRowid);
+      // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §4): the
+      // written road's landed cast — Shard Rain walks this
+      // path; the door's spell alone is witnessed, at home.
+      if (spell.key === doorSpellKey && actorKeyFor(ctx) === ownerKey) {
+        recordRoadEvent(ownerKey, "cast", spell.key);
+        await pokeEntranceRoad(ownerKey);
+      }
       // The writing springs the moment it lands, if the dark
       // already stands on its ground or the curse holds that
       // ground (Homeland Casting — the Table's cast-time
@@ -15063,6 +15124,13 @@ export const handlers = {
     // (Clearing a patrol above gives no order, and ends
     // nothing.)
     removePartyMember(ownerKey, awakenedId);
+    // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2): a
+    // patrol road laid is an order given. (Clearing a patrol
+    // above gives no order, and records none.)
+    if (!ctx?.room) {
+      recordRoadEvent(actorKeyFor(ctx), "order", String(awakenedId));
+      await pokeEntranceRoad(actorKeyFor(ctx));
+    }
     return { ok: true as const, awakenedId, patrolling: true, waypoints: tileIds.length };
   },
 
@@ -15184,6 +15252,12 @@ export const handlers = {
     // marched Awokin leaves the party — it stands under
     // orders now, not at the Tender's side.
     removePartyMember(ownerKey, awakenedId);
+    // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2): a
+    // march ordered is an order given, recorded at the giving.
+    if (!ctx?.room) {
+      recordRoadEvent(actorKeyFor(ctx), "order", String(awakenedId));
+      await pokeEntranceRoad(actorKeyFor(ctx));
+    }
     return { ok: true as const, awakenedId, tileId, steps, seconds: Math.round(seconds * 10) / 10, energy };
   },
 
@@ -16801,7 +16875,7 @@ export const handlers = {
     const ownerKey = landKeyFor(ctx);
     const parsed = z.object({ lit: z.boolean() }).safeParse(args);
     if (!parsed.success) badRequest("Invalid lighthouse switch.");
-    const row = sqlite.prepare("SELECT protection_bank_ms AS bank FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+    const row = sqlite.prepare("SELECT protection_bank_ms AS bank, lighthouse_lit AS lit FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
     const now = Date.now();
     if (parsed.data.lit) {
       if (!row || Math.max(0, Number(row.bank) || 0) <= 0) {
@@ -16812,6 +16886,18 @@ export const handlers = {
         .run(now, weatherReignCount(), ownerKey);
     } else {
       sqlite.prepare("UPDATE tender_progress SET lighthouse_lit = 0, lighthouse_settled_at = ? WHERE owner_key = ?").run(now, ownerKey);
+    }
+    // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §3): the
+    // beacon lesson reads the switch's own transitions, by the
+    // Tender's own hand on their own land (a room seat's hand
+    // on a host's land is not the host's lesson). Only a real
+    // transition is witnessed — lighting a lit beacon, or
+    // dousing a dark one, teaches nothing and records nothing.
+    if (actorKeyFor(ctx) === ownerKey) {
+      const wasLit = Number(row?.lit ?? 0) === 1;
+      if (parsed.data.lit && !wasLit) recordRoadEvent(ownerKey, "lit");
+      if (!parsed.data.lit && wasLit) recordRoadEvent(ownerKey, "doused");
+      await pokeEntranceRoad(ownerKey);
     }
     return z.object({ ok: z.literal(true), battle: z.object({ shadowMatter: z.number(), protectionBankMs: z.number(), lighthouseLit: z.boolean(), waveIntensity: z.number() }) }).parse({ ok: true, battle: await battleStateView(ownerKey) });
   },
@@ -17070,6 +17156,13 @@ export const handlers = {
           : null,
       })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
+    // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2): an
+    // order given, recorded at the giving — the stance_ordered
+    // mark above is its durable twin.
+    if (!ctx?.room) {
+      recordRoadEvent(actorKeyFor(ctx), "order", String(parsed.data.awakenedId));
+      await pokeEntranceRoad(actorKeyFor(ctx));
+    }
     return z.object({ ok: z.literal(true) }).parse({ ok: true });
   },
 
@@ -18002,6 +18095,39 @@ export const handlers = {
     }
     advanceEntranceStep(ownerKey, "wake", "done");
     return { ok: true as const, awakened };
+  },
+
+  /** THE AWARD ROAD'S READ (ENTRANCE BUILD 2, 2026-11-02):
+   *  the four tutorial sections as the server has verified
+   *  them — which stand done, which stands active, the pool
+   *  remaining, the spendable balance the sections have paid.
+   *  The read itself runs the road's reckoning (a completion
+   *  whose final act has landed pays here if no witness poke
+   *  reached it first); the reckoning is idempotent, so a
+   *  re-read never pays twice. Legacy accounts read the old
+   *  road: entrance false, no sections, no pool. */
+  async getEntranceRoad(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    return evaluateEntranceRoad(ownerKeyFor(ctx));
+  },
+
+  /** A DOOR OPENED (ENTRANCE BUILD 2, §1): the one
+   *  client-reported act on the road — a navigation surface's
+   *  own open handler fires this at the moment the surface
+   *  opens (the only moment the server can know), exactly the
+   *  trust the first-touch lesson registry runs on. The
+   *  recorder stands silent for unmarked accounts, and the
+   *  answer is the road as it now stands (the seventh door
+   *  pays §1 in this very response). */
+  async entranceNavOpened(args: unknown, ctx?: ActionContext) {
+    if (!ctx?.tender) badRequest("Log in first.");
+    const parsed = z.object({ surface: z.string().min(1).max(20) }).safeParse(args);
+    if (!parsed.success || !(ROAD_NAV_SURFACES as readonly string[]).includes(parsed.data.surface)) {
+      badRequest("Name one of the road's doors: the map, your deck, the zodiac, attunement, the pack, finding yourself, the wheel.");
+    }
+    const ownerKey = ownerKeyFor(ctx);
+    recordRoadEvent(ownerKey, "nav", parsed.data!.surface);
+    return evaluateEntranceRoad(ownerKey);
   },
 
   /** WIELD (Nigel, 2026-10-19 — the Arsenal law): weapons are

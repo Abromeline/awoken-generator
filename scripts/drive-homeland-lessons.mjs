@@ -95,12 +95,12 @@ const serverLessons = readFileSync(join(root, "server/src/frontLessons.ts"), "ut
 const storeSrc = readFileSync(join(root, "server/src/store.ts"), "utf8");
 
 // ── §A THE LESSON LIST ─────────────────────────────────────
-console.log("\n§A homelandLessons.ts — twelve lessons, the ground's order, each a line or two naming its control");
-const entries = [...lessonsSrc.matchAll(/\{\s*key: "([a-z]+)",\s*system: "([^"]+)",\s*text: "([^"]+)",\s*\}/g)]
+console.log("\n§A homelandLessons.ts — the ground's twelve + the award road's twelve (Build 2), each a line or two naming its control");
+const entries = [...lessonsSrc.matchAll(/\{\s*key: "([a-z0-9]+)",\s*system: "([^"]+)",\s*text: "([^"]+)",\s*\}/g)]
   .map((m) => ({ key: m[1], system: m[2], text: m[3] }));
-check("exactly twelve homeland lessons stand (the ground's nine + the growth cycle's three)", entries.length === 12, `found ${entries.length}`);
-check("the lessons stand in the ground's order: party, return, safehex, battle, cast, orders, group, warning, seed, then the growth cycle's three",
-  entries.map((e) => e.key).join(",") === "party,return,safehex,battle,cast,orders,group,warning,seed,seedfeed,seedsapling,seedbeacon",
+check("exactly twenty-four homeland lessons stand (the ground's nine + the growth cycle's three + the award road's twelve, entrance accounts only)", entries.length === 24, `found ${entries.length}`);
+check("the lessons stand in the ground's order: party, return, safehex, battle, cast, orders, group, warning, seed, then the growth cycle's three, then the road's twelve",
+  entries.map((e) => e.key).join(",") === "party,return,safehex,battle,cast,orders,group,warning,seed,seedfeed,seedsapling,seedbeacon,roadstart,road1start,road1done,road2start,road2done,road3start,road3dark,road3fought,road3done,road4start,road4done,roaddone",
   entries.map((e) => e.key).join(","));
 const NAMES = {
   party: ["first three", "party", "🌳", "Party tab"],
@@ -118,15 +118,19 @@ const NAMES = {
 };
 for (const e of entries) {
   const sentences = e.text.split(/(?<=[.!?])\s+/).filter(Boolean).length;
+  // THE ANCIENT ONE'S OWN LINES STAND AS WRITTEN (Nigel, 2026-11-08):
+  // the road's twelve are his dictated words and run past the registry's
+  // ordinary line-or-two measure; the shape rule binds every other lesson.
+  const isRoadLine = e.key.startsWith("road");
   check(`"${e.key}" is a line or two (${e.text.length} chars, ${sentences} sentence(s))`,
-    e.text.length <= 160 && sentences <= 2, `${e.text.length} chars, ${sentences} sentences`);
+    isRoadLine || (e.text.length <= 160 && sentences <= 2), `${e.text.length} chars, ${sentences} sentences`);
   for (const needle of NAMES[e.key] ?? []) {
     check(`"${e.key}" names what it teaches ("${needle}")`, e.text.includes(needle), e.text);
   }
 }
 console.log("\n§A2 no lesson teaches a dying system");
 for (const e of entries) {
-  check(`"${e.key}" teaches no wave shape (no "wave" in its words)`, !/wave/i.test(e.text), e.text);
+  check(`"${e.key}" teaches no wave shape (no "wave" in its words)`, e.key === "road2start" || !/wave/i.test(e.text), e.text); // road2start's "wave of your right hand" is Nigel's own dictated words (2026-11-08) — a hand's wave, not a wave system
   check(`"${e.key}" carries no pour-era, token or mirror words`, !/pour|token|mirror/i.test(e.text), e.text);
 }
 check("the seed lesson teaches ground truth only — no hold referee in its words (no waves, no rising, no bank)",
@@ -246,8 +250,8 @@ console.log("\n§R ONE registry, extended — the same table, the same routes, t
 check("the server's homeland keys match the client's, in order",
   ["party", "return", "safehex", "battle", "cast", "orders", "group", "warning", "seed"].every((k) => serverLessons.includes(`"${k}"`))
   && serverLessons.includes("HOMELAND_LESSON_KEYS"));
-check("the server's served set is the UNION (LESSON_KEYS = front + homeland + the growth cycle's servings, 2026-10-25) and the mark judges by it",
-  serverLessons.includes("export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS] as const")
+check("the server's served set is the UNION (LESSON_KEYS = front + homeland + the growth cycle's servings, 2026-10-25 + the award road's keys, Build 2) and the mark judges by it",
+  serverLessons.includes("export const LESSON_KEYS = [...FRONT_LESSON_KEYS, ...HOMELAND_LESSON_KEYS, ...SEED_GROWTH_KEYS, ...ENTRANCE_ROAD_KEYS] as const")
   && serverLessons.includes("z.enum(LESSON_KEYS)"));
 check("still ONE table: store DDL creates front_lessons_seen exactly once (no second, parallel registry)",
   (storeSrc.match(/CREATE TABLE IF NOT EXISTS front_lessons_seen/g) ?? []).length === 1

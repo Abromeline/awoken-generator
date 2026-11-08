@@ -83,6 +83,7 @@ import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTarg
 import { useEnemyArt } from "./enemyArt";
 import { EnemyFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
+import { pingRoadNav, useRoadWhispers } from "./EntranceRoad";
 import tideImg from "./assets/terrain-iso/tide-v3.png";
 import skyImg from "./assets/terrain-iso/sky-v3.png";
 import stoneImg from "./assets/terrain-iso/stone-v3.png";
@@ -475,6 +476,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // here, never from a second fetch.
   const tenderItemsRef = useRef(tenderItems);
   tenderItemsRef.current = tenderItems;
+  // THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the
+  // play-along's ear — the road's state turns, the companions
+  // speak in step (the hook stands silent for every account
+  // the Door did not mark). And the map's own opening is the
+  // road's first door: Territory mounted IS the map opened.
+  useRoadWhispers(homeland);
+  const roadQueryClient = useQueryClient();
+  useEffect(() => { pingRoadNav("map", roadQueryClient); }, [roadQueryClient]);
   const [buildings, setBuildings] = useState<any[]>([]);
 
   const [gameConfig, setGameConfig] = useState<any>(null);
@@ -2303,6 +2312,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   useEffect(() => {
     if (!ordersWheel) return;
     homeland.touch(ordersWheel.ids.length > 1 ? "group" : "orders");
+    // THE AWARD ROAD (§1): the wheel opened — a door of the road.
+    pingRoadNav("wheel", roadQueryClient);
   }, [ordersWheel, homeland.touch]);
   // THE WARNING WITH TEETH (23:33): the first step toward
   // the cursed lands. The server's own reckoning of the
@@ -7802,7 +7813,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           a click) and her inventory beneath, with the
           shard forge at its foot — twenty shards into one
           point of attunement, of the element she chooses. */}
-      <button className="bag-btn" onClick={() => setBagOpen(o => !o)} title="The Pack — what the felled dark leaves behind" aria-label="The Pack">
+      <button className="bag-btn" onClick={() => { setBagOpen(o => !o); pingRoadNav("pack", roadQueryClient); }} title="The Pack — what the felled dark leaves behind" aria-label="The Pack">
         <img src={BACKPACK_FACE} alt="" />
         {loot.length > 0 && <span className="bag-badge">{loot.length}</span>}
       </button>
@@ -8844,7 +8855,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
         {tenderStand && (
           <button className="compass-btn find-tender" aria-label="Find my Tender"
-            onClick={findMyTender}>🧭</button>
+            onClick={() => { findMyTender(); pingRoadNav("find", roadQueryClient); }}>🧭</button>
         )}
         <button className="compass-btn" onClick={() => {
           if (!tracksRef.current.length) {
