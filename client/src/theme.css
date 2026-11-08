@@ -3622,6 +3622,15 @@ svg.eye-glyph .pupil{fill:#8e3a28; stroke:none}
 .entrance-award-note{margin:12px auto;max-width:640px;padding:10px 14px;border:1px solid rgba(216,178,92,.55);border-radius:10px;line-height:1.45}
 .entrance-ceremony{z-index:96}
 .entrance-ceremony-frame{position:relative;width:100%;max-width:1060px;margin:auto;display:flex;flex-direction:column;align-items:center;color:#e8dcc3}
+/* The Discord mirror's IntroCeremony (ENTRANCE BUILD 3) roots
+   on this same .entrance-ceremony class, carrying only the
+   .intro-ceremony variant: the overlay stacks and centres the
+   trio, nothing more — no dim of its own (Push 55's plainness
+   stands on the class), and NO .entrance-ceremony-card panel:
+   the box is gone there too (Nigel, 2026-11-03). The branch's
+   restatement of the old fixed-overlay + card rules is NOT
+   carried, for the same reason named below. */
+.entrance-ceremony.intro-ceremony{flex-direction:column;align-items:center}
 /* THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the pool
    note grown into the road itself — same gold-edged dress,
    the four sections in their written order. (The branch's

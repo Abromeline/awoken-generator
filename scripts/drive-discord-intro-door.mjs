@@ -5,6 +5,26 @@
 // and walks the beginning in its settled order: account first,
 // three wakes, class, runic weapon, then the room choice, bound.
 //
+// STANDING NOTE (2026-11-02, ENTRANCE BUILD 3): two honest
+// amendments ride this file now. (1) THE BEGIN WALK IS THE
+// ENTRANCE: a new claim at this door walks class → spell →
+// weapon → three wake together (Nigel's rulings of
+// 2026-11-01), so §S below asserts the spell step STANDS —
+// the walk itself, at the live Discord door (RoomSeat's
+// intro), is proven whole by drive-entrance-discord.mjs
+// (56 checks), and §B/§I's wakings-first staging below is
+// superseded by it. The login road's old beginning — wakes,
+// then the choosing — stands for unmarked accounts, as §E,
+// §H and §J stage it. (2) THE BROWSER SECTIONS (§§A–J) STAND
+// STALE SINCE PUSH 48: the tabbed shell (Room / Test Ground /
+// Campaign) replaced the single door this drive's doorPage
+// waited for, and the drive crashes at §A's first wait on
+// PRISTINE 9a43cd2 — verified 2026-11-02 before Build 3
+// touched anything. §S (the source seams) is kept true; the
+// browser staging wants a shell-aware repair by whoever next
+// works this drive whole. The bind road it guards
+// (/api/table/bind-intro) is untouched by Build 3.
+//
 // THE ONE LINK THAT STANDS ON ITS PRODUCTION USE: the real
 // Discord OAuth exchange (sdk.commands.authorize → POST
 // /api/table/auth → Discord's token/user endpoints) cannot be
@@ -109,17 +129,15 @@ ok("§S the wake is SHARED: App.tsx and TableIntro.tsx both import the helpers f
   && introCli.includes("seedWelcome") && introCli.includes("saveAwoken"));
 ok("§S the intro lazy-loads from the door (dynamic import in Table.tsx) and the real ClassChoosing rides it",
   tableCli.includes('import("./TableIntro")') && introCli.includes('from "./ClassChoosing"'));
-ok("§S the intro carries NO spell step (the spell point rides Twelve #3's ledger, unbuilt)",
+ok("§S the intro carries the ENTRANCE's spell step (Build 3, 2026-11-02 — the door's own spell action, between class and weapon)",
   // The test is the intro's own closed phase set plus the
-  // absence of any spell-choosing call: a spell step would
-  // have to stand as a phase of the walk or call the
-  // choosing. (An earlier version banned the prose words
-  // "spellbook"/"first-page" — which the intro's law-flag
-  // comment must carry to say the step is NOT HERE, BY
-  // LAW; the flag tripped its own check, arbitration
-  // 2026-10-26.)
-  introCli.includes('type Phase = "form" | "wakes" | "choosing" | "paused" | "finishing"')
-  && !introCli.includes("chooseSpell") && !introCli.includes("Phase = \"form\" | \"wakes\" | \"choosing\" | \"spell\""));
+  // door's spell action standing in it: the spell step the
+  // Push 36 door honestly lacked (its header flagged the
+  // spell point as not existing in code) is now the
+  // entrance's, recorded as visitors.entrance_spell — the
+  // Twelve #3 page-ledger question rides on, untouched.
+  introCli.includes('type Phase = "form" | "door" | "ceremony" | "wakes" | "choosing" | "paused" | "finishing"')
+  && introCli.includes("entranceChooseSpell") && introCli.includes("entranceWakeThree"));
 ok("§S the intro offers stand only for the unbound (the door renders them under !authJoin.bound)",
   tableCli.includes("!authJoin.bound") && tableCli.includes("Begin as a new Tender") && tableCli.includes("I already have a Tender"));
 

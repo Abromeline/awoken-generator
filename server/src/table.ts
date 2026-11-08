@@ -39,6 +39,7 @@ import { workingEffects, skillAttunementGrants, companyCapFor, heartEffects, sum
 export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
+import { entranceSpellKeyFor } from "./entrance.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
 const MAX_SEATED = 8; // ruled 2026-10-15 at 5 Tenders to a table; raised to 8 by Nigel 2026-10-18, the night the map grew to 127 tiles
@@ -173,6 +174,13 @@ interface Player {
   healTier: number;
   healAmount: number;
   wardRuneUnlocked: boolean;
+  /** THE DISCORD DOOR (ENTRANCE BUILD 3, 2026-11-02): the
+   *  starting spell this seat's Tender chose at the door
+   *  (visitors.entrance_spell, read at the seat's making) —
+   *  the one working the Lv 3 ward/rune gates below do not
+   *  hold back for them, exactly as castMapWorking reads the
+   *  same record on the homeland. Null for everyone else. */
+  startingSpellKey?: string | null;
   /** The Tender's HP for this sitting — full until the
    *  referee deals damage; by level, per the HP law. */
   tenderHp: number;
@@ -2478,6 +2486,7 @@ function sendState(room: Room): void {
         healTier: player.healTier,
         healAmount: player.healAmount,
         wardRuneUnlocked: player.wardRuneUnlocked,
+        startingSpellKey: player.startingSpellKey ?? null,
         classKey: player.classKey ?? null,
         weaponKey: player.weaponKey ?? null,
         weaponLevel: player.weaponLevel ?? 1,
@@ -6658,6 +6667,7 @@ function handleConnection(ws: WebSocket): void {
       let healTier = healTierForLevel(1);
       let healAmount = healAmountForLevel(1);
       let wardRuneUnlocked = false;
+      let boundDoorSpellKey: string | null = null;
       let maxTenderHp = tenderMaxHpForLevel(1);
       let expKey: string | null = null;
       let boundClassKey: string | null = null;
@@ -6698,6 +6708,10 @@ function handleConnection(ws: WebSocket): void {
           maxEnergy = await calculateMaxEnergy(tenderOwnerKey(tenderId)).catch(() => 12);
           energy = maxEnergy;
           expKey = tenderOwnerKey(tenderId);
+          // THE DISCORD DOOR (ENTRANCE BUILD 3): the door's
+          // grant rides the seat — the chosen starting spell
+          // is this Tender's from Lv 1 at this Table too.
+          boundDoorSpellKey = entranceSpellKeyFor(expKey);
           const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
           boundClassKey = progress?.classKey ?? null;
           boundWeaponKey = progress?.weaponKey ?? null;
@@ -6729,7 +6743,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, startingSpellKey: boundDoorSpellKey, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       // THE HOLDER'S FLAG, RESTORED (Build 2's drive found
       // this seam): the reclaim roads above return the
       // holder's own seat object, flag and all — but when
@@ -7727,7 +7741,18 @@ function handleConnection(ws: WebSocket): void {
         const gateRefusal = rangeRefusal(caster, gateAim, HOMELAND_CAST_RING, def.name);
         if (gateRefusal) { ws.send(JSON.stringify({ type: "error", message: gateRefusal })); return; }
       }
-      if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
+      // THE DOOR'S GRANT (ENTRANCE BUILD 3, 2026-11-02): the
+      // one working an entrance Tender chose at the door is
+      // theirs from the start at this Table too — this gate
+      // does not hold IT back, and holds every other ward
+      // back exactly as today. The grant is the door's own
+      // record (visitors.entrance_spell), read onto the seat
+      // at its making as caster.startingSpellKey — the same
+      // reading castMapWorking makes on the homeland. (No
+      // ward carries a door key today — Bats, Shard Rain and
+      // Rune Hold all walk the rune door — but the law stands
+      // whole on both doors, as it stands whole at home.)
+      if (!caster.wardRuneUnlocked && def.key !== caster.startingSpellKey) { ws.send(JSON.stringify({ type: "error", message: `Wards wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
       // 2026-10-20 19:35): a hue riding in on this message
       // is inert — the colour is judged from the page's own
@@ -8046,7 +8071,12 @@ function handleConnection(ws: WebSocket): void {
       if (caster.watcher) { ws.send(JSON.stringify({ type: "error", message: "Watchers write no runes — bind in the game to cast." })); return; }
       const def = spellByKey(String(msg.root || ""));
       if (!def || (def.kind !== "rune" && def.kind !== "spell")) { ws.send(JSON.stringify({ type: "error", message: "That is not a rune of the Written Light." })); return; }
-      if (!caster.wardRuneUnlocked) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
+      // THE DOOR'S GRANT (ENTRANCE BUILD 3, 2026-11-02), as
+      // at the ward door above: the entrance Tender's chosen
+      // starting spell — Bats, Shard Rain or the Hold Rune,
+      // all of which walk this door — casts from Lv 1; every
+      // other rune and spell still wakes at Lv 3.
+      if (!caster.wardRuneUnlocked && def.key !== caster.startingSpellKey) { ws.send(JSON.stringify({ type: "error", message: `Runes wake at Tender Lv 3 — you stand at Lv ${caster.tenderLevel}.` })); return; }
       // THE CAST'S COLOUR IS DERIVED, NEVER SENT (Nigel,
       // 2026-10-20 19:35), as at the ward's raising above:
       // the message's hue is inert; the book judges.

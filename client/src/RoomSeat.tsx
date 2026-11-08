@@ -156,8 +156,8 @@ export default function RoomSeat() {
         )}
         {!signedIn && !session && (
           <p className="quiet">
-            New to the Awokin — or already a Tender? Begin here: account first, then waking,
-            class and weapon at three woken — and the seat is yours.
+            New to the Awokin — or already a Tender? Begin here: account first, then your
+            class, your spell and your weapon — and three Awoken wake together; the seat is yours.
           </p>
         )}
         {error && <p className="error-line">{error}</p>}

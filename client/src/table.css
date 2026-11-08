@@ -87,9 +87,11 @@ button { font-family: inherit; }
 
 /* ————— The Discord intro door (2026-10-26) —————
    The beginning inside the door card: the claim/sign-in forms,
-   the three-wake walk, and the Choosing's own surface (its
-   classes carried here in the Table's Ash & Ember skin, since
-   the room does not load the front page's theme). */
+   the entrance's choosing steps and mirrored ceremony
+   (Build 3, 2026-11-02), the old road's three-wake walk, and
+   the Choosing's own surface (its classes carried here in
+   the Table's Ash & Ember skin, since the room does not
+   load the front page's theme). */
 .table-intro h2 { margin: 2px 0 10px; color: var(--gold-bright); font-size: 22px; }
 .table-intro .eyebrow {
   margin: 0 0 4px; font-size: 12px; letter-spacing: 0.14em;
@@ -108,6 +110,31 @@ button { font-family: inherit; }
 .intro-kin figcaption { margin-top: 6px; font-size: 12px; color: var(--bone); overflow-wrap: anywhere; }
 .intro-guide { color: var(--gold-bright); }
 .intro-kin-stats { color: var(--bone-dim); }
+/* THE DISCORD DOOR (ENTRANCE BUILD 3, 2026-11-02): the
+   entrance's choosing steps in this door's chrome — class,
+   spell and weapon cards standing in one grid, each with
+   its own choosing button. */
+.intro-choices {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px; margin: 14px 0;
+}
+.intro-choice {
+  border: 1px solid var(--gold); border-radius: 10px; background: var(--ash);
+  padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 8px;
+}
+.intro-choice h3 { margin: 0; color: var(--gold-bright); font-size: 16px; }
+.intro-choice img { width: 84px; height: 84px; object-fit: contain; margin: 0 auto; display: block; }
+.intro-choice p { margin: 0; }
+.intro-choice .table-btn { margin-top: auto; }
+/* The mirrored ceremony's card art: the woken one's own
+   image standing in the ceremony stage (theme.css carries
+   the stage, the rails and the burns; the drift-in keyframe
+   is the homeland ceremony's own). */
+.intro-ceremony-art {
+  width: 100%; display: block; border-radius: 6px;
+  animation: ceremonyArtIn 1.15s ease .55s both;
+}
+.intro-ceremony-name { text-align: center; font-size: 13px; color: var(--bone); }
 /* The Choosing, seated at the door: ClassChoosing renders a
    fixed overlay on the front page; at the door it stands inline
    in the card instead. */
