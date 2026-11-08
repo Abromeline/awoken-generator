@@ -26,6 +26,7 @@ const BATTLE_TRACKS = [
 ];
 import { useEnemyArt, enemyImgFor } from "./enemyArt";
 import { FrayFaceImg } from "./EnemyFace";
+import { flightMsForPace, sizeScaleForLevel } from "./flightLaw";
 
 interface Defender {
   placementId: number;
@@ -113,6 +114,7 @@ interface Projectile {
   img?: string;            // dreamed sprite (effects.ts) — rendered instead of the glyph when set
   arc?: boolean;           // lobbed shots fly a high arc; every shot obeys gravity
   duration: number;        // ms of flight
+  sizeScale?: number;      // THE FLIGHT LAW (2026-11-07): the firer's level growth on the drawn shot (1 = the standing size)
 }
 
 /** One projectile in flight, driven frame-by-frame with true
@@ -151,7 +153,7 @@ function ProjectileFlight({ p }: { p: Projectile }) {
       const el = wrapRef.current;
       if (el) {
         const swell = 0.9 + 0.2 * Math.sin(Math.PI * s); // swells near the apex, as the CSS flight did
-        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${swell})`;
+        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${swell * (p.sizeScale ?? 1)})`;
       }
       const spin = spinRef.current;
       if (spin) spin.style.transform = `rotate(${Math.atan2(vy, vx)}rad)`;
@@ -194,6 +196,27 @@ function dominantElementOf(aw?: Awakened): Element {
     if (counts[k] > max) { max = counts[k]; best = k; }
   }
   return best;
+}
+
+/** THE FLIGHT LAW's march mirror (Nigel, 2026-11-07): an
+ *  Awoken's own pace — seconds to cross one hex, her parts'
+ *  gaits averaged (an unfilled part votes the middle road),
+ *  weighted by the square root of her level's growth. The
+ *  same reckoning the homeland's march reads (Territory's
+ *  marchSecondsPerHex), so a shot here flies exactly as
+ *  long, for its firer, as a shard on the map. */
+const BG_MARCH_SECONDS_PER_HEX: Record<string, number> = { sky: 1.6, fire: 2.2, tide: 2.6, root: 3.2, stone: 4.5, neutral: 3.0 };
+function bgMarchSecondsPerHex(aw?: Awakened): number {
+  const layers = aw?.layers ?? [];
+  let pace = BG_MARCH_SECONDS_PER_HEX.neutral;
+  if (layers.length) {
+    pace = layers.reduce((sum, l) => sum + (BG_MARCH_SECONDS_PER_HEX[elementForPiece(l.name, (l as any).element)] ?? BG_MARCH_SECONDS_PER_HEX.neutral), 0) / layers.length;
+  }
+  const level = Math.max(1, aw?.level ?? Math.floor(Math.sqrt((aw?.experience ?? 0) / 100)) ?? 1);
+  return pace * Math.sqrt(Math.pow(1.0848077, level - 1));
+}
+function bgLevelOf(aw?: Awakened): number {
+  return Math.max(1, aw?.level ?? Math.floor(Math.sqrt((aw?.experience ?? 0) / 100)) ?? 1);
 }
 
 export default function Battleground({ defenders, thornWallTiles = [], watchtowerTiles = [], towerAuraTiles = [], towerDamage = 3, thornDamage = 1, towerPowerBonus = 2, enemyConfig, wave, hand, assets, energy, maxEnergy, onBattleEnd, onClose, bonusTiles = [], onVictoryDetected, mood = null, grimWorkings = [], grimRunesByTile = {}, grimWardsByTile = {}, grimWardTiles = {}, grimStdTiles = {}, grimBcnTiles = {}, grimCoilTiles = [], grimNames = {}, grimTileAxial = {} }: BattlegroundProps) {
@@ -304,7 +327,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     return { x: r.left - fr.left + r.width / 2, y: r.top - fr.top + r.height / 2 };
   };
 
-  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; img?: string; arc?: boolean; duration: number; onImpact?: () => void }) => {
+  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; img?: string; arc?: boolean; duration: number; sizeScale?: number; onImpact?: () => void }) => {
     const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setProjectiles(prev => [...prev, { ...p, id }]);
     later(p.duration, () => {
@@ -879,11 +902,19 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
       // the blow itself is struck).
       if (atk.side === "aw") playElementSound(shotEl, "cast");
       if (!from || !to) { impact(); return; }
+      // THE FLIGHT LAW (Nigel, 2026-11-07): an Awoken's shot
+      // flies at HER march pace — this view's standing
+      // FLIGHT_MS stands for the neutral gait, scaled by
+      // her own — and stands at her level's size. The
+      // enemy's answering shot keeps COUNTER_FLIGHT_MS and
+      // its standing size, untouched.
       spawnProjectile({
         fx: from.x, fy: from.y, tx: to.x, ty: to.y,
         glyph: shot.glyph, color: shot.color,
         img: atk.side === "aw" ? PROJECTILE_GIF[shotEl] ?? PROJECTILE_GIF.unaligned : undefined,
-        duration: FLIGHT_MS, onImpact: impact,
+        duration: atk.side === "aw" ? flightMsForPace(FLIGHT_MS, bgMarchSecondsPerHex(atk.awoken)) : FLIGHT_MS,
+        sizeScale: atk.side === "aw" ? sizeScaleForLevel(bgLevelOf(atk.awoken)) : 1,
+        onImpact: impact,
       });
     });
   };
