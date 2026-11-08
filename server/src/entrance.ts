@@ -57,21 +57,31 @@ export interface EntranceState {
   step: EntranceStep | null;
   spellKey: string | null;
   awardPool: number;
+  /** WHICH door laid the mark (the Discord Door amendment,
+   *  Nigel's ruling of 2026-11-08): "discord" when the account
+   *  was claimed through the Discord door — the arrival whose
+   *  tutorial waits at home — and null for the homeland door
+   *  and for every account marked before the record stood.
+   *  The door's walk and the road are the same on both doors;
+   *  this only names where the account began, so the Table can
+   *  show a Discord-first Tender the way home. */
+  door: string | null;
 }
 
-const NOT_ENTRANCE: EntranceState = { entrance: false, step: null, spellKey: null, awardPool: 0 };
+const NOT_ENTRANCE: EntranceState = { entrance: false, step: null, spellKey: null, awardPool: 0, door: null };
 
 type EntranceRow = {
   entrance: number;
   entrance_step: string | null;
   entrance_spell: string | null;
   entrance_award_pool: number;
+  entrance_door: string | null;
 } | undefined;
 
 function rowFor(ownerKey: string): EntranceRow {
   try {
     return sqlite.prepare(
-      "SELECT entrance, entrance_step, entrance_spell, entrance_award_pool FROM visitors WHERE visitor_id = ?",
+      "SELECT entrance, entrance_step, entrance_spell, entrance_award_pool, entrance_door FROM visitors WHERE visitor_id = ?",
     ).get(ownerKey) as EntranceRow;
   } catch {
     return undefined;
@@ -91,6 +101,7 @@ export function entranceStateFor(ownerKey: string): EntranceState {
     step,
     spellKey: row.entrance_spell ?? null,
     awardPool: row.entrance_award_pool ?? 0,
+    door: row.entrance_door ?? null,
   };
 }
 
@@ -113,12 +124,15 @@ export function entranceSpellKeyFor(ownerKey: string): string | null {
  *  received, because the greeter folds into the door's three
  *  (his ruling) and no greeting seeds for an entrance account.
  *  The visitors row must already exist (claimTender creates it
- *  on every road). */
-export function markEntranceClaim(ownerKey: string): void {
+ *  on every road). `door` names the claiming door when it is
+ *  the Discord door (the amendment of 2026-11-08); the
+ *  homeland door leaves it null, as does every claim that
+ *  does not name it. */
+export function markEntranceClaim(ownerKey: string, door?: "discord"): void {
   sqlite.prepare(
     `UPDATE visitors SET entrance = 1, entrance_step = 'class', entrance_spell = NULL,
-       entrance_award_pool = ?, welcome_claimed = 1 WHERE visitor_id = ?`,
-  ).run(ENTRANCE_AWARD_POOL, ownerKey);
+       entrance_award_pool = ?, entrance_door = ?, welcome_claimed = 1 WHERE visitor_id = ?`,
+  ).run(ENTRANCE_AWARD_POOL, door ?? null, ownerKey);
 }
 
 /** Advance the door. Only ever moves FORWARD, one standing at

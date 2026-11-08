@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS visitors (
   entrance INTEGER NOT NULL DEFAULT 0,
   entrance_step TEXT,
   entrance_spell TEXT,
-  entrance_award_pool INTEGER NOT NULL DEFAULT 0
+  entrance_award_pool INTEGER NOT NULL DEFAULT 0,
+  entrance_door TEXT
 );
 CREATE TABLE IF NOT EXISTS pending_welcomes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -287,6 +288,11 @@ for (const col of [
   "entrance_step TEXT",
   "entrance_spell TEXT",
   "entrance_award_pool INTEGER NOT NULL DEFAULT 0",
+  // THE DISCORD DOOR AMENDMENT (2026-11-08): which door laid
+  // the mark — "discord" for an account claimed through the
+  // Discord door, null for the homeland door and for every
+  // account marked before the record stood.
+  "entrance_door TEXT",
 ]) {
   try { sqlite.exec(`ALTER TABLE visitors ADD COLUMN ${col}`); } catch { /* exists */ }
 }

@@ -185,7 +185,7 @@ function badRequest(message: string): never {
  */
 export async function claimTender(args: unknown, softVisitorId: string | null): Promise<{ token: string; tender: { code: string; tenderName: string | null }; twinBirthed?: boolean; entrance?: boolean }> {
   const parsed = z
-    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional(), email: z.string().trim().email().max(200).optional(), entrance: z.boolean().optional() })
+    .object({ password: z.string().min(8).max(128), refCode: z.string().max(20).optional(), tenderName: z.string().trim().min(2).max(40).optional(), email: z.string().trim().email().max(200).optional(), entrance: z.boolean().optional(), entranceDoor: z.literal("discord").optional() })
     .safeParse(args);
   if (!parsed.success) badRequest("A name and password of at least 8 characters.");
   // The key is given, never chosen — it is the account's immutable lock.
@@ -251,7 +251,12 @@ export async function claimTender(args: unknown, softVisitorId: string | null): 
       await db.update(schema.visitors).set({ welcomeWakesGranted: 1 }).where(eq(schema.visitors.visitorId, ownerKey));
     }
     if (isEntranceClaim) {
-      markEntranceClaim(ownerKey);
+      // THE DISCORD DOOR AMENDMENT (2026-11-08): a claim made
+      // through the Discord door names it, and the mark
+      // remembers which door laid it — the record the Table
+      // reads to show that Tender the way to the tutorial at
+      // home. The homeland door's claim names nothing.
+      markEntranceClaim(ownerKey, parsed.data.entranceDoor);
     } else {
       await grantCredits(ownerKey, CREDITS_PER_PACK, "welcome");
     }

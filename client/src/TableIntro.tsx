@@ -376,10 +376,18 @@ export default function TableIntro({
       // no welcomed past, and keeps the old road whole when it
       // does; routeAfterBind reads the server's truth either
       // way, never the ask.
+      // THE DISCORD DOOR AMENDMENT (Nigel's ruling, 2026-11-08):
+      // the claim names THIS door, so the mark remembers the
+      // account began here — the record the Table later reads
+      // to show this Tender the button that starts their
+      // tutorial back at home. Only a claim (this begin road)
+      // names it; the sign-in road creates nothing and names
+      // nothing.
       const res = await api.claimTender({
         tenderName: name.trim(),
         password,
         entrance: true,
+        entranceDoor: "discord",
         ...(email.trim() ? { email: email.trim() } : {}),
       });
       storeTenderToken(res.token);
