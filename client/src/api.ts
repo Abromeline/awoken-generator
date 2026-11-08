@@ -611,6 +611,13 @@ export interface EntranceStatus {
   spendableCredits: number;
   classKey: string | null;
   weaponKey: string | null;
+  /** THE DISCORD DOOR AMENDMENT (2026-11-08): which door laid
+   *  the mark ("discord" for an account claimed through the
+   *  Discord door, null for the homeland door), and whether
+   *  that account's tutorial still waits at home — the Table's
+   *  faces show the home button by the second reading. */
+  door?: string | null;
+  tutorialHomeWaiting?: boolean;
 }
 
 /** THE AWARD ROAD (ENTRANCE BUILD 2, 2026-11-02): the
@@ -1211,7 +1218,7 @@ export const api = {
   getWorkshopStudio: () => post<Studio>("getWorkshopStudio", {}),
   // Self-serve Tender accounts: secret code + password.
   suggestTenderCode: () => post<{ code: string }>("suggestTenderCode", {}),
-  claimTender: (args: { password: string; refCode?: string; tenderName?: string; email?: string; entrance?: boolean }) =>
+  claimTender: (args: { password: string; refCode?: string; tenderName?: string; email?: string; entrance?: boolean; entranceDoor?: "discord" }) =>
     post<{ token: string; tender: TenderInfo; entrance?: boolean }>("claimTender", args),
   loginTender: (args: { identity: string; password: string }) =>
     post<{ token: string; tender: TenderInfo }>("loginTender", args),

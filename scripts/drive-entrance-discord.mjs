@@ -37,6 +37,15 @@
 //      seats bound as she always did; and a claim carrying
 //      an already-welcomed soft visitor is NOT marked even
 //      asking for the entrance (it routes to the old road).
+//   §F THE AMENDMENT (Nigel's ruling, 2026-11-08): a claim
+//      through this door is remembered as Discord-first; its
+//      seat carries the waiting-tutorial reading and NOTHING
+//      road-like fires at the Table; at home the same road
+//      begins and pays, the trio is never duplicated, the
+//      reading turns once the road is underway; a homeland-
+//      first seat is shown no button; and in the browser the
+//      button stands in the room's furniture and goes home
+//      to the road's panel.
 //
 // The Discord OAuth exchange itself stands on its production
 // use (as in drive-discord-intro-door): seat tokens are minted
@@ -486,6 +495,208 @@ console.log("§E legacy arrivals keep the old road, whole");
   const stAdopt = await api("getEntranceStatus", {}, adopt.data.token);
   ok("§E its entrance status reads the old road (entrance: false)", stAdopt.data.entrance === false,
     JSON.stringify(stAdopt.data).slice(0, 120));
+}
+
+/* ── §F THE AMENDMENT — THE TUTORIAL WAITS AT HOME ──────
+ * (Nigel's ruling, 2026-11-08): the intro does not happen on
+ * the Discord Table — a Discord-first Tender gets their
+ * first 3 at the Table, minted to their real account, with
+ * a button that starts their tutorial back at home; the
+ * road itself is walked at home, on the homeland's own
+ * machinery, and nothing road-like ever fires at the Table. */
+console.log("§F the amendment — a Discord-first Tender's tutorial waits at home");
+{
+  const roomSeatCli = readFileSync(join(root, "client/src/RoomSeat.tsx"), "utf8");
+  ok("§F the seams: the Discord claim names its door, and both Table faces carry the home button",
+    introCli.includes('entranceDoor: "discord"')
+    && tableCli.includes("tutorialHomeWaiting") && tableCli.includes("Start your tutorial at home")
+    && roomSeatCli.includes("Start your tutorial at home") && roomSeatCli.includes("tutorialHomeWaiting"));
+
+  /* F1 — a Discord-first account, claimed the way TableIntro
+   * now claims: the mark remembers the door. */
+  const claimF = await api("claimTender", { password: PW, tenderName: "Amendment Discord Tender", entrance: true, entranceDoor: "discord" }, null, "disc-visitor-f");
+  ok("§F the Discord-door claim is marked, as before", claimF.status === 200 && claimF.data.entrance === true,
+    JSON.stringify(claimF.data).slice(0, 140));
+  const tokenF = claimF.data.token;
+  const fId = db.prepare("SELECT id FROM tenders WHERE tender_name = ?").get("Amendment Discord Tender").id;
+  const fKey = `tender:${fId}`;
+  const visitorF = db.prepare("SELECT entrance_door FROM visitors WHERE visitor_id = ?").get(fKey);
+  ok("§F THE MARK REMEMBERS THE DOOR (entrance_door = 'discord' on the visitor record)",
+    visitorF?.entrance_door === "discord", JSON.stringify(visitorF));
+  await api("entranceChooseClass", { classKey: "runewright" }, tokenF);
+  await api("entranceChooseSpell", { spellKey: "shardrain" }, tokenF);
+  await api("chooseWeapon", { weaponKey: "sword" }, tokenF);
+  const wokeF = await api("entranceWakeThree", { items: await trioItems() }, tokenF);
+  ok("§F the three wake at the Discord door, as before", wokeF.status === 200 && (wokeF.data.awakened ?? []).length === 3,
+    `status ${wokeF.status}`);
+  for (const a of wokeF.data.awakened ?? []) await api("addToParty", { awakenedId: a.id }, tokenF);
+  const stF = await api("getEntranceStatus", {}, tokenF);
+  ok("§F the status reads the amendment: door 'discord', the tutorial waiting at home",
+    stF.data.step === "done" && stF.data.door === "discord" && stF.data.tutorialHomeWaiting === true,
+    JSON.stringify(stF.data).slice(0, 200));
+  const roadF0 = await api("getEntranceRoad", {}, tokenF);
+  ok("§F the road stands open for the Discord-first account (begun, pool 20, nothing paid)",
+    roadF0.data.entrance === true && roadF0.data.begun === true && roadF0.data.awardPool === 20 && roadF0.data.spendableCredits === 0,
+    JSON.stringify(roadF0.data).slice(0, 200));
+
+  /* F2 — at the Table: the seat carries the waiting reading,
+   * the cast fires, and NOTHING road-like is witnessed. */
+  const DISC_F = "disc-amend-f";
+  const bindF = await fetch(`${BASE}/api/table/bind-intro`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: issueTableToken({ id: DISC_F, name: "Amendment F on Discord" }), tenderToken: tokenF }),
+  });
+  ok("§F the binding takes (both proofs)", bindF.status === 200, `status ${bindF.status}`);
+  const seatF = new Actor();
+  await seatF.join({ authToken: issueTableToken({ id: DISC_F, name: "Amendment F on Discord" }) }, "amendment-room");
+  ok("§F the seat stands bound to the Discord-first Tender", await waitFor("the bound seat", () => seatF.you?.bound === "Amendment Discord Tender"),
+    JSON.stringify(seatF.you?.bound ?? seatF.joinErrors));
+  ok("§F THE SEAT'S PAYLOAD CARRIES THE WAITING TUTORIAL (tutorialHomeWaiting — the button's warrant)",
+    seatF.you?.tutorialHomeWaiting === true, JSON.stringify({ thw: seatF.you?.tutorialHomeWaiting }));
+  const hexF = await waitFor("my stand on the board", () => {
+    const me = (seatF.state?.players ?? []).find((p) => p.key === seatF.you?.key);
+    return me?.hex ? me.hex : null;
+  }).then(async () => (seatF.state?.players ?? []).find((p) => p.key === seatF.you?.key)?.hex ?? null);
+  seatF.errors.length = 0;
+  seatF.send({ type: "castRune", root: "shardrain", hexes: [hexF] });
+  const castF = await waitFor("the Shard Rain cast resolves at the Table",
+    () => (seatF.state?.workings ?? []).some((w) => w.root === "shardrain")
+      || (seatF.state?.tale ?? []).some((t) => String(t.text ?? "").includes("Shard Rain unravels")), 30000);
+  ok("§F the chosen spell casts at the Table (the sitting itself is untouched by the amendment)",
+    castF && !seatF.errors.some((e) => e.includes("Lv 3")), JSON.stringify(seatF.errors));
+  seatF.close();
+  const fEvents = db.prepare("SELECT COUNT(*) AS n FROM entrance_road_events WHERE owner_key = ?").get(fKey).n;
+  const fSections = db.prepare("SELECT COUNT(*) AS n FROM entrance_road_sections WHERE owner_key = ?").get(fKey).n;
+  const roadFTable = await api("getEntranceRoad", {}, tokenF);
+  ok("§F NOTHING ROAD-LIKE FIRED AT THE TABLE: no events, no sections, pool still 20, §4's cast unwitnessed by the Table cast",
+    fEvents === 0 && fSections === 0 && roadFTable.data.awardPool === 20 && roadFTable.data.spendableCredits === 0
+    && roadFTable.data.sections.find((s) => s.n === 4)?.progress.cast === false,
+    JSON.stringify({ events: fEvents, sections: fSections, pool: roadFTable.data.awardPool }));
+
+  /* F3 — at home: the road begins on the homeland's own
+   * machinery (the road drive's §1 shape: the doors' pings). */
+  let roadF = null;
+  for (const surface of ["map", "deck", "zodiac", "aspects", "pack", "find", "wheel"]) {
+    roadF = (await api("entranceNavOpened", { surface }, tokenF)).data;
+  }
+  ok("§F AT HOME §1 PAYS THE DISCORD-FIRST ACCOUNT: the seventh door completes it — +5 spendable, pool 20 → 15",
+    roadF.sections.find((s) => s.n === 1)?.done === true && roadF.spendableCredits === 5 && roadF.awardPool === 15,
+    JSON.stringify({ credits: roadF.spendableCredits, pool: roadF.awardPool }));
+  const fCount = db.prepare("SELECT COUNT(*) AS n FROM awakened WHERE owner_key = ?").get(fKey).n;
+  ok("§F THE TRIO IS NOT DUPLICATED AT HOME: the account holds exactly its three from the Door",
+    fCount === 3, `awakened ${fCount}`);
+  const wokeAgainF = await api("entranceWakeThree", { items: await trioItems() }, tokenF);
+  ok("§F one account, one door, still: no second trio can be woken at home",
+    wokeAgainF.status === 400 && db.prepare("SELECT COUNT(*) AS n FROM awakened WHERE owner_key = ?").get(fKey).n === 3,
+    `status ${wokeAgainF.status} ${errText(wokeAgainF)}`);
+  const stF2 = await api("getEntranceStatus", {}, tokenF);
+  ok("§F once the road is underway at home, the tutorial no longer reads waiting",
+    stF2.data.tutorialHomeWaiting === false, JSON.stringify({ thw: stF2.data.tutorialHomeWaiting }));
+
+  /* F4 — back at the Table, the button's warrant is gone. */
+  const seatF2 = new Actor();
+  await seatF2.join({ authToken: issueTableToken({ id: DISC_F, name: "Amendment F on Discord" }) }, "amendment-room");
+  ok("§F the seat stands bound again", await waitFor("the rebound seat", () => seatF2.you?.bound === "Amendment Discord Tender"),
+    JSON.stringify(seatF2.you?.bound ?? seatF2.joinErrors));
+  ok("§F THE BUTTON LEAVES THE TABLE once the road is underway (the seat's reading turns false)",
+    seatF2.you?.tutorialHomeWaiting === false, JSON.stringify({ thw: seatF2.you?.tutorialHomeWaiting }));
+  seatF2.close();
+
+  /* F5 — the homeland-first control: no door record, no
+   * button's warrant, and its road at home untouched. */
+  const claimH = await api("claimTender", { password: PW, tenderName: "Amendment Homeland Tender", entrance: true });
+  const tokenH = claimH.data.token;
+  const hId = db.prepare("SELECT id FROM tenders WHERE tender_name = ?").get("Amendment Homeland Tender").id;
+  const hKey = `tender:${hId}`;
+  await api("entranceChooseClass", { classKey: "warden" }, tokenH);
+  await api("entranceChooseSpell", { spellKey: "bats" }, tokenH);
+  await api("chooseWeapon", { weaponKey: "spear" }, tokenH);
+  await api("entranceWakeThree", { items: await trioItems() }, tokenH);
+  const visitorH = db.prepare("SELECT entrance_door FROM visitors WHERE visitor_id = ?").get(hKey);
+  const stH = await api("getEntranceStatus", {}, tokenH);
+  ok("§F a HOMELAND-FIRST account carries no Discord door record and no waiting tutorial",
+    visitorH?.entrance_door == null && stH.data.door == null && stH.data.tutorialHomeWaiting === false,
+    JSON.stringify({ row: visitorH, door: stH.data.door, thw: stH.data.tutorialHomeWaiting }));
+  const DISC_H = "disc-amend-h";
+  await fetch(`${BASE}/api/table/bind-intro`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: issueTableToken({ id: DISC_H, name: "Amendment H on Discord" }), tenderToken: tokenH }),
+  });
+  const seatH = new Actor();
+  await seatH.join({ authToken: issueTableToken({ id: DISC_H, name: "Amendment H on Discord" }) }, "amendment-room-h");
+  await waitFor("the homeland seat", () => seatH.you?.bound === "Amendment Homeland Tender");
+  ok("§F a homeland-first seat at the Table is shown NO home button (its payload reads false)",
+    seatH.you?.tutorialHomeWaiting === false, JSON.stringify({ thw: seatH.you?.tutorialHomeWaiting }));
+  seatH.close();
+  const roadH = await api("getEntranceRoad", {}, tokenH);
+  ok("§F the homeland-first road at home stands exactly as before (the amendment gates nothing of it)",
+    roadH.data.entrance === true && roadH.data.begun === true && roadH.data.awardPool === 20,
+    JSON.stringify(roadH.data).slice(0, 160));
+
+  /* F6 — the button in the real faces: a fresh Discord-first
+   * walk in the browser; the room's furniture shows the
+   * button; the button goes home; the road stands there. */
+  const page = await doorPage(seatFor("disc-amend-b", "Amendment B on Discord", false, null, "amendment-room-b"));
+  await page.waitForSelector("#intro-name", { timeout: 30000 });
+  await page.type("#intro-name", "Browser Amendment Tender");
+  await page.type("#intro-password", PW);
+  await page.type("#intro-confirm", PW);
+  await clickButtonWithText(page, "Begin as a Tender");
+  await waitText(page, "First — what manner of tender are you?");
+  await clickButtonWithText(page, "Choose the Warden");
+  await waitText(page, "Now — choose your spell");
+  await clickButtonWithText(page, "Choose Bats");
+  await waitText(page, "And your favourite weapon");
+  await clickButtonExactText(page, "Take the Spear");
+  await waitText(page, "Wake the three");
+  await clickButtonWithText(page, "Wake the three");
+  await page.waitForFunction(
+    () => !!document.querySelector(".entrance-ceremony") && document.querySelectorAll(".entrance-trio-one").length === 3,
+    { timeout: 60000 }).then(() => true).catch(() => false);
+  await clickButtonWithText(page, "Gather your party");
+  const seatedF = await page.waitForSelector(".room-seat", { timeout: 40000 }).then(() => true).catch(() => false);
+  ok("§F the browser walk seats in the room, as the door leaves it", seatedF, (await pageText(page)).slice(0, 200));
+  const buttonShown = await page.waitForFunction(
+    () => [...document.querySelectorAll(".room-furniture a")].some((a) => (a.textContent || "").includes("Start your tutorial at home")),
+    { timeout: 30000 }).then(() => true).catch(() => false);
+  ok("§F THE BUTTON STANDS IN THE ROOM'S FURNITURE for the Discord-first seat (a link home, plainly worded)",
+    buttonShown, (await pageText(page)).slice(0, 300));
+  await page.screenshot({ path: `${OUT}/07-tutorial-home-button.png` });
+  const clickedHome = await page.evaluate(() => {
+    const a = [...document.querySelectorAll(".room-furniture a")].find((x) => (x.textContent || "").includes("Start your tutorial at home"));
+    if (!a) return false;
+    a.click();
+    return true;
+  });
+  ok("§F the button is spoken", clickedHome);
+  let homeRoad = false;
+  for (let i = 0; i < 60 && !homeRoad; i++) {
+    homeRoad = await page.evaluate(() => !!document.querySelector(".entrance-road")
+      && document.body.innerText.toLowerCase().includes("the award road")).catch(() => false);
+    if (!homeRoad) {
+      // The homeland may open on the map first (as the road
+      // drive's browser walk found): RETURN is the way home.
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "RETURN" && !x.disabled);
+        b?.click();
+      }).catch(() => {});
+      await sleep(1000);
+    }
+  }
+  ok("§F THE BUTTON GOES HOME: the homeland opens on the road — its panel stands, the session carried",
+    homeRoad && page.url().startsWith(`${BASE}/`) && !page.url().includes("/table"),
+    page.url());
+  const homeText = await pageText(page);
+  ok("§F at home the panel names the road whole (Learn the doors; 20 wakes to earn) and NO door step stands to re-walk",
+    homeText.includes("Learn the doors") && homeText.includes("20 wakes")
+    && !homeText.includes("First — what manner of tender are you?"),
+    homeText.slice(0, 300));
+  await page.screenshot({ path: `${OUT}/08-road-at-home.png` });
+  const bAmendId = db.prepare("SELECT id FROM tenders WHERE tender_name = ?").get("Browser Amendment Tender").id;
+  const bAmendCount = db.prepare("SELECT COUNT(*) AS n FROM awakened WHERE owner_key = ?").get(`tender:${bAmendId}`).n;
+  ok("§F the browser account holds exactly its three at home — nothing re-woken, nothing duplicated",
+    bAmendCount === 3, `awakened ${bAmendCount}`);
+  await page.close();
 }
 
 await browser.close().catch(() => {});

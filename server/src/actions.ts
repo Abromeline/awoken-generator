@@ -59,7 +59,7 @@ import {
 } from "./entrance.js";
 import { spellPointView, feedSpellVial as feedSpellVialLedger, unlockSpell as unlockSpellLedger, spellUnlocked as spellUnlockedSync } from "./spellPoints.js";
 import {
-  ROAD_NAV_SURFACES, evaluateEntranceRoad, pokeEntranceRoad, recordRoadEvent,
+  ROAD_NAV_SURFACES, evaluateEntranceRoad, pokeEntranceRoad, recordRoadEvent, tutorialHomeWaitingFor,
 } from "./entranceRoad.js";
 import {
   proveKitPiece, matchCandidate, polygonsOverlap, pieceKeyOf, edgesOf, edgeKeyOf, plateToAxial, pointInPolygon,
@@ -18126,6 +18126,12 @@ export const handlers = {
       spendableCredits: await creditBalance(ownerKey),
       classKey: progress.classKey,
       weaponKey: progress.weaponKey,
+      // THE DISCORD DOOR AMENDMENT (2026-11-08): which door
+      // laid this account's mark, and whether its tutorial
+      // still waits at home — the reading the Table's faces
+      // show the home button by.
+      door: state.door,
+      tutorialHomeWaiting: tutorialHomeWaitingFor(ownerKey),
     };
   },
 

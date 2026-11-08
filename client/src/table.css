@@ -771,6 +771,15 @@ button { font-family: inherit; }
   color: #e8dcc3; border-radius: 8px; padding: 4px 9px; font-size: 12px; cursor: pointer;
 }
 .tender-class-row button.tc-on { border-color: #d8b25c; color: #ffd977; }
+/* THE DISCORD DOOR AMENDMENT (2026-11-08): the tutorial-at-
+   home row in the party panel — a Discord-first seat's words
+   and the button home. The button is a link wearing the
+   table-btn dress; it stands on its own line, full width. */
+.tutorial-home-row { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.tutorial-home-row a.table-btn { display: block; text-align: center; text-decoration: none; }
+/* The same button in the Room's furniture (RoomSeat): the
+   link stands on its own line under its words there too. */
+.room-furniture a.table-btn { display: block; text-align: center; text-decoration: none; margin: 8px 0 4px; }
 .ts-tag { font-size: 8.5px; fill: #ffe9b0; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,0.72); stroke-width: 3px; }
 /* THE SPRINGLEAF'S GROVE (Phase C): the root-glow breathes. */
 @keyframes grovePulse { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }

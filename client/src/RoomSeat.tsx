@@ -203,6 +203,27 @@ export default function RoomSeat() {
 /** The seated room: the homeland's own face on the room's land,
  *  with the room's furniture standing beside it. */
 function SeatedRoom({ enter }: { enter: RoomEnterResult }) {
+  // THE DISCORD DOOR AMENDMENT (Nigel's ruling, 2026-11-08):
+  // a seat whose Tender came through the Discord door, its
+  // tutorial not yet begun at home, is shown the button that
+  // starts the tutorial back at home. The server judges who
+  // that is (getEntranceStatus reads the door's record and the
+  // road's ledger); this face only shows it, and re-reads on a
+  // slow heartbeat so the button leaves once the road at home
+  // is underway.
+  const [tutorialHome, setTutorialHome] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const st = await api.getEntranceStatus();
+        if (!cancelled) setTutorialHome(!!st.tutorialHomeWaiting);
+      } catch { /* no standing read, no button — the seat itself is untouched */ }
+    };
+    void read();
+    const iv = setInterval(() => void read(), 15000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []);
   const [studio, setStudio] = useState<{ items: Awakened[]; assets: ReturnType<typeof toLayerAssets> } | null>(null);
   const [guestItems, setGuestItems] = useState<Awakened[]>([]);
   const [roomState, setRoomState] = useState<RoomStateView | null>(null);
@@ -296,6 +317,18 @@ function SeatedRoom({ enter }: { enter: RoomEnterResult }) {
         <p className="quiet small">Room <strong>{enter.code}</strong> — the homeland itself serves this Table; what is won, built or lost here is real on that land.</p>
         <button className="table-btn small" onClick={() => void copyInvite()}>Invite a friend — copy the room link</button>
         {doorMsg && <p className="quiet small">{doorMsg}</p>}
+
+        {tutorialHome && (
+          <>
+            <h3>🌱 Your tutorial waits at home</h3>
+            <p className="quiet small">
+              You came through the Discord door, so your first three stand here with you,
+              minted to your account — and your tutorial, the award road, is walked back at
+              your home, on your own land, with your three beside you.
+            </p>
+            <a className="table-btn primary" href="/">Start your tutorial at home</a>
+          </>
+        )}
 
         <h3>The party at this Table</h3>
         <ul className="room-party">

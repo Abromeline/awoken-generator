@@ -173,6 +173,15 @@ export const visitors = sqliteTable("visitors", {
   entranceStep: text("entrance_step"),
   entranceSpell: text("entrance_spell"),
   entranceAwardPool: integer("entrance_award_pool").notNull().default(0),
+  // THE DISCORD DOOR AMENDMENT (Nigel's ruling, 2026-11-08):
+  // WHICH door laid the mark — "discord" when the account was
+  // claimed through the Discord door (TableIntro's begin road),
+  // null for the homeland door and for every account marked
+  // before this record stood. The mark's consequences are the
+  // same on both doors; this names the road home for the one
+  // face that needs it: the Table, which shows a Discord-first
+  // Tender the way back to the tutorial at home.
+  entranceDoor: text("entrance_door"),
 });
 
 // Self-serve Tender accounts: a secret code + password. No email, no OAuth.

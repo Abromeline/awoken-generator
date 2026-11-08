@@ -40,6 +40,7 @@ export { summonersPowerFor } from "./skills.js";
 export { attuneReachFor } from "./skills.js";
 import { partyIdsFor, partyCapFor, isPartyMember, tryAddPartyMember, removePartyMember } from "./party.js";
 import { entranceSpellKeyFor } from "./entrance.js";
+import { tutorialHomeWaitingFor } from "./entranceRoad.js";
 import { spellUnlocked as spellUnlockedSync } from "./spellPoints.js";
 
 const TABLE_CONFIGURED = Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET);
@@ -182,6 +183,15 @@ interface Player {
    *  hold back for them, exactly as castMapWorking reads the
    *  same record on the homeland. Null for everyone else. */
   startingSpellKey?: string | null;
+  /** THE DISCORD DOOR AMENDMENT (Nigel's ruling, 2026-11-08):
+   *  this seat's Tender came through the Discord door, its
+   *  door is walked, and its tutorial — the award road — has
+   *  not yet begun at home. Read at the seat's making from the
+   *  road's own ledger (entranceRoad's tutorialHomeWaitingFor);
+   *  the Table face shows such a seat the button that starts
+   *  the tutorial back at home. A pure reading: nothing on
+   *  the road is witnessed or paid at this Table, ever. */
+  tutorialHomeWaiting?: boolean;
   /** SPELL POINTS (Nigel, 2026-11-03): the pages this seat's
    *  Tender has unlocked with spell points — read from the
    *  progress view at bind and refreshed as EXP lands, so
@@ -2498,6 +2508,7 @@ function sendState(room: Room): void {
         healAmount: player.healAmount,
         wardRuneUnlocked: player.wardRuneUnlocked,
         startingSpellKey: player.startingSpellKey ?? null,
+        tutorialHomeWaiting: !!player.tutorialHomeWaiting,
         unlockedSpells: player.unlockedSpells ?? null,
         classKey: player.classKey ?? null,
         weaponKey: player.weaponKey ?? null,
@@ -6604,6 +6615,16 @@ function handleConnection(ws: WebSocket): void {
           room.players.delete(oldWs);
           try { oldWs.close(); } catch {}
           player = seated;
+          // THE DISCORD DOOR AMENDMENT (2026-11-08): a held
+          // seat returns whole, but the tutorial-at-home
+          // reading is a reading of the account's standing
+          // TODAY — the road may have begun at home while the
+          // seat stood held — so the reclaim re-reads it for a
+          // bound seat (its expKey is its Tender's owner key)
+          // before the state goes out.
+          if (player.expKey?.startsWith("tender:")) {
+            player.tutorialHomeWaiting = tutorialHomeWaitingFor(player.expKey);
+          }
           room.players.set(ws, player);
           tell(room, `${player.name} returns to the Table — their seat was held.`);
           sendState(room);
@@ -6613,6 +6634,9 @@ function handleConnection(ws: WebSocket): void {
         if (heldSeat) {
           room.away.delete(key);
           player = heldSeat.player;
+          if (player.expKey?.startsWith("tender:")) {
+            player.tutorialHomeWaiting = tutorialHomeWaitingFor(player.expKey);
+          }
           room.players.set(ws, player);
           tell(room, `${player.name} returns to the Table — their seat was held.`);
           sendState(room);
@@ -6687,6 +6711,7 @@ function handleConnection(ws: WebSocket): void {
       let boundDoorSpellKey: string | null = null;
       let boundStartingSpellKey: string | null = null;
       let boundUnlockedSpells: string[] | null = null;
+      let boundTutorialHome = false;
       let maxTenderHp = tenderMaxHpForLevel(1);
       let expKey: string | null = null;
       let boundClassKey: string | null = null;
@@ -6731,6 +6756,11 @@ function handleConnection(ws: WebSocket): void {
           // grant rides the seat — the chosen starting spell
           // is this Tender's from Lv 1 at this Table too.
           boundDoorSpellKey = entranceSpellKeyFor(expKey);
+          // THE DISCORD DOOR AMENDMENT (2026-11-08): a seat
+          // whose Tender arrived through the Discord door
+          // carries whether its tutorial still waits at home,
+          // so the face can offer the way back to it.
+          boundTutorialHome = tutorialHomeWaitingFor(expKey);
           const progress = await getTenderProgress(tenderOwnerKey(tenderId)).catch(() => null);
           boundClassKey = progress?.classKey ?? null;
           boundWeaponKey = progress?.weaponKey ?? null;
@@ -6764,7 +6794,7 @@ function handleConnection(ws: WebSocket): void {
         energy = 12;
         maxEnergy = 12;
       }
-      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, startingSpellKey: boundStartingSpellKey ?? boundDoorSpellKey, unlockedSpells: boundUnlockedSpells, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
+      player = { key, name, watcher, storytender: false, company, companySource, notes: profile.notes, inventory: profile.inventory, bound, stagedDeal, classKey: boundClassKey, weaponKey: boundWeaponKey, weaponLevel: boundWeaponContract?.level ?? 1, weaponElement: boundWeaponContract?.element ?? null, weaponDepth: boundWeaponContract?.depth ?? 0, weaponManifest: boundWeaponContract?.manifest ?? false, weaponSignature: boundWeaponContract?.signature ?? false, energy, maxEnergy, standingMaxEnergy: expKey ? maxEnergy : undefined, tenderLevel, healTier, healAmount, wardRuneUnlocked, startingSpellKey: boundStartingSpellKey ?? boundDoorSpellKey, tutorialHomeWaiting: boundTutorialHome, unlockedSpells: boundUnlockedSpells, tenderHp: maxTenderHp, maxTenderHp, fallen: false, expKey, pools: expKey ? await attunementPools(expKey).catch(() => null) : null, castHues: expKey ? await castHuesFor(expKey).catch(() => ({})) : {}, castHuesAt: Date.now(), elsewhere: elsewhereCards };
       // THE HOLDER'S FLAG, RESTORED (Build 2's drive found
       // this seam): the reclaim roads above return the
       // holder's own seat object, flag and all — but when

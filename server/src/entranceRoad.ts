@@ -328,3 +328,41 @@ export async function evaluateEntranceRoad(ownerKey: string): Promise<RoadStateV
 export async function pokeEntranceRoad(ownerKey: string): Promise<void> {
   try { await evaluateEntranceRoad(ownerKey); } catch { /* the road never breaks the act it witnesses */ }
 }
+
+/** Has the road BEGUN for this account — has any act the road
+ *  witnesses landed on its ledger, or any section completed?
+ *  A pure read of the two ledgers (no reckoning, no payment):
+ *  the Table asks it to judge a standing, and a read must
+ *  never pay or witness in the asking. */
+export function roadBegunFor(ownerKey: string): boolean {
+  try {
+    const sections = sqlite.prepare("SELECT COUNT(*) AS n FROM entrance_road_sections WHERE owner_key = ?")
+      .get(ownerKey) as { n: number };
+    if (Number(sections?.n ?? 0) > 0) return true;
+    const events = sqlite.prepare("SELECT COUNT(*) AS n FROM entrance_road_events WHERE owner_key = ?")
+      .get(ownerKey) as { n: number };
+    return Number(events?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** THE TUTORIAL WAITING AT HOME (the Discord Door amendment,
+ *  Nigel's ruling of 2026-11-08: "if they join through the
+ *  discord door without an account they get their first 3
+ *  awoken at the discord table with a button that will start
+ *  their tutorial back at their 'home'"): the Table's reading
+ *  of who the button is FOR — an account claimed through the
+ *  Discord door (the mark's door record reads "discord"),
+ *  its door walked (step "done": its three stand, minted to
+ *  it), and its road at home not yet begun. The moment any
+ *  road act lands at home the answer turns false and the
+ *  button leaves the Table; a homeland-first or legacy
+ *  account never reads true. A pure read — like the reckoning,
+ *  it changes nothing, and at the Table nothing is ever
+ *  witnessed or paid by it. */
+export function tutorialHomeWaitingFor(ownerKey: string): boolean {
+  const door = entranceStateFor(ownerKey);
+  if (!door.entrance || door.door !== "discord" || door.step !== "done") return false;
+  return !roadBegunFor(ownerKey);
+}

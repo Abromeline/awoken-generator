@@ -75,7 +75,13 @@ check("the door's spell list is exactly Nigel's three, by his names and the book
 check("the mark is laid at claim time only when the claim asks AND nothing was granted or adopted",
   tendersSrc.includes("const isEntranceClaim = parsed.data.entrance === true && !granted && !adoptedState"));
 check("an entrance claim is granted NO spendable welcome credits — markEntranceClaim stands where the grant stood",
-  tendersSrc.includes("if (isEntranceClaim) {\n      markEntranceClaim(ownerKey);"));
+  // RESTATED 2026-11-08 for the Discord Door amendment (Nigel's
+  // ruling): the call now carries the claim's named door
+  // (parsed.data.entranceDoor — "discord" through the Discord
+  // door, nothing at the homeland door), which is the mark
+  // remembering where the account began. The seam's charge is
+  // unchanged: the mark stands where the welcome grant stood.
+  tendersSrc.includes("markEntranceClaim(ownerKey, parsed.data.entranceDoor);"));
 check("the patrol banner carries its entrance guard in App.tsx",
   appSrc.includes("const showPatrolBanner = !entranceQ.data?.entrance && tenderItems.length >= 20"));
 check("WakeRitual's single-card path is untouched by the door (no entrance word inside it)",

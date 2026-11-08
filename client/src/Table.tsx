@@ -336,6 +336,13 @@ interface YouState {
    *  below Lv 3, exactly as the homeland's wheel offers it
    *  (Territory's grimGate reads the same record). */
   startingSpellKey?: string | null;
+  /** THE DISCORD DOOR AMENDMENT (Nigel's ruling, 2026-11-08):
+   *  this seat's Tender came through the Discord door and its
+   *  tutorial — the award road — has not yet begun at home.
+   *  The party panel shows such a seat the button that starts
+   *  the tutorial back at home; the server judges it (the
+   *  road's own ledger), this face only shows it. */
+  tutorialHomeWaiting?: boolean;
   /** SPELL POINTS (Nigel, 2026-11-03): the pages this seat's
    *  Tender has unlocked — the wheel's lock reads the same
    *  ledger as the book. Null unlockedSpells = no book
@@ -3801,6 +3808,12 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
             </div>
           ))}
           {shared.watcherCount > 0 && <p className="quiet">{shared.watcherCount} watching</p>}
+          {you && you.tutorialHomeWaiting && (
+            <div className="tutorial-home-row">
+              <span className="quiet">You came through the Discord door — your three stand with you here, minted to your account. Your tutorial, the award road, is walked back at your home, on your own land.</span>
+              <a className="table-btn primary" href="/">Start your tutorial at home</a>
+            </div>
+          )}
           {you && myServerClass && (
             <div className="tender-class-row">
               <span className="quiet">You stand as the {TENDER_CLASSES[myServerClass].label} — your chosen class.</span>
