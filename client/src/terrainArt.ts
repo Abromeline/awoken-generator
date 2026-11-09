@@ -295,15 +295,21 @@ const cliffCache = new Map<string, string>();
  *  the face's widest line; the sides run inward at the painted
  *  slope until the drop runs out or the island's point does. */
 function cliffPath(ctx: CanvasRenderingContext2D, w: number, h: number, dropFrac: number): void {
-  const yTop = CLIFF_SIL.faceCentreY * h;
-  const yBottom = Math.min(yTop + dropFrac * h, CLIFF_SIL.bottomY * h);
+  ctx.beginPath();
+  traceCliff(ctx, 0, 0, w, h, dropFrac);
+}
+
+/** One island silhouette as a subpath at offset (ox, oy) — the
+ *  building block the group body below unions together. */
+function traceCliff(ctx: CanvasRenderingContext2D, ox: number, oy: number, w: number, h: number, dropFrac: number): void {
+  const yTop = oy + CLIFF_SIL.faceCentreY * h;
+  const yBottom = Math.min(yTop + dropFrac * h, oy + CLIFF_SIL.bottomY * h);
   const inset = CLIFF_SIL.slope * (yBottom - yTop);
   const half = w / 2;
-  ctx.beginPath();
-  ctx.moveTo(0, yTop);
-  ctx.lineTo(w, yTop);
-  ctx.lineTo(half + (half - inset), yBottom);
-  ctx.lineTo(half - (half - inset), yBottom);
+  ctx.moveTo(ox, yTop);
+  ctx.lineTo(ox + w, yTop);
+  ctx.lineTo(ox + half + (half - inset), yBottom);
+  ctx.lineTo(ox + half - (half - inset), yBottom);
   ctx.closePath();
 }
 
@@ -347,4 +353,63 @@ export function cliffSide(src: string, dropFrac: number): string | null {
   const url = canvas.toDataURL("image/png");
   cliffCache.set(key, url);
   return url;
+}
+
+/* ── THE FLOATING GROUP'S BODY (Nigel, 2026-11-09 — the
+ *  floating-tiles reshape of the blend build) ────────────────
+ * A tile that reaches Z 2 no longer stacks: it FLOATS. Tiles
+ * floating side by side float together as one landmass, and
+ * the black translucent body of the cliff above hangs only
+ * around the group's OUTER edges — between joined tiles there
+ * is no body and no seam. The body is therefore drawn once
+ * per group: the union of the member islands' silhouettes
+ * (the same traceCliff shape, the same black wash), filled in
+ * a single pass so the wash runs unbroken around the whole
+ * outside and never crosses the joins. A lone floater is a
+ * group of one and wears the same body. Faces are named by
+ * their image boxes' top-left corners, in units of one face
+ * image's width/height, relative to the group's bounding box;
+ * the caller draws the returned image stretched over exactly
+ * that bounding box. Rendered once per group shape, cached. */
+
+const groupBodyCache = new Map<string, string>();
+
+export function floatGroupBody(faces: { x: number; y: number }[]): { url: string; wUnits: number; hUnits: number } | null {
+  if (typeof document === "undefined" || !faces.length) return null;
+  const minX = Math.min(...faces.map((f) => f.x));
+  const minY = Math.min(...faces.map((f) => f.y));
+  const rel = faces.map((f) => ({ x: f.x - minX, y: f.y - minY }));
+  const wUnits = Math.max(...rel.map((f) => f.x)) + 1;
+  const hUnits = Math.max(...rel.map((f) => f.y)) + 1;
+  const key = rel.map((f) => `${Math.round(f.x * 1000)},${Math.round(f.y * 1000)}`).join("|");
+  const hit = groupBodyCache.get(key);
+  if (hit) return { url: hit, wUnits, hUnits };
+  const W = MIX_FACE_W, H = MIX_FACE_H;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(wUnits * W);
+  canvas.height = Math.round(hUnits * H);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.beginPath();
+  for (const f of rel) traceCliff(ctx, f.x * W, f.y * H, W, H, 1);
+  ctx.save();
+  ctx.clip();
+  const yTop = Math.min(...rel.map((f) => f.y * H + CLIFF_SIL.faceCentreY * H));
+  const yBottom = Math.max(...rel.map((f) => f.y * H + CLIFF_SIL.bottomY * H));
+  const grad = ctx.createLinearGradient(0, yTop, 0, yBottom);
+  grad.addColorStop(0, "rgba(0,0,0,0.34)");
+  grad.addColorStop(0.55, "rgba(0,0,0,0.52)");
+  grad.addColorStop(0.85, "rgba(0,0,0,0.60)");
+  grad.addColorStop(1, "rgba(0,0,0,0.30)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+  const url = canvas.toDataURL("image/png");
+  groupBodyCache.set(key, url);
+  return { url, wUnits, hUnits };
+}
+
+/** Test seam: how many group bodies stand rendered right now. */
+export function floatGroupBodyCacheSize(): number {
+  return groupBodyCache.size;
 }

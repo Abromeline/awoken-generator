@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
-import { useTerrainArt, terrainImgFor, stageForTile, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, blendedMixFace, cliffSide, onMixLayersReady, type TileMix } from "./terrainArt";
+import { useTerrainArt, terrainImgFor, stageForTile, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, blendedMixFace, cliffSide, floatGroupBody, onMixLayersReady, type TileMix } from "./terrainArt";
 import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
 import { abilityByKey, abilityQualifies, elementSumsOfPlacement, qualifiedAbilities, requirementText } from "./abilities";
@@ -216,11 +216,28 @@ function isoOffset(q: number, r: number, size: number): { px: number; py: number
  *  a jump at its height reads as landing on the isle's face. */
 export function floatLift(size: number): number { return Math.round(size * 0.48); }
 
+/** THE FLOAT THRESHOLD (Nigel, 2026-11-09 — the floating-tiles
+ *  ruling): a tile FLOATS at Z 2 and above; Z 1 stays grounded,
+ *  stacked land like any other. Before this ruling every risen
+ *  tile (z > 0) read as a floating isle; the one threshold now
+ *  stands everywhere the game asks whether a tile floats —
+ *  the render, the stride, the roads, the panel's words — and
+ *  the server's FLOAT_MIN_Z is its twin. */
+export const FLOAT_MIN_Z = 2;
+export function tileFloats(t: { z?: number | null }): boolean { return (t.z ?? 0) >= FLOAT_MIN_Z; }
+/** How high a tile hovers above its own ground: nothing at
+ *  Z 1, one float-step at Z 2, climbing a step per Z beyond —
+ *  the rise reads with the Z it has honestly climbed. */
+export function floatRise(size: number, z: number | null | undefined): number {
+  const zz = z ?? 0;
+  return zz >= FLOAT_MIN_Z ? (zz - 1) * floatLift(size) : 0;
+}
+
 function tileCenterScreen(t: { q: number; r: number; height?: number; z?: number }, pan: { x: number; y: number }, zoom: number): { cx: number; cy: number } {
   const size = HEX_BASE_SIZE * zoom;
   const TRAY_LIFT = Math.round(size * 0.2);
   const { px, py } = isoOffset(t.q, t.r, size);
-  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0) };
+  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z) };
 }
 
 /** The inverse of tileCenterScreen for ground points: a
@@ -2488,14 +2505,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
   const crossingBlocked = (a: TerritoryTile, b: TerritoryTile, now: number): boolean => {
     const eng = tenderJumpRef.current;
-    if ((b.z ?? 0) > 0) return !jumpApex(eng, now);
+    if (tileFloats(b)) return !jumpApex(eng, now);
     if (hexDistOf(a, b) === 1) {
       if (((b.height ?? 1) - (a.height ?? 1)) >= 2 && !jumpAirborne(eng, now)) return true;
     }
     return false;
   };
   const crossingNeedsAir = (a: TerritoryTile, b: TerritoryTile): boolean => {
-    if ((b.z ?? 0) > 0) return true;
+    if (tileFloats(b)) return true;
     if (hexDistOf(a, b) === 1) {
       if (((b.height ?? 1) - (a.height ?? 1)) >= 2) return true;
     }
@@ -2509,16 +2526,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     let best: TerritoryTile | null = null;
     let bestD = Infinity;
     for (const t of tenderTilesRef.current) {
-      if ((t.z ?? 0) > 0) continue;
+      if (tileFloats(t)) continue;
       const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
       const d = Math.hypot(c.cx - x, c.cy - y);
       if (d < bestD) { bestD = d; best = t; }
     }
     if (!best) return null;
     const cur = tenderTilesRef.current.find(t => t.id === tenderAnchorRef.current);
-    if (cur && (cur.z ?? 0) > 0 && cur.q === best.q && cur.r === best.r) return cur;
+    if (cur && tileFloats(cur) && cur.q === best.q && cur.r === best.r) return cur;
     if (jumpApex(tenderJumpRef.current, now)) {
-      const isle = tenderTilesRef.current.find(t => (t.z ?? 0) > 0 && t.q === best!.q && t.r === best!.r);
+      const isle = tenderTilesRef.current.find(t => tileFloats(t) && t.q === best!.q && t.r === best!.r);
       if (isle) return isle;
     }
     return best;
@@ -4518,7 +4535,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // A floating isle hovers above its own ground (the Building
       // System): the risen tile draws at its lift, its shadow
       // stays on the newborn beneath (drawn in the tile's face).
-      const cy = originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
+      const cy = originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z);
       return { cx, cy };
     };
     // The marching layer's derivation (lives here, beside tilePos —
@@ -5096,6 +5113,59 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
     });
 
+    // ── FLOATING GROUPS (Nigel, 2026-11-09 — the floating-tiles
+    // ruling): tiles floating side by side float together as one
+    // landmass, and the black translucent body hangs only around
+    // the group's OUTER edges — between joined tiles there is no
+    // body and no seam. Groups are the connected components of
+    // the floating tiles (z ≥ FLOAT_MIN_Z) under the six
+    // neighbourhood; each group's body is the union of its
+    // members' island silhouettes, drawn once, beneath every
+    // member face (in the members' own tile pass below, keyed
+    // by the group's first member in draw order). A lone floater
+    // is a group of one and wears the same body.
+    const floatGroups: { members: any[]; firstId: number; img: { url: string; x: number; y: number; w: number; h: number } | null }[] = [];
+    {
+      const floaters = tiles.filter((t: any) => !t.cursed && tileFloats(t));
+      const byCoordF = new Map<string, any>(floaters.map((t: any) => [`${t.q},${t.r}`, t]));
+      const seenF = new Set<number>();
+      const DIRS6F = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      for (const seed of floaters) {
+        if (seenF.has(seed.id)) continue;
+        const members: any[] = [];
+        const queue: any[] = [seed];
+        seenF.add(seed.id);
+        while (queue.length) {
+          const cur = queue.shift()!;
+          members.push(cur);
+          for (const [dq, dr] of DIRS6F) {
+            const n = byCoordF.get(`${cur.q + dq},${cur.r + dr}`);
+            if (n && !seenF.has(n.id)) { seenF.add(n.id); queue.push(n); }
+          }
+        }
+        // Each member's face-image box, in the tile pass's own
+        // geometry (purified faces share one measure).
+        const boxes = members.map((m: any) => {
+          const { cx, cy } = tilePos(m);
+          const mKey = TERRAIN[m.element] ? m.element : "neutral";
+          const mOff = TERRAIN_IMG_OFFSET[mKey] ?? { dx: 0, dy: 0 };
+          const w = size * 2.41;
+          const h = size * (TERRAIN_IMG_PLACE[mKey]?.h ?? 1.608);
+          return { x: cx - size * 1.2106 + mOff.dx * size, y: cy - size * 0.6857 + (mOff.dy + (TERRAIN_IMG_PLACE[mKey]?.dy ?? 0)) * size, w, h };
+        });
+        const minX = Math.min(...boxes.map((b) => b.x));
+        const minY = Math.min(...boxes.map((b) => b.y));
+        const body = floatGroupBody(boxes.map((b) => ({ x: (b.x - minX) / b.w, y: (b.y - minY) / b.h })));
+        const firstId = sortedTiles.find((st: any) => members.some((m: any) => m.id === st.id))?.id ?? members[0].id;
+        floatGroups.push({
+          members, firstId,
+          img: body ? { url: body.url, x: minX, y: minY, w: body.wUnits * boxes[0].w, h: body.hUnits * boxes[0].h } : null,
+        });
+      }
+    }
+    const floatBodyByTileId = new Map<number, { url: string; x: number; y: number; w: number; h: number }>();
+    for (const g of floatGroups) if (g.img) floatBodyByTileId.set(g.firstId, g.img);
+
     const elements = sortedTiles.map((t, i) => {
       // Flat-top XYZ: tilePos handles axial->pixel + height lift
       const { cx, cy } = tilePos(t);
@@ -5118,8 +5188,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {/* A FLOATING ISLE's shadow (the Building System,
               2026-10-19): the risen tile's shade lies on the
               ground it left — the newborn beneath wears it. */}
-          {(t as any).z > 0 && (
-            <ellipse cx={cx} cy={cy + floatLift(s) + s * 0.12} rx={s * 1.05} ry={s * 0.5}
+          {tileFloats(t as any) && (
+            <ellipse cx={cx} cy={cy + floatRise(s, (t as any).z) + s * 0.12} rx={s * 1.05} ry={s * 0.5}
               fill="rgba(0,0,0,0.32)" pointerEvents="none" />
           )}
           {/* Isometric tile: 1920x1280 PNG; painted face measured 1730×944
@@ -5156,9 +5226,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               const imgH = s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608);
               const mix = (t as any).mix as TileMix | null | undefined;
               const drop = (total - 1) * TRAY_LIFT;
-              const cliff = total > 1 ? cliffSide(topSrc, drop / imgH) : null;
+              // A FLOATING tile (z ≥ 2) hangs no cliff: its
+              // underneath is the floating group's own black
+              // body (drawn first in this group, below), around
+              // the joined landmass's outer edges only — the
+              // stack's side belongs to grounded stacks (the
+              // blend build's law, now the grounded tile's).
+              const cliff = total > 1 && !tileFloats(t as any) ? cliffSide(topSrc, drop / imgH) : null;
+              const floatBody = floatBodyByTileId.get(t.id);
               return (
                 <g key={`stack-${t.id}`}>
+                  {floatBody && (
+                    <image href={floatBody.url}
+                      x={floatBody.x} y={floatBody.y}
+                      width={floatBody.w} height={floatBody.h}
+                      preserveAspectRatio="none" pointerEvents="none" />
+                  )}
                   {cliff && (
                     <image href={cliff}
                       x={imgX} y={imgY}
@@ -5741,7 +5824,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const ghosts: { q: number; r: number }[] = [];
       const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
       for (const t of tiles) {
-        if ((t.z ?? 0) > 0) continue;
+        if (tileFloats(t)) continue;
         for (const [dq, dr] of DIRS6) {
           const q = t.q + dq, r = t.r + dr, key = `${q},${r}`;
           if (have.has(key) || seen.has(key)) continue;
@@ -6158,7 +6241,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const pieceLiftY = (p: BuildPiece): number => {
       const t = pieceTileOf(p);
       if (!t) return 0;
-      return -(Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
+      return -(Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z);
     };
     const BUILD_WALL_H = 30; // the wall's rise, in land units — and a floor's emergence depth: the Stone Cast sinks an unrisen piece by the un-emerged share of this same measure
     const buildFloorsLayer = (
@@ -9407,7 +9490,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         return (
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <strong>{(t as any).z > 0 ? "A floating isle" : "A work rising"} — {stageName}</strong>
+              <strong>{tileFloats(t as any) ? "A floating isle" : "A work rising"} — {stageName}</strong>
               <span style={{ fontSize: 12, opacity: 0.8 }}>terrain bank {terrainBank}</span>
             </div>
             {stage >= 1 && stage <= 4 && (
