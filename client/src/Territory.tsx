@@ -4646,9 +4646,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // of light. An Awoken gives no light at all — not on
     // her own hex, and nothing beside her glows for her
     // standing there.
+    // THE PAINTER'S KEY (defect fix, 2026-11-09 — Nigel, from the
+    // floating-tiles proof shots: "I can see the corrupted hex
+    // showing above the hexes that should be above it"): a tile
+    // paints by the screen-y of its GROUND, never by its drawn
+    // centre. The risen rows share one hex's ground between them
+    // — the cursed newborn at z 0, its z-1 sibling, the floater
+    // at z ≥ 2 — but tilePos lifts each row's centre by its own
+    // rise, so keying the sort on tilePos seated the under-rows
+    // one float-step NORTH of their true ground: their tall
+    // cursed art (painted to the canvas's foot, drips and all)
+    // then painted OVER the southern neighbours that the
+    // painter's law says must cover them. The key below is the
+    // ground itself: the lattice point with only the tray steps
+    // counted (a grounded stack's top face truly stands higher
+    // on its own ground; the float rise is air, not ground, and
+    // never moves the key). The floater still draws within its
+    // own hex's turn — above its ground rows, by the z tiebreak —
+    // exactly where the old isle drew; only the under-rows come
+    // home to their ground.
+    const groundKeyY = (t: any): number => {
+      const { py } = isoOffset(t.q, t.r, size);
+      return originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT;
+    };
     const sortedTiles = [...tiles].sort((a, b) => {
-      const pa = tilePos(a), pb = tilePos(b);
-      return pa.cy - pb.cy;
+      const d = groundKeyY(a) - groundKeyY(b);
+      if (d !== 0) return d;
+      // One hex, several rows: the lower plane paints first, the
+      // floater last — a stack's own order on its own ground.
+      return (a.z ?? 0) - (b.z ?? 0);
     });
     // Entity layer: Awoken + buildings render ABOVE all terrain (Option A)
     // XYZ: entities sit on the tile top face, lifted by terrain height
@@ -5166,6 +5192,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const floatBodyByTileId = new Map<number, { url: string; x: number; y: number; w: number; h: number }>();
     for (const g of floatGroups) if (g.img) floatBodyByTileId.set(g.firstId, g.img);
 
+    // The cursed tiles' face clips, hoisted out of the tile
+    // pass: a <clipPath> defined inside a tile's own <g> is not
+    // reliably live when the browser paints the tile (Chrome
+    // drops the reference), so the defs stand before the pass,
+    // one per cursed tile, each its own fitted cell.
+    const faceClipDefs = tiles.filter((t: any) => t.cursed).map((t: any) => {
+      const { cx, cy } = tilePos(t);
+      return (
+        <clipPath key={`face-clip-${t.id}`} id={`face-clip-${t.id}`}>
+          <polygon points={hexCellPoints(cx, cy, size)} />
+        </clipPath>
+      );
+    });
+
     const elements = sortedTiles.map((t, i) => {
       // Flat-top XYZ: tilePos handles axial->pixel + height lift
       const { cx, cy } = tilePos(t);
@@ -5197,9 +5237,36 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               image so the face center lands exactly on the tile's
               lattice point (cx, cy); imgOff seats off-template art. */}
           {t.cursed ? (
-            <image href={TERRAIN[tileKey]}
-              x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-              preserveAspectRatio="xMidYMid meet" />
+            /* THE CURSED FACE KEEPS ITS OWN HEX (defect fix,
+               2026-11-09 — Nigel, from the floating-tiles proof
+               shots: "I can see the corrupted hex showing above
+               the hexes that should be above it"): his cursed
+               canvas (1920×1510) carries its corruption BELOW
+               the painted face — a dark skirt of drips and
+               tendrils running to the canvas's foot (measured:
+               strong ink to source y ≈1475, while the face's
+               southern edge — the same measure every element
+               face ends at, y ≈1235 of its 1280 — sits at
+               ≈1264 on this taller canvas). Drawn whole, that
+               skirt paints straight onto the southern
+               neighbours' faces in a hard straight band, over
+               hexes the painter's law says must cover it. The
+               face now draws clipped to its own fitted cell —
+               the same polygon every overlay on this map shares
+               (hexCellPoints above) — so a cursed hex ends at
+               its own southern border exactly as an element hex
+               does. The art is untouched; the wisps ABOVE the
+               face stay (they rise into the hex's own upper
+               reach, where the fitted cell still holds them);
+               only the southward spill is cut. The halo and the
+               glow below wear the same clip, for the same law:
+               the halo's rim (ry 0.92·s) overshot the face's
+               south by ~0.37·s of dark wash. */
+            <g clipPath={`url(#face-clip-${t.id})`}>
+              <image href={TERRAIN[tileKey]}
+                x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
+                preserveAspectRatio="xMidYMid meet" />
+            </g>
           ) : (
             /* The stack (Nigel, 2026-10-15; reshaped 2026-11-09 —
                "Blend the stack into one face"): a purified hex is
@@ -5345,8 +5412,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             </text>
           )}
           {t.cursed && (
-            <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
-              fill="url(#corruptionHalo)" pointerEvents="none" />
+            <g clipPath={`url(#face-clip-${t.id})`}>
+              <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
+                fill="url(#corruptionHalo)" pointerEvents="none" />
+            </g>
           )}
           {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
               GLOW crimson-violet from within — the dark bruising the land
@@ -5354,7 +5423,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               smolder at the edge of the light. Layered polygons, no SVG
               filters, so the iPad stays smooth. */}
           {t.cursed && (
-            <g className="corruption-glow" pointerEvents="none">
+            <g className="corruption-glow" clipPath={`url(#face-clip-${t.id})`} pointerEvents="none">
               <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill="rgba(110,6,26,0.16)" stroke="none" />
               <polygon points={pts} fill="rgba(148,14,52,0.20)" stroke="none" />
               {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
@@ -7357,6 +7426,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     return (
       <>
         <g key="land-back" className="land-cam" transform={camTransform}>
+          <defs>{faceClipDefs}</defs>
           {elements}
         </g>
         {hitLayer}

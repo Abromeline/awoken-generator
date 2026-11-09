@@ -381,6 +381,147 @@ if (washB.length === 2) {
   }, { href: wide.href, fx: 0.5 });
   ok("down the pair's join the black wash runs unbroken (no seam, no notch)", join > 0.9, `join=${join.toFixed(2)}`);
 }
+/* §6b THE PAINTER'S LAW AT THE CURSED BORDER (defect fix,
+ * 2026-11-09 — Nigel, from these very proof shots: "I can see
+ * the corrupted hex showing above the hexes that should be
+ * above it"). The cursed ground beneath the pair must end at
+ * its own southern border: the grey hexes directly south of
+ * it paint OVER its bottom edge. What spreads past that
+ * border on the broken build is not one thing but three, all
+ * riding inside the cursed tile's own drawing: the face
+ * canvas's dark skirt below the painted face (source ink to
+ * y ≈1475 of 1510, where an element face ends at ≈1235 of
+ * 1280), the corruption halo's rim (ry 0.92·s against the
+ * face's 0.60·s southern reach), and the 1.14× glow polygon.
+ * The fix clips all three to the tile's own fitted cell.
+ * The check reads the REAL rendered page (a clipped
+ * screenshot, decoded in-page): a window over the two
+ * southern neighbours' faces, just below the shared border —
+ * ground no other cursed hex's face can reach (the frontier
+ * hexes' own faces end at their own borders; their southern
+ * row lies a full hex-step further down). On the broken
+ * build the skirt band crosses the window as a hard red
+ * stripe (~40% of its pixels carry the curse's red channel
+ * dominance); on the fixed build the window is the grey
+ * neighbours' own art (red dominance under 1%, measured).
+ * MEASUREMENT CORRECTION (2026-11-09, second pass — proved
+ * from the retaken proof shot's own pixels, not assumed):
+ * the rectangle as first drawn also catches a wedge of the
+ * EAST under-floater's OWN fitted cell. The three cells —
+ * west cursed, east cursed, and the grey south-east
+ * neighbour — meet at one vertex (the west cell's BR
+ * corner, the east cell's L corner, the grey cell's TR
+ * corner, one point), and the grey/east shared edge runs
+ * from that vertex south-east across the rectangle's
+ * eastern end: every window pixel east of that edge is
+ * inside the east cursed hex's own cell, on its own lawful
+ * face. Measured on the fixed build's retaken shot (window
+ * at DSF1 (43,428) 332×26, west centre (209,333), s=151):
+ * the east cell's wedge is 20.4% of the window's pixels and
+ * 82% of them are red-dominant — a 16.7% contribution,
+ * which is the whole of the 16.66% the uncorrected check
+ * reported — while the window pixels inside the two grey
+ * neighbours' own cells measure 0.5% (south-west) and 0.0%
+ * (south-east) red-dominant. So the count below keeps the
+ * window, the 10% threshold and the red rule exactly as
+ * they were, and counts only the pixels that lie on the
+ * two southern neighbours' side of their shared edge with
+ * the east cursed cell (the edge's endpoints are returned
+ * with the window's geometry, from the same FACE_HEX
+ * measures the map is drawn with). On the broken build the
+ * skirt crosses onto the grey faces themselves, west of
+ * that edge, and the check still fails there. */
+{
+  const geo = await page.evaluate(() => {
+    const imgs = [...document.querySelectorAll("image")];
+    const boxes = [];
+    for (const i of imgs) {
+      const r = i.getBoundingClientRect();
+      if (r.width < 30) continue;
+      boxes.push({ x: r.x, y: r.y, w: r.width, h: r.height, href: i.getAttribute("href") ?? "" });
+    }
+    const cursed = boxes.filter((b) => b.href.includes("cursed-v3"));
+    const faces = boxes.filter((b) => b.href.startsWith("data:image"));
+    if (cursed.length < 2 || !faces.length) return null;
+    // The pair: the group's two blended faces — side by side,
+    // one's centre exactly one east step (245, 89) from the
+    // other's at this zoom (the lattice's own measure).
+    const tilesOnly = faces.filter((f) => f.w < 500 && f.h < 320);
+    let westFace = null;
+    for (const f of tilesOnly) {
+      if (tilesOnly.some((g) => g !== f && Math.abs(g.x - f.x - 245) < 6 && Math.abs(g.y - f.y - 89) < 6)) { westFace = f; break; }
+    }
+    if (!westFace) return null;
+    // The cursed row beneath the pair's west floater: same
+    // hex — its image centre stands within one hex-step south
+    // of the face's centre (the face hovers one float-step
+    // north of its ground).
+    const faceCx = westFace.x + westFace.w / 2, faceCy = westFace.y + westFace.h / 2;
+    const under = cursed.filter((c) => Math.abs(c.x + c.w / 2 - faceCx) < 6 && (c.y + c.h / 2) > faceCy && (c.y + c.h / 2) < faceCy + 200)
+      .sort((a, b) => b.y - a.y)[0];
+    if (!under) return null;
+    // The cursed face's own centre: the canvas seats its face
+    // centre (source 960, 790 of 1920×1510) on the tile's
+    // lattice point — recover it from the image box.
+    const ccx = under.x + under.w * (960 / 1920), ccy = under.y + under.h * (790 / 1510);
+    const s = under.w / 2.41; // the map's tile size, from the image's own measure
+    // The window: across the two southern neighbours' shared
+    // width, from just below the border (the face's southern
+    // vertices stand 0.60·s below its centre) to 0.80·s.
+    // The grey south-east neighbour's shared edge with the
+    // EAST cursed cell (see the correction above): from the
+    // three-cell vertex — this cell's BR corner, FACE_HEX
+    // (431, 476) at s/796 per source px — to the grey cell's
+    // R corner, which is the east cell's BL corner: the grey
+    // centre (one SE step, (0, 948)) plus (861, −6). Returned
+    // in window-local pixels; the count keeps the grey side.
+    const wx = Math.round(ccx - 1.1 * s), wy = Math.round(ccy + 0.63 * s);
+    const k = s / 796;
+    return {
+      x: wx, y: wy,
+      width: Math.round(2.2 * s), height: Math.round(0.17 * s),
+      edge: {
+        x1: ccx + 431 * k - wx, y1: ccy + 476 * k - wy,
+        x2: ccx + 861 * k - wx, y2: ccy + 942 * k - wy,
+      },
+    };
+  });
+  let paint = null;
+  if (geo && geo.x >= 0 && geo.y >= 0) {
+    const shot = await page.screenshot({ clip: { x: geo.x, y: geo.y, width: geo.width, height: geo.height } });
+    paint = await page.evaluate(async ({ b64, edge }) => {
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = "data:image/png;base64," + b64; });
+      const cv = document.createElement("canvas");
+      cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      // Only pixels on the southern neighbours' side of the
+      // grey/east shared edge are counted (the correction
+      // above): the edge runs from (x1, y1) to (x2, y2); the
+      // grey side is the one the south-east neighbour's own
+      // centre falls on (positive cross product, measured).
+      const dx = edge.x2 - edge.x1, dy = edge.y2 - edge.y1;
+      let redDom = 0, total = 0, excluded = 0;
+      for (let py = 0; py < cv.height; py++) {
+        for (let px = 0; px < cv.width; px++) {
+          const cross = dx * (py + 0.5 - edge.y1) - dy * (px + 0.5 - edge.x1);
+          if (cross < 0) { excluded++; continue; }
+          const o = (py * cv.width + px) * 4;
+          total++;
+          if (data[o] - data[o + 1] > 12) redDom++;
+        }
+      }
+      return { redDomFrac: total ? redDom / total : 0, total, excluded };
+    }, { b64: Buffer.from(shot).toString("base64"), edge: geo.edge });
+    console.log("  §6b measured red fraction over the two southern neighbours:", paint ? paint.redDomFrac.toFixed(4) : "unmeasured",
+      paint ? `(counted ${paint.total} px, excluded ${paint.excluded} px inside the east cursed hex's own cell)` : "");
+  }
+  ok("the cursed ground under the pair ends at its own southern border — no red crosses onto the grey hexes below",
+    !!paint && paint.redDomFrac < 0.10,
+    JSON.stringify({ geo, paint }));
+}
 const walkerImgs = (await imageBoxes()).filter((b) => b.href.includes("ZmxvYXQtd2Fsa2Vy"));
 const facesOnlyB = clsB.filter((c) => c.washFrac <= 0.2);
 const p2Face = [...facesOnlyB].sort((a, b) => a.cx - b.cx)[0];
