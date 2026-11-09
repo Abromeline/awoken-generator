@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
-import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
+import { useTerrainArt, terrainImgFor, stageForTile, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, blendedMixFace, cliffSide, onMixLayersReady, type TileMix } from "./terrainArt";
 import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
 import { abilityByKey, abilityQualifies, elementSumsOfPlacement, qualifiedAbilities, requirementText } from "./abilities";
@@ -443,6 +443,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // The creator's uploaded stage art, shared cache with the workshop's
   // Terrain Stages section; tiles resolve through terrainImgFor below.
   const { data: terrainArt } = useTerrainArt();
+  // THE BLENDED FACE (Nigel, 2026-11-09): the mix textures
+  // composite offscreen (terrainArt's blendedMixFace); the first
+  // frames may precede their loading, so repaint once when they
+  // stand ready and every mixed face lands as one face.
+  const [, setMixArtReady] = useState(0);
+  useEffect(() => onMixLayersReady(() => {
+    // A cliff art load can complete DURING a render (the browser
+    // may already hold the bytes) — never set state mid-render;
+    // the repaint lands on the next tick instead.
+    setTimeout(() => setMixArtReady((n) => n + 1), 0);
+  }), []);
   // The creator's live enemy art (UI Workspace uploads/selection),
   // resolved server-side; every enemy on the field wears it.
   const { data: enemyArtData } = useEnemyArt();
@@ -5120,60 +5131,88 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
               preserveAspectRatio="xMidYMid meet" />
           ) : (
-            /* The stack (Nigel, 2026-10-15): a purified hex is drawn
-               as its trays — the growing tray at the bottom wearing
-               the stage of its fill, every sealed tray above it at
-               stage 3, the top tray (drawn last) at the tile's
-               anchor. Each tray is the full tile image, stepped down
-               by TRAY_LIFT per level beneath the top. */
-            Array.from({ length: Math.max(1, (t as any).height || 1) }, (_, i) => {
+            /* The stack (Nigel, 2026-10-15; reshaped 2026-11-09 —
+               "Blend the stack into one face"): a purified hex is
+               drawn as ONE top face over ONE continuous side. The
+               top face wears the engine's stage (stageForTile), or,
+               for a mixed hex, the four textures composited into a
+               single blended face (below). Beneath the top, where
+               each level once drew the full tile image stepped down
+               by TRAY_LIFT — a staircase of hard-edged slabs — the
+               stack now hangs a single cliff edge: the island's
+               silhouette filled with translucent black (Nigel's
+               amendment, 2026-11-09 — what stands underneath
+               another tray is black, never purple), one unbroken
+               wash shading down the whole drop with no seam at
+               any level, easing at its tip into the land below.
+               Single-height tiles draw exactly as they always did. */
+            (() => {
               const total = Math.max(1, (t as any).height || 1);
-              const sealed = (t as any).traysSealed ?? 0;
-              const isGrowing = i === 0 && sealed < 6;
-              // The top tray wears the engine's stage (stageForTile);
-              // beneath it, the growing tray wears its fill's stage
-              // and sealed trays wear stage 3.
-              const stage = i === total - 1 ? stageForTile(t) : isGrowing ? trayStageOf((t as any).growPoints ?? 0) : 3;
-              const drop = (total - 1 - i) * TRAY_LIFT;
+              const topStage = stageForTile(t);
+              const topSrc = terrainImgFor(tileKey, topStage, terrainArt);
+              const imgX = cx - s * 1.2106 + imgOff.dx * s;
+              const imgY = cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s;
+              const imgW = s * 2.41;
+              const imgH = s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608);
               const mix = (t as any).mix as TileMix | null | undefined;
-              if (i === total - 1 && mixStands(mix)) {
-                // THE LAYERED FACE (Nigel, 2026-10-25 — terrain
-                // mixing): the top tray's single-element face
-                // gives way to his four textures, stacked in his
-                // order (TERRAIN_LAYER_ORDER, bottom → top), each
-                // standing at the opacity of its element's ledger
-                // line — the mixture IS the face now. The trays
-                // beneath keep the stack's stepped form, and the
-                // new face carries no glass rim: the textures
-                // stand as he drew them. Each texture seats on
-                // the face's centre at the painted face's width
-                // (the standing art's measure: 1730 of its 1920).
-                const fw = s * 2.41 * (1730 / 1920);
-                return (
-                  <g key={`tray-${t.id}-${i}`}>
-                    {TERRAIN_LAYER_ORDER.map((el) => {
-                      const art = TERRAIN_LAYER_ART[el];
-                      const w = fw;
-                      const h = w * art.hPerW;
-                      return (
-                        <image key={el} href={art.src}
-                          x={cx - w / 2} y={cy + drop - h / 2 + art.seatDy * h}
-                          width={w} height={h}
-                          opacity={mixLayerOpacity(mix?.[el])}
-                          preserveAspectRatio="xMidYMid meet" />
-                      );
-                    })}
-                  </g>
-                );
-              }
+              const drop = (total - 1) * TRAY_LIFT;
+              const cliff = total > 1 ? cliffSide(topSrc, drop / imgH) : null;
               return (
-                <image key={`tray-${t.id}-${i}`} href={terrainImgFor(tileKey, stage, terrainArt)}
-                  x={cx - s * 1.2106 + imgOff.dx * s}
-                  y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s + drop}
-                  width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-                  preserveAspectRatio="xMidYMid meet" />
+                <g key={`stack-${t.id}`}>
+                  {cliff && (
+                    <image href={cliff}
+                      x={imgX} y={imgY}
+                      width={imgW} height={imgH}
+                      preserveAspectRatio="none" pointerEvents="none" />
+                  )}
+                  {mixStands(mix) ? (
+                    // THE BLENDED FACE (Nigel, 2026-11-09): the
+                    // layered face of 2026-10-25 — his four
+                    // textures stacked in his order
+                    // (TERRAIN_LAYER_ORDER, bottom → top), each at
+                    // the opacity of its ledger line — drew as four
+                    // separate translucent images and read as a
+                    // purple stack of ghosts. The textures now
+                    // composite ONCE per mixture onto a single
+                    // canvas (terrainArt's blendedMixFace:
+                    // source-over, paint over paint, cached by the
+                    // mix's signature) and the map draws that one
+                    // finished face where the four stood. While the
+                    // textures are still loading the old four-image
+                    // stack stands in, so the map never waits.
+                    (() => {
+                      const fw = s * 2.41 * (1730 / 1920);
+                      const blended = blendedMixFace(mix!);
+                      if (blended) {
+                        return (
+                          <image href={blended}
+                            x={cx - imgW / 2} y={cy - imgH / 2}
+                            width={imgW} height={imgH}
+                            preserveAspectRatio="none" pointerEvents="none" />
+                        );
+                      }
+                      return TERRAIN_LAYER_ORDER.map((el) => {
+                        const art = TERRAIN_LAYER_ART[el];
+                        const w = fw;
+                        const h = w * art.hPerW;
+                        return (
+                          <image key={el} href={art.src}
+                            x={cx - w / 2} y={cy - h / 2 + art.seatDy * h}
+                            width={w} height={h}
+                            opacity={mixLayerOpacity(mix?.[el])}
+                            preserveAspectRatio="xMidYMid meet" />
+                        );
+                      });
+                    })()
+                  ) : (
+                    <image href={topSrc}
+                      x={imgX} y={imgY}
+                      width={imgW} height={imgH}
+                      preserveAspectRatio="xMidYMid meet" />
+                  )}
+                </g>
               );
-            })
+            })()
           )}
           {/* The turning seal stood here until 2026-10-25: a hex
               whose bank was filling toward a switch wore the glyph
