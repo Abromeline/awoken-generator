@@ -47,6 +47,31 @@
 // the max growth per level); at 1.5× the raw growth's
 // ~2.17× at Lv20 never arrives.
 //
+// THE GROWTH ALONG THE ROAD (Nigel, 2026-11-10, correcting
+// the launched-shot fix the same day): the size above is
+// the shot's FULL size — and full size is met only at the
+// arc's zenith. "i'm ok with the shot starting small and
+// growing to its full size at the zenith — i just wanted
+// to add that it should point in the direction of flight
+// while doing so." The morning's fix had struck ALL change
+// of size along the flight (the frames' breathing and the
+// battle view's apex swell together); that overshot. What
+// stands now is a ruled growth of its own: the shot leaves
+// the firer's hand at HALF its full size and grows along a
+// smoothstep on the climb — the fraction of the road to
+// the zenith (2s on the way up, 2(1−s) on the way down,
+// eased t²(3−2t)) — so the growth is a continuous function
+// of the road, easing out of the hand, settling into full
+// size exactly where the arc's rise above its chord tops
+// out (s = ½), and never past it: full size is the ceiling.
+// The descent mirrors the climb (Nigel named the growth to
+// the zenith only; the mirror is the Keeper's reading,
+// carried in the build report). The growth multiplies the
+// level growth above — a shape laid on the flight, never a
+// second size law — and like the rest of this law it rides
+// Awoken shots only: dark and enemy flights keep their
+// standing size, untouched.
+//
 // THE ARC: every Awoken shot flies the battle view's own
 // parabola (Battleground's ProjectileFlight, 2026-10-18):
 // with s the fraction of the flight elapsed and peak the
@@ -91,6 +116,32 @@ export function flightMsForPace(anchorMs: number, paceSecondsPerHex: number): nu
 export function sizeScaleForLevel(level: number): number {
   const lv = Math.max(1, Math.floor(level) || 1);
   return Math.min(1.5, Math.sqrt(Math.pow(1.0848077, lv - 1)));
+}
+
+/** THE GROWTH TO THE ZENITH (Nigel, 2026-11-10): a shot
+ *  leaves its firer's hand at this fraction of its full
+ *  size and grows to the whole of it at the arc's zenith.
+ *  One half — small enough that the birth reads clearly
+ *  small against the full size at the top, never a sliver. */
+export const SHOT_GROWTH_START = 0.5;
+
+/** The growth multiplier at the fraction s of a shot's
+ *  flight: SHOT_GROWTH_START at the hand, exactly 1 at the
+ *  zenith (s = ½, where the arc's rise above its chord
+ *  peaks), mirrored on the descent, and never above 1 —
+ *  full size is the ceiling. A smoothstep on the climb
+ *  fraction (2s up, 2(1−s) down, eased t²(3−2t)): the
+ *  growth's rate eases to nothing at the hand, at the
+ *  zenith and at the mark, so the size never steps — it is
+ *  a continuous function of the road, laid over the frames'
+ *  seated content (which holds each frame's painted width
+ *  to the one measure) and multiplied by the level growth:
+ *  drawn size = standing size × sizeScaleForLevel × this. */
+export function shotGrowthScale(s: number): number {
+  const t = Math.min(1, Math.max(0, s));
+  const climb = t <= 0.5 ? t * 2 : (1 - t) * 2;
+  const eased = climb * climb * (3 - 2 * climb);
+  return SHOT_GROWTH_START + (1 - SHOT_GROWTH_START) * eased;
 }
 
 /** The arc's shape for one shot: given the chord (dx, dy in

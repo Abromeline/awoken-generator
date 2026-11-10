@@ -45,7 +45,13 @@
 //      2026-11-10. A drawn width here is the shard's seated
 //      frame — the host <svg data-shard-frame> the painted
 //      content fills — never the raw <image>, whose own
-//      box is the frame's whole canvas);
+//      box is the frame's whole canvas. RESTATED for the
+//      growth to the zenith, Nigel 2026-11-10: a shot's
+//      width now grows along its road — half at the hand,
+//      full at the zenith — so a flight's width is read at
+//      its PEAK, the full size the level law names; the
+//      growth's own proof is drive-launched-shot-proof's
+//      §G, this section keeps the level law's comparison);
 //   §C the drawn road ARCS: the flight's mid samples rise
 //      ABOVE the straight chord between its ends by a
 //      real margin (the chord between two same-row hexes
@@ -283,24 +289,23 @@ ok("§B the size law grows with level (L1 = 1, L10 ≈ 1.44, and the 1.5× cap b
    Awoken's or the Tender's stand). The §A/§B/§C readings
    take the tracks that end at a Fray; §D takes the tracks
    that begin at one.
-   CHAINING UNDER THIS LAW: a shard's drawn image is its
-   frame rect, and the arc + the law's sizes move that
-   rect's centre off the road's centre as frames change —
-   consecutive samples of one flight can jump ~100 px
-   between recorder ticks while neighbouring flights run
-   ~50 px apart on this crowded field, so position-only
-   chaining welds strangers into false tracks and splits
-   true ones. The chaining below therefore carries a
-   flight's IDENTITY with it: samples whose widths agree
-   (a flight's width is its firer's level signature, fixed
-   for its whole life) chain first, and a link must also
-   keep the track's own heading — a shard flies one road,
-   it never doubles back. The Push-45 drives chain by
-   element identity (the homeland recorder) or by flight
-   road on sparser fields; this crowded three-firer field
-   needs the width + heading discipline. ═══════════════ */
+   CHAINING UNDER THIS LAW — RESTATED for the growth to
+   the zenith (Nigel, 2026-11-10): the chaining once
+   carried a flight's identity in its WIDTH — a flight's
+   width was its firer's level signature, fixed for its
+   whole life, and samples whose widths agreed chained
+   first under a heading discipline. That signature is
+   gone by law: a shot's width now GROWS along its road
+   (half at the hand, full at the zenith), so width
+   agreement would split every true flight at its own
+   growth. Identity now rides the DOM node itself — the
+   recorder stamps each seated frame's host with an id on
+   first sight (the launched-shot proof's discipline, on
+   this same surface), and samples chain by that id alone.
+   The count can only overstate flights (a remounted node
+   is sighted as a new flight), never weld strangers. ═══ */
 await page.evaluate(() => {
-  const rec = { ticks: [] };
+  const rec = { ticks: [], nextId: 1 };
   window.__flightRec = rec;
   rec.iv = setInterval(() => {
     const tick = { t: performance.now(), shards: [], frays: [] };
@@ -318,53 +323,22 @@ await page.evaluate(() => {
       // centred on the road's point, where the raw <image>
       // inside it spans the frame's whole canvas.
       const host = im.closest("svg[data-shard-frame]") ?? im;
+      if (!host.dataset.flightId) host.dataset.flightId = String(rec.nextId++);
       const r = host.getBoundingClientRect();
-      tick.shards.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: Number(host.getAttribute("width")) });
+      tick.shards.push({ id: Number(host.dataset.flightId), cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: Number(host.getAttribute("width")) });
     }
     rec.ticks.push(tick);
   }, 25);
 });
 
 const trackOf = (ticks) => {
-  const all = [];
-  for (const tk of ticks) for (const s of tk.shards) all.push({ ...s, t: tk.t, frays: tk.frays });
-  all.sort((a, b) => a.t - b.t);
-  const tracks = [];
-  for (const s of all) {
-    let best = null, bestScore = Infinity;
-    for (const tr of tracks) {
-      const last = tr[tr.length - 1];
-      if (s.t - last.t > 900 || s.t <= last.t) continue;
-      // A flight's drawn width is its firer's level
-      // signature — fixed for the flight's whole life.
-      if (Math.abs(s.w - last.w) > 1) continue;
-      const d = Math.hypot(s.cx - last.cx, s.cy - last.cy);
-      // A shard flies one road: once a track has a heading,
-      // the next sample must continue it, never reverse it.
-      if (tr.length >= 2) {
-        const prev = tr[tr.length - 2];
-        const hx = last.cx - prev.cx, hy = last.cy - prev.cy;
-        const hl = Math.hypot(hx, hy);
-        if (hl > 4) {
-          const dot = (hx * (s.cx - last.cx) + hy * (s.cy - last.cy)) / hl;
-          if (dot < -12) continue;
-        }
-      }
-      // Prefer continuing the track whose road this sample
-      // lies on (perpendicular miss), then nearness.
-      let perp = d;
-      if (tr.length >= 2) {
-        const prev = tr[tr.length - 2];
-        const hx = last.cx - prev.cx, hy = last.cy - prev.cy;
-        const hl = Math.hypot(hx, hy) || 1;
-        perp = Math.abs(hx * (s.cy - last.cy) - hy * (s.cx - last.cx)) / hl;
-      }
-      const score = perp * 3 + d * 0.25;
-      if (score < bestScore) { bestScore = score; best = tr; }
-    }
-    if (best) best.push(s); else tracks.push([s]);
+  const byId = new Map();
+  for (const tk of ticks) for (const s of tk.shards) {
+    if (s.id == null) continue;
+    if (!byId.has(s.id)) byId.set(s.id, []);
+    byId.get(s.id).push({ ...s, t: tk.t, frays: tk.frays });
   }
-  return tracks;
+  return [...byId.values()].map(tr => tr.sort((a, b) => a.t - b.t));
 };
 const watchDeadline = Date.now() + 60000;
 let tracks = [];
@@ -379,16 +353,19 @@ while (Date.now() < watchDeadline) {
   const nearF = (s, tol) => s.frays.some(f => Math.hypot(s.cx - f.cx, s.cy - f.cy) < tol);
   const pl = raw.filter(tr => nearF(tr[tr.length - 1], 70));
   const dk = raw.filter(tr => nearF(tr[0], 45) && !nearF(tr[tr.length - 1], 70));
-  const widths = pl.map(tr => tr[0].w);
+  // A flight's width is read at its peak now (the growth
+  // to the zenith — see the chaining note): readiness asks
+  // for a level-10 peak past 200 and a level-1 peak on 144.
+  const widths = pl.map(tr => Math.max(...tr.map(s => s.w)));
   tracks = raw;
-  if (pl.length >= 3 && dk.length >= 1 && widths.some(w => w > 200) && widths.some(w => w === 144)) break;
+  if (pl.length >= 3 && dk.length >= 1 && widths.some(w => w > 200) && widths.some(w => Math.abs(w - 144) <= 3)) break;
 }
 const rec = await page.evaluate(() => { clearInterval(window.__flightRec.iv); return window.__flightRec; });
 clearInterval(stillIv);
 tracks = trackOf(rec.ticks).filter(tr => tr.length >= 6 && tr[tr.length - 1].t - tr[0].t >= 280);
 await page.screenshot({ path: join(OUT, "flight-law-end.png") }).catch(() => {});
 await browser.close();
-console.log(`recorded ${tracks.length} flight track(s): lives ${tracks.map(tr => Math.round(tr[tr.length - 1].t - tr[0].t)).join(", ")} ms; widths ${tracks.map(tr => Math.round(tr[0].w)).join(", ")}`);
+console.log(`recorded ${tracks.length} flight track(s): lives ${tracks.map(tr => Math.round(tr[tr.length - 1].t - tr[0].t)).join(", ")} ms; peak widths ${tracks.map(tr => Math.round(Math.max(...tr.map(s => s.w)))).join(", ")}`);
 
 /* ══ THE READINGS ═══════════════════════════════════════ */
 // A flight that ends AT a Fray is a placement's shard; one
@@ -400,14 +377,30 @@ const livesOf = (trs) => trs.map(tr => tr[tr.length - 1].t - tr[0].t);
 
 // §B — a level-10 firer's shard stands wider than a
 // level-1 firer's: the widest placement track against the
-// standing-size ones. (The drawn width is the law's size
-// made visible: 144 × 1.44 ≈ 208 against 144.)
-const widths = placementTracks.map(tr => median(tr.map(s => s.w)));
+// standing-size ones. (RESTATED for the growth to the
+// zenith, 2026-11-10: the drawn width is the law's size
+// made visible AT THE ZENITH — each track's peak width,
+// its full size: 144 × 1.44 ≈ 208 against 144. The
+// median-of-flight reading stood while a width was fixed
+// for a flight's whole life; under the growth it would
+// read the curve's middle, not the size law's number.
+// A sampled peak can only UNDER-read the zenith — the
+// recorder is starved by the map's render weight, and a
+// flight sighted ~8 times can miss the zenith's exact
+// frame — so the level-1 measure is judged as WITNESSED
+// (some level-1 track peaks on it, 140–146) with a floor
+// under every track's peak (≥128: each flight's zenith
+// neighbourhood, growth ≥ ~0.89, was flown), while the
+// widest must land on the level-10 measure (195–212).
+// The growth curve's precision is the launched-shot
+// proof's §G; this section keeps the level comparison.)
+const widths = placementTracks.map(tr => Math.max(...tr.map(s => s.w)));
 const widest = Math.max(...widths), narrowest = Math.min(...widths);
-console.log(`  placement track widths: ${widths.map(w => Math.round(w)).join(", ")}`);
-ok("§B a level-10 firer's shard stands wider than a level-1 firer's (the law's ~1.44×: ~208 against 144)",
-  widths.length >= 2 && widest >= 195 && narrowest === 144 && widest / narrowest >= 1.3,
-  `widest=${widest.toFixed(0)} narrowest=${narrowest.toFixed(0)}`);
+const l1Witnessed = widths.some(w => w >= 140 && w <= 146);
+console.log(`  placement track peak widths: ${widths.map(w => Math.round(w)).join(", ")}`);
+ok("§B a level-10 firer's shard stands wider at its zenith than a level-1 firer's (the law's ~1.44×: ~208 against 144, each read at its peak — the level-1 measure witnessed on the measure, no flight's peak under 128)",
+  widths.length >= 2 && widest >= 195 && widest <= 212 && l1Witnessed && narrowest >= 128 && widest / 144 >= 1.35,
+  `widest=${widest.toFixed(0)} narrowest=${narrowest.toFixed(0)} l1=${l1Witnessed}`);
 
 // §C — the arc: on the longest placement track, the mid
 // samples rise above the straight chord between the

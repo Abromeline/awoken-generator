@@ -26,7 +26,7 @@ const BATTLE_TRACKS = [
 ];
 import { useEnemyArt, enemyImgFor } from "./enemyArt";
 import { FrayFaceImg } from "./EnemyFace";
-import { flightMsForPace, sizeScaleForLevel } from "./flightLaw";
+import { flightMsForPace, sizeScaleForLevel, shotGrowthScale } from "./flightLaw";
 
 interface Defender {
   placementId: number;
@@ -115,6 +115,8 @@ interface Projectile {
   arc?: boolean;           // lobbed shots fly a high arc; every shot obeys gravity
   duration: number;        // ms of flight
   sizeScale?: number;      // THE FLIGHT LAW (2026-11-07): the firer's level growth on the drawn shot (1 = the standing size)
+  grows?: boolean;         // THE GROWTH TO THE ZENITH (Nigel, 2026-11-10): an Awoken's shot grows from half at the hand to its full size at the arc's zenith (flightLaw's shotGrowthScale) — set only for an Awoken's shot; the enemy's answering shot keeps its standing size
+  tailTint?: string;       // THE TAIL'S TINT (Nigel, 2026-11-10): the shot's element colour (the LIVE palette colour of the Awoken's dominant element — the same colour the shot's `color` already wears) — ProjectileFlight streams it as a soft wake behind the sprite's tail; set only for an Awoken's sprite shot
 }
 
 /** One projectile in flight, driven frame-by-frame with true
@@ -159,10 +161,20 @@ function ProjectileFlight({ p }: { p: Projectile }) {
         // swell is STRUCK — the sprite once grew a tenth
         // again toward the arc's top (0.9 + 0.2·sin(π·s),
         // a keepsake of the CSS flight), so the shot read
-        // as swelling rather than launched. It now rides at
-        // its one scale — the firer's level growth and
-        // nothing else — from the hand to the mark.
-        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${p.sizeScale ?? 1})`;
+        // as swelling rather than launched. THE GROWTH TO
+        // THE ZENITH (Nigel, 2026-11-10, correcting the
+        // launched shot the same day): that swell stays
+        // struck — it peaked PAST the standing size, for
+        // every shot alike — and in its place an Awoken's
+        // shot (p.grows) rides the flight law's own growth:
+        // half its size at the hand, growing smoothly to
+        // the full of it at the zenith and mirrored down,
+        // never past full (shotGrowthScale in flightLaw.ts),
+        // multiplied by the firer's level growth. The
+        // sprite's nose keeps the tangent below the whole
+        // way, so it points along its flight while it grows.
+        const growth = p.grows ? shotGrowthScale(s) : 1;
+        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${(p.sizeScale ?? 1) * growth})`;
       }
       const spin = spinRef.current;
       if (spin) spin.style.transform = `rotate(${Math.atan2(vy, vx)}rad)`;
@@ -173,9 +185,24 @@ function ProjectileFlight({ p }: { p: Projectile }) {
   }, [p]);
   return (
     <div ref={wrapRef} className="projectile" style={{ left: p.fx, top: p.fy, color: p.color }}>
-      {p.img
-        ? <img ref={(el) => { spinRef.current = el; }} className="proj-img" src={p.img} alt="" />
-        : <span ref={(el) => { spinRef.current = el; }} className="proj-glyph">{p.glyph}</span>}
+      {/* THE TAIL'S TINT (Nigel, 2026-11-10): the spin now
+          rides a wrapper that carries sprite and wake
+          together, so the wake turns on the same tangent
+          the sprite's nose holds. The wake is a soft
+          element-coloured glow confined to the sprite's
+          trailing side (the .proj-tail seat in theme.css:
+          behind the centre, reaching past the tail, never
+          over the head) — the head reads as his art, the
+          tail streams its element. Glyph shots (the
+          enemy's answer, the dagger) wear no wake. */}
+      <span ref={(el) => { spinRef.current = el; }} className="proj-spin">
+        {p.img && p.tailTint && (
+          <span className="proj-tail" style={{ background: `radial-gradient(ellipse at center, ${p.tailTint} 0%, ${p.tailTint}00 72%)` }} />
+        )}
+        {p.img
+          ? <img className="proj-img" src={p.img} alt="" />
+          : <span className="proj-glyph">{p.glyph}</span>}
+      </span>
     </div>
   );
 }
@@ -336,7 +363,7 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
     return { x: r.left - fr.left + r.width / 2, y: r.top - fr.top + r.height / 2 };
   };
 
-  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; img?: string; arc?: boolean; duration: number; sizeScale?: number; onImpact?: () => void }) => {
+  const spawnProjectile = (p: { fx: number; fy: number; tx: number; ty: number; glyph: string; color: string; img?: string; arc?: boolean; duration: number; sizeScale?: number; grows?: boolean; tailTint?: string; onImpact?: () => void }) => {
     const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setProjectiles(prev => [...prev, { ...p, id }]);
     later(p.duration, () => {
@@ -923,6 +950,8 @@ export default function Battleground({ defenders, thornWallTiles = [], watchtowe
         img: atk.side === "aw" ? PROJECTILE_GIF[shotEl] ?? PROJECTILE_GIF.unaligned : undefined,
         duration: atk.side === "aw" ? flightMsForPace(FLIGHT_MS, bgMarchSecondsPerHex(atk.awoken)) : FLIGHT_MS,
         sizeScale: atk.side === "aw" ? sizeScaleForLevel(bgLevelOf(atk.awoken)) : 1,
+        grows: atk.side === "aw",
+        tailTint: atk.side === "aw" && shotEl ? elementPalette[shotEl] : undefined,
         onImpact: impact,
       });
     });
