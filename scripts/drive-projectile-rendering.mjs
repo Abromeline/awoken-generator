@@ -27,9 +27,11 @@
 //      on the real map — every strike served fresh in the
 //      window is drawn (counted element by element); peak
 //      concurrent shards pass the old keep of 25; every
-//      shard's drawn width is 216 at level 1 (three times
-//      the first 72 — the FLIGHT LAW, 2026-11-07, grows it
-//      only with the firer's level); placement flights live
+//      shard's drawn width is 144 at level 1 (twice the
+//      first 72 — it stood at 216, three times, until the
+//      launched-shot fix, 2026-11-10; the FLIGHT LAW,
+//      2026-11-07, grows it only with the firer's level);
+//      placement flights live
 //      at their firers' pace (these Tide firers ≈ 915 ms by
 //      the law, against the old flat 1056), dark flights
 //      ~1584 ms (a third speed); flight starts are
@@ -43,9 +45,11 @@
 //      the struck 40-gate; every shot wears the Matter Shard
 //      face (hrefs name matter-shard, never proj-*), no SMIL
 //      rides the shots layer, the drawn width is the
-//      homeland's measure on this stage's hexes (160, at
-//      level 1), and light shots live at their Sky firers'
-//      pace (≈ 563 ms by the flight law).
+//      homeland's measure on this stage's hexes (144 ×
+//      40/54 ≈ 106.7, at level 1 — 160 until the
+//      launched-shot fix, 2026-11-10), and light shots
+//      live at their Sky firers' pace (≈ 563 ms by the
+//      flight law).
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-projectile-rendering.mjs
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -283,12 +287,19 @@ await page.evaluate(() => {
       const href = im.getAttribute("href") || "";
       if (!href.includes("matter-shard")) continue;
       concurrent++;
-      const r = im.getBoundingClientRect();
+      // The shard is measured by its seated frame — the
+      // host <svg data-shard-frame> the surface seats the
+      // frame's painted content in (the launched-shot fix,
+      // 2026-11-10): its box is the drawn measure, centred
+      // on the road's point, where the raw <image> inside
+      // spans the frame's whole canvas.
+      const host = im.closest("svg[data-shard-frame]") ?? im;
+      const r = host.getBoundingClientRect();
       const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
       const dFray = frays.length ? Math.min(...frays.map(f => Math.hypot(cx - f.cx, cy - f.cy))) : 9999;
       let f = rec.byEl.get(im);
       if (!f) {
-        f = { first: now, last: now, w: Number(im.getAttribute("width")), dFirst: dFray, dLast: dFray, hrefs: new Set() };
+        f = { first: now, last: now, w: Number(host.getAttribute("width")), dFirst: dFray, dLast: dFray, hrefs: new Set() };
         rec.byEl.set(im, f);
         rec.flights.push(f);
       }
@@ -343,7 +354,7 @@ console.log(`  browser window: served ${servedInWindow.length} strikes, drawn ${
 ok("§B1 every strike served fresh in the window is drawn on the map", drawnInWindow.length >= servedInWindow.length - 2 && servedInWindow.length >= 60,
   `drawn=${drawnInWindow.length} served=${servedInWindow.length}`);
 ok("§B2 peak concurrent shards pass the old keep of 25 — no live flight is dropped unseen", brec.peak >= 26, `peak=${brec.peak}`);
-ok("§B3 every level-1 shard stands three times its first size (drawn width 216) — the FLIGHT LAW (2026-11-07) grows a shard only with its firer's level, and every fighter here stands at level 1", brec.flights.length > 0 && brec.flights.every(f => f.w === 216),
+ok("§B3 every level-1 shard stands twice its first size (drawn width 144 — three times, 216, until the launched-shot fix, 2026-11-10) — the FLIGHT LAW (2026-11-07) grows a shard only with its firer's level, and every fighter here stands at level 1", brec.flights.length > 0 && brec.flights.every(f => f.w === 144),
   `widths=${[...new Set(brec.flights.map(f => f.w))].join(",")}`);
 const completed = brec.flights.filter(f => f.last < recEndWall - 200 && f.last - f.first > 300);
 const darkFlights = completed.filter(f => f.dFirst < 45);
@@ -501,7 +512,7 @@ await tpage.evaluate(() => {
       const href = im.getAttribute("href") || "";
       if (!href.includes("matter-shard")) rec.badHref++;
       let s = rec.byEl.get(im);
-      if (!s) { s = { first: now, last: now, w: Number(im.getAttribute("width")), href }; rec.byEl.set(im, s); rec.shots.push(s); }
+      if (!s) { s = { first: now, last: now, w: Number((im.closest("svg[data-shard-frame]") ?? im).getAttribute("width")), href }; rec.byEl.set(im, s); rec.shots.push(s); }
       s.last = now;
     }
     rec.concurrent = n;
@@ -645,7 +656,7 @@ ok("§T4 the served ledger outgrows the struck 40-gate — no struck blow is dro
 ok("§T1 every shot wears the homeland's Matter Shard face — no element-GIF bolt remains in the layer", trec.shots.length > 0 && trec.badHref === 0 && trec.shots.every(s => s.href.includes("matter-shard")),
   `shots=${trec.shots.length} badHref=${trec.badHref}`);
 ok("§T1 no SMIL rides the shots layer (the old bolts' animateMotion is struck)", trec.smil === 0, `smil samples=${trec.smil}`);
-ok("§T2 every level-1 shot stands at the homeland's measure on this stage's hexes (drawn width 160) — the FLIGHT LAW (2026-11-07) grows a shot only with its firer's level, and the Table's hands here stand at level 1", trec.shots.length > 0 && trec.shots.every(s => s.w === 160),
+ok("§T2 every level-1 shot stands at the homeland's measure on this stage's hexes (drawn width 144 × 40/54 ≈ 106.7 — 160 until the launched-shot fix, 2026-11-10) — the FLIGHT LAW (2026-11-07) grows a shot only with its firer's level, and the Table's hands here stand at level 1", trec.shots.length > 0 && trec.shots.every(s => Math.abs(s.w - 144 * 40 / 54) < 0.5),
   `widths=${[...new Set(trec.shots.map(s => s.w))].join(",")}`);
 const tCompleted = trec.shots.filter(s => s.last < lastServeWall && s.last - s.first > 300);
 const tLife = median(tCompleted.map(s => s.last - s.first));

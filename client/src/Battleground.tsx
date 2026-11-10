@@ -142,8 +142,11 @@ function ProjectileFlight({ p }: { p: Projectile }) {
     const dy = p.ty - p.fy;
     const dist = Math.hypot(dx, dy);
     // A lobbed shot climbs high; a direct shot still rises and falls
-    // a little under gravity rather than sliding along a ruler.
-    const peak = p.arc ? Math.max(90, dist * 0.35) : Math.max(26, dist * 0.12);
+    // under gravity rather than sliding along a ruler — its peak is
+    // the flight law's one measure (max(40, dist × 0.18); it stood
+    // at max(26, dist × 0.12) until the launched-shot fix,
+    // 2026-11-10, when even a short shot's arc read as a slide).
+    const peak = p.arc ? Math.max(90, dist * 0.35) : Math.max(40, dist * 0.18);
     const step = (now: number) => {
       const s = Math.min(1, (now - t0) / p.duration);
       const x = dx * s;
@@ -152,8 +155,14 @@ function ProjectileFlight({ p }: { p: Projectile }) {
       const vy = dy - 4 * peak * (1 - 2 * s); // the tangent's fall
       const el = wrapRef.current;
       if (el) {
-        const swell = 0.9 + 0.2 * Math.sin(Math.PI * s); // swells near the apex, as the CSS flight did
-        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${swell * (p.sizeScale ?? 1)})`;
+        // THE LAUNCHED SHOT (Nigel, 2026-11-10): the apex
+        // swell is STRUCK — the sprite once grew a tenth
+        // again toward the arc's top (0.9 + 0.2·sin(π·s),
+        // a keepsake of the CSS flight), so the shot read
+        // as swelling rather than launched. It now rides at
+        // its one scale — the firer's level growth and
+        // nothing else — from the hand to the mark.
+        el.style.transform = `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${p.sizeScale ?? 1})`;
       }
       const spin = spinRef.current;
       if (spin) spin.style.transform = `rotate(${Math.atan2(vy, vx)}rad)`;

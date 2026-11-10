@@ -75,7 +75,7 @@ import AspectCelebration from "./AspectCelebration";
 import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
-import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS, shardFrameViewBox } from "./matterShard";
 import { flightMsForPace, sizeScaleForLevel, arcPoint } from "./flightLaw";
 import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
@@ -529,6 +529,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // 2026-10-18); null lets the popup rest on the first free wedge.
   const [pendingWedge, setPendingWedge] = useState<number | null>(null);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
+  // The latest served world's mirror for the strike
+  // flights' late endpoint sample (the launched-shot fix,
+  // 2026-11-10): a flight's mark is re-read from these at
+  // the moment its staggered start arrives.
+  const tilesRef = useRef(tiles);
+  tilesRef.current = tiles;
   // MARCHING ISLANDS (Nigel, 2026-11-09): the land's live
   // island orders, served with every snapshot — the map
   // drifts each marching group between hexes and traces its
@@ -565,6 +571,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   };
 
   const [placements, setPlacements] = useState<FieldPlacement[]>([]);
+  const placementsRef = useRef(placements);
+  placementsRef.current = placements;
   // THE WHEEL'S SUMMON COMPANY (the summoning fix, Nigel
   // 2026-10-22): who the wheel's Awoken branch can call —
   // served by getTerritory with the field (summonCompanyFor
@@ -669,6 +677,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // since the homeland weapon referee (Nigel, 2026-10-20), with
   // the wound track his weapon writes on them.
   const [wanderers, setWanderers] = useState<{ id: number; tileId: number; kind: string; posQ: number; posR: number; hp?: number; maxHp?: number }[]>([]);
+  const wanderersRef = useRef(wanderers);
+  wanderersRef.current = wanderers;
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): what the felled dark leaves behind,
   // carried on the Tender's back — served by every
@@ -747,7 +757,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // flights start at their TRUE MOMENTS in the batch (the
   // stagger in matterShard.ts), never all born at the read.
   // A placement's shard runs at half speed (1056 ms) and
-  // stands three times its first size; the keep below holds
+  // stands twice its first size (three times, until the
+  // launched-shot fix, 2026-11-10); the keep below holds
   // every live flight of the ruled density — it once held
   // 25, and the eldest live flight fell unseen.
   const STRIKE_FLIGHT_KEEP = 240;
@@ -801,6 +812,50 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const wait = Math.max(0, startsAt - now);
       const id = `strike-${s.id}`;
       setStrikeFlights(prev => [...prev.slice(-(STRIKE_FLIGHT_KEEP - 1)), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", startsAt, flightMs, dark, level }]);
+      // THE MARK, READ AT THE LAUNCH (the launched-shot
+      // fix, 2026-11-10): the endpoint above is the mark's
+      // stand as the delivering read reckoned it — but a
+      // staggered flight is born up to the span (2.6 s)
+      // before it flies, and the mark walks meanwhile, so
+      // the shot dove onto the ground the enemy had left.
+      // At the flight's own starting moment the mark is
+      // re-read from the latest world the page holds — the
+      // wanderer a placement struck, the placement or the
+      // Tender a dark blow bit — and the flight is re-aimed
+      // at that stand. It is a sample, not a pursuit: from
+      // its first drawn frame the road is fixed again, and
+      // a mark already gone from the field leaves the road
+      // as the read reckoned it. A flight born at its own
+      // moment (no wait) already stands on the freshest
+      // reckoning there is, and keeps it.
+      if (wait > 0) {
+        setTimeout(() => {
+          const lt = tilesRef.current;
+          const ptOf = (tileId: number, q: number, r: number) => {
+            const t = lt.find(x => x.id === tileId);
+            if (!t) return null;
+            const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
+            const dp = isoOffset(q, r, size);
+            const dc = isoOffset(t.q, t.r, size);
+            return { x: c.cx + (dp.px - dc.px), y: c.cy + (dp.py - dc.py) };
+          };
+          let mark: { x: number; y: number } | null = null;
+          if (!dark) {
+            const w = wanderersRef.current.find(x => x.id === s.wandererId);
+            if (w) mark = ptOf(w.tileId, w.posQ, w.posR);
+          } else if (s.awakenedId > 0) {
+            const p = placementsRef.current.find(x => x.awakenedId === s.awakenedId);
+            if (p) {
+              if (p.posQ != null && p.posR != null) mark = ptOf(p.tileId, p.posQ, p.posR);
+              else { const t = lt.find(x => x.id === p.tileId); if (t) mark = ptOf(t.id, t.q, t.r); }
+            }
+          } else {
+            const ts = tenderStandRef.current;
+            if (ts) { const t = lt.find(x => x.id === ts.tileId); if (t) mark = ptOf(t.id, t.q, t.r); }
+          }
+          if (mark) setStrikeFlights(prev => prev.map(f => f.id === id ? { ...f, tx: mark.x, ty: mark.y } : f));
+        }, wait);
+      }
       setTimeout(() => setStrikeFlights(prev => prev.filter(f => f.id !== id)), wait + flightMs + 60);
       // THE STRIKE'S VOICE (Nigel, 2026-10-26: "add these
       // sounds for he elemental attacks"): the loosed
@@ -8907,21 +8962,21 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             // from marchNow — the position walked from the
             // striker's point to the mark's over the flight's
             // life, the head turned onto the road, the one
-            // frame of the elapsed slice shown, rising,
-            // holding and fading inside its slice exactly as
-            // the old per-frame <animate> shaped it (0→1 by
-            // 0.3 of the slice, held to 0.7, out by its end).
-            // The tint, the miss's fade and the frames
-            // themselves are untouched; only the hand that
-            // moves them changed, because SMIL's hand does
-            // not move on iPad Safari.
+            // frame of the elapsed slice shown. The tint, the
+            // miss's fade and the frames themselves are
+            // untouched; only the hand that moves them
+            // changed, because SMIL's hand does not move on
+            // iPad Safari. (The rise-hold-fade inside each
+            // slice that the SMIL shaped and the 2026-10-27
+            // fix kept was struck by the launched-shot fix,
+            // 2026-11-10 — see THE LAUNCHED SHOT below.)
             // THE PACE AND THE SIZE (the projectile rendering
             // fix, 2026-10-27): the flight's life is its own
             // measure now — half speed for a placement's
             // shard, a third speed for a dark blow (the six
-            // frames stretched evenly across it, each slice
-            // keeping the rise-hold-fade shape) — the shard
-            // stands three times its first size, and a flight
+            // frames stretched evenly across it) — the shard
+            // stands twice its first size (three times, until
+            // the launched-shot fix lowered it), and a flight
             // whose staggered moment has not yet come is not
             // drawn at all.
             // THE FLIGHT LAW (Nigel, 2026-11-07) rides on
@@ -8946,15 +9001,30 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             const heading = arc ? arc.headingDeg : Math.atan2(f.ty - f.fy, f.tx - f.fx) * 180 / Math.PI;
             const sliceMs = f.flightMs / MATTER_SHARD_FRAMES.length;
             const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / sliceMs));
-            const within = Math.min(1, Math.max(0, (elapsed - slice * sliceMs) / sliceMs));
-            const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
+            // THE LAUNCHED SHOT (Nigel, 2026-11-10): the
+            // per-slice rise-hold-fade is STRUCK — it swelled
+            // the shard in at the firer's hand six times a
+            // flight, so the shot read as growing out of her
+            // rather than loosed by her. The shard now stands
+            // at full presence from its first frame to its
+            // last, softened only at the flight's own two
+            // ends (the first and last six percent of the
+            // road). And the frame is seated through its
+            // painted content box (shardFrameViewBox in
+            // matterShard.ts): every frame's painted width
+            // fills the one drawn measure and its painted
+            // centre rides this point, so the shot's width
+            // never breathes with the open-close cycle.
+            const fade = road < 0.06 ? road / 0.06 : road > 0.94 ? (1 - road) / 0.06 : 1;
             if (fade <= 0) return null;
             const sizeScale = f.dark ? 1 : sizeScaleForLevel(f.level);
             const drawW = SHARD_DRAW_W * sizeScale, drawH = SHARD_DRAW_H * sizeScale;
             return (
               <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
-                <image href={MATTER_SHARD_FRAMES[slice]} x={-drawW / 2} y={-drawH / 2} width={drawW} height={drawH} opacity={fade}
-                  filter={tint ? `url(#${tint})` : undefined} />
+                <svg data-shard-frame="" x={-drawW / 2} y={-drawH / 2} width={drawW} height={drawH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
+                  <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
+                    filter={tint ? `url(#${tint})` : undefined} />
+                </svg>
               </g>
             );
           })}
