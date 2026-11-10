@@ -50,14 +50,60 @@ export function shardFlightMsFor(dark: boolean): number {
   return dark ? SHARD_FLIGHT_DARK_MS : SHARD_FLIGHT_SLOW_MS;
 }
 
-/** THE SHARD'S DRAWN SIZE (the same rulings): every
- * projectile stands THREE TIMES the size it first shipped
- * at — the frame once drew 72 × 38 land units; it now
- * draws 216 × 114, on the homeland and at the Table alike
+/** THE SHARD'S DRAWN SIZE (the same rulings, amended by
+ * the launched-shot fix, Nigel 2026-11-10): every
+ * projectile stands TWICE the size it first shipped at —
+ * the frame once drew 72 × 38 land units, then THREE
+ * times (216 × 114) by the 2026-10-25 ruling; Nigel's
+ * play found that "way too big", and it now draws
+ * 144 × 76, on the homeland and at the Table alike
  * (the Table's seat scales this measure onto its own
  * hexes when it draws there). */
-export const SHARD_DRAW_W = 216;
-export const SHARD_DRAW_H = 114;
+export const SHARD_DRAW_W = 144;
+export const SHARD_DRAW_H = 76;
+
+/** THE FRAMES' PAINTED CONTENT (measured from the bundled
+ * PNGs at the launched-shot fix, 2026-11-10): each frame's
+ * content bounding box in its 512 × 273 canvas, as
+ * { x, y, w, h } in source pixels. The six frames are one
+ * open-close cycle (1, 2, 3, 3, 2, 1 by content): the end
+ * frames carry 437 px of painted width, the middle frames
+ * 274–282 px, and the middle frames' paint sits high and
+ * toward the head — so drawn raw, the shard stood widest
+ * at its birth and at its fall and narrow between, growing
+ * out of the Awoken's hand "like a large club" (Nigel,
+ * 2026-11-10). The art is NOT re-cut: each surface draws
+ * the frame through this box instead — the box is widened
+ * (never narrowed) to the drawn measure's own aspect so
+ * nothing painted is clipped, and seated in a viewport of
+ * exactly the drawn size, so every frame's painted width
+ * crosses the road at the same measure and its painted
+ * centre rides the road's point. The widest-boxed frame
+ * (the first) reads ~5% under the common measure; the rest
+ * read exact. */
+export const SHARD_FRAME_CONTENT: { x: number; y: number; w: number; h: number }[] = [
+  { x: 26, y: 18, w: 437, h: 242 },
+  { x: 204, y: 14, w: 282, h: 111 },
+  { x: 189, y: 38, w: 274, h: 81 },
+  { x: 189, y: 38, w: 274, h: 81 },
+  { x: 204, y: 14, w: 282, h: 111 },
+  { x: 26, y: 18, w: 437, h: 242 },
+];
+
+/** The viewBox a surface seats one frame's full canvas in
+ * so the frame's PAINTED width fills the drawn measure:
+ * the content box, widened about its own centre to the
+ * drawn aspect (SHARD_DRAW_W : SHARD_DRAW_H) wherever the
+ * paint is taller than that aspect allows — widening only,
+ * so no painted pixel is ever clipped. */
+export function shardFrameViewBox(slice: number): string {
+  const c = SHARD_FRAME_CONTENT[Math.min(SHARD_FRAME_CONTENT.length - 1, Math.max(0, slice))] ?? SHARD_FRAME_CONTENT[0];
+  const aspect = SHARD_DRAW_W / SHARD_DRAW_H;
+  const w = Math.max(c.w, c.h * aspect);
+  const h = w / aspect;
+  const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+  return `${(cx - w / 2).toFixed(2)} ${(cy - h / 2).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)}`;
+}
 
 /** THE STAGGER'S SPAN (the projectile rendering fix,
  * 2026-10-27): a settled batch's blows fly at their TRUE

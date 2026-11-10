@@ -40,10 +40,12 @@
 // root, the same tempering the march law puts on the same
 // growth ("speed divides by the square root of its
 // growth"), so the shot grows WITH her figure without
-// outgrowing it: Lv5 ≈ 1.18×, Lv10 ≈ 1.44×, Lv15 ≈ 1.77×,
-// and the 2× cap binds from Lv19 — the raw growth would
-// stand a Lv20 shot at ~2.17× her Lv1 size, and her whole
-// figure's growth (unsquare-rooted, ~4.7×) far beyond it.
+// outgrowing it: Lv5 ≈ 1.18×, Lv10 ≈ 1.44×, and the cap
+// binds from Lv11 — the cap stood at 2× (binding from
+// Lv19, raw Lv15 ≈ 1.77×) until the launched-shot fix
+// (Nigel, 2026-11-10: the shots are "way too big" — lower
+// the max growth per level); at 1.5× the raw growth's
+// ~2.17× at Lv20 never arrives.
 //
 // THE ARC: every Awoken shot flies the battle view's own
 // parabola (Battleground's ProjectileFlight, 2026-10-18):
@@ -56,8 +58,12 @@
 // grounds (the homeland's isometric map, the Table) the
 // chord is the straight road between the standing points
 // and the arc is a screen-space rise-and-fall laid over it.
-// A direct shot's peak follows the battle view's precedent:
-// max(26, dist × 0.12) in the surface's own units; a lobbed
+// A direct shot's peak stands at max(40, dist × 0.18) in
+// the surface's own units — it stood at max(26, dist ×
+// 0.12) until the launched-shot fix (Nigel, 2026-11-10:
+// shots should "arc with the path it's following"; at the
+// old measure a one-to-two-hex shot peaked at the floor
+// and read as a slide that fell, not a launch); a lobbed
 // shot (the battle view's arc class) keeps max(90, dist ×
 // 0.35).
 
@@ -79,20 +85,22 @@ export function flightMsForPace(anchorMs: number, paceSecondsPerHex: number): nu
 
 /** A shot's drawn scale at its firer's level: 1 at level 1,
  *  growing by the square root of the game's own per-level
- *  figure growth (×1.0848077 a level), capped at 2×. */
+ *  figure growth (×1.0848077 a level), capped at 1.5× (the
+ *  cap stood at 2× until the launched-shot fix, 2026-11-10:
+ *  Nigel — shots are "way too big", lower the max growth). */
 export function sizeScaleForLevel(level: number): number {
   const lv = Math.max(1, Math.floor(level) || 1);
-  return Math.min(2, Math.sqrt(Math.pow(1.0848077, lv - 1)));
+  return Math.min(1.5, Math.sqrt(Math.pow(1.0848077, lv - 1)));
 }
 
 /** The arc's shape for one shot: given the chord (dx, dy in
  *  the surface's own units) and the fraction s of the flight
  *  elapsed, the point on the parabola and its heading. The
- *  peak is the battle view's direct-shot precedent by
- *  default; pass `lobbed` for its high-arc class. */
+ *  peak is the direct-shot measure (max(40, dist × 0.18))
+ *  by default; pass `lobbed` for the high-arc class. */
 export function arcPoint(dx: number, dy: number, s: number, lobbed = false): { x: number; y: number; headingDeg: number } {
   const dist = Math.hypot(dx, dy);
-  const peak = lobbed ? Math.max(90, dist * 0.35) : Math.max(26, dist * 0.12);
+  const peak = lobbed ? Math.max(90, dist * 0.35) : Math.max(40, dist * 0.18);
   const x = dx * s;
   const y = dy * s - 4 * peak * s * (1 - s);
   const vx = dx;

@@ -40,7 +40,7 @@ import glyphBlade from "./assets/glyphs/blade.png";
 import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
-import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS } from "./matterShard";
+import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS, shardFrameViewBox } from "./matterShard";
 import { flightMsForPace, sizeScaleForLevel, arcPoint } from "./flightLaw";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import { brambleFrameAt, brambleMoteFrameAt, BRAMBLE_DRAW_W, BRAMBLE_ASPECT, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE } from "./brambleFx";
@@ -890,7 +890,8 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
    * after the first. */
   const SHOT_FRESH_MS = 2500;
   /** The shard's drawn size on this stage: the homeland
-   * draws it 216 × 114 against its 54-unit hex base; this
+   * draws it 144 × 76 against its 54-unit hex base (216 ×
+   * 114 until the launched-shot fix, 2026-11-10); this
    * stage's hex base is TILE_SIZE, and the shard keeps the
    * same measure against its own ground. */
   const SHOT_W = SHARD_DRAW_W * TILE_SIZE / 54;
@@ -4730,16 +4731,25 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   const heading = arc ? arc.headingDeg : Math.atan2(shot.to.y - shot.from.y, shot.to.x - shot.from.x) * 180 / Math.PI;
                   const sliceMs = shot.flightMs / MATTER_SHARD_FRAMES.length;
                   const slice = Math.min(MATTER_SHARD_FRAMES.length - 1, Math.floor(elapsed / sliceMs));
-                  const within = Math.min(1, Math.max(0, (elapsed - slice * sliceMs) / sliceMs));
-                  const fade = within < 0.3 ? within / 0.3 : within > 0.7 ? (1 - within) / 0.3 : 1;
+                  // THE LAUNCHED SHOT (Nigel, 2026-11-10), the
+                  // homeland's twin: the per-slice rise-hold-
+                  // fade is struck (the shard stands at full
+                  // presence from its first frame, softened
+                  // only at the flight's own ends), and the
+                  // frame is seated through its painted
+                  // content box, so its painted width never
+                  // breathes with the open-close cycle.
+                  const fade = road < 0.06 ? road / 0.06 : road > 0.94 ? (1 - road) / 0.06 : 1;
                   if (fade <= 0) return null;
                   const tint = shot.dark ? null : shardTintFilterId(shot.element);
                   const sizeScale = shot.dark ? 1 : sizeScaleForLevel(shot.level);
                   const shotW = SHOT_W * sizeScale, shotH = SHOT_H * sizeScale;
                   return (
                     <g key={shot.id} pointerEvents="none" opacity={shot.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
-                      <image href={MATTER_SHARD_FRAMES[slice]} x={-shotW / 2} y={-shotH / 2} width={shotW} height={shotH} opacity={fade}
-                        filter={tint ? `url(#${tint})` : undefined} />
+                      <svg data-shard-frame="" x={-shotW / 2} y={-shotH / 2} width={shotW} height={shotH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
+                        <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
+                          filter={tint ? `url(#${tint})` : undefined} />
+                      </svg>
                     </g>
                   );
                 })}

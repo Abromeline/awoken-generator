@@ -16,12 +16,14 @@
 //   and pace is the firer's own march pace (MARCH SPEED
 //   LAW: sky 1.6 · fire 2.2 · tide 2.6 · root 3.2 · stone
 //   4.5 s/hex, level-weighted);
-//   size scale = sqrt(1.0848077^(level−1)), capped at 2×
+//   size scale = sqrt(1.0848077^(level−1)), capped at 1.5×
 //   (the game's own figure growth, square-root tempered as
-//   the march law tempers it — the cap binds from L19);
+//   the march law tempers it — the cap stood at 2×, binding
+//   from L19, until the launched-shot fix, 2026-11-10);
 //   the arc is the battle view's parabola — the drawn
 //   point rises −4·peak·s·(1−s) over the chord, peak =
-//   max(26, dist × 0.12) for a direct shot.
+//   max(40, dist × 0.18) for a direct shot (max(26, dist ×
+//   0.12) until the same fix).
 // Dark / enemy flights are not the law's: their pace
 // (1584 ms on the flat grounds) and size stand untouched.
 //
@@ -38,14 +40,21 @@
 //      band, as her march does;
 //   §B a LEVEL-10 firer's shard stands WIDER on the map
 //      than a LEVEL-1 firer's (drawn widths: the law's
-//      ~1.44× — 216 × 1.44 ≈ 312 against 216);
+//      ~1.44× — 144 × 1.44 ≈ 208 against 144; the standing
+//      measure stood at 216 until the launched-shot fix,
+//      2026-11-10. A drawn width here is the shard's seated
+//      frame — the host <svg data-shard-frame> the painted
+//      content fills — never the raw <image>, whose own
+//      box is the frame's whole canvas);
 //   §C the drawn road ARCS: the flight's mid samples rise
 //      ABOVE the straight chord between its ends by a
 //      real margin (the chord between two same-row hexes
 //      is near-level, so the rise is the arc's own);
 //   §D a DARK blow still flies its ruled third speed
-//      (~1584 ms) at its standing size (216) — the law
-//      never touched it.
+//      (~1584 ms) at its standing size (144 — the one
+//      standing measure, lowered with every shard by the
+//      launched-shot fix); no level growth rides it, as
+//      the law always held.
 // The drawn lives of individual flights are NOT read
 // comparatively here, deliberately: this field's witness
 // is the homeland's dense-battle one, where the Push-45
@@ -239,7 +248,9 @@ await sleep(300);
    √growth weighting is 1 there): sky 1.6, stone 4.5,
    stone at level 10 weighted by √(1.0848077^9) ≈ 1.44 →
    6.5. The size law: √(1.0848077^(level−1)) — level 1 is
-   1, level 10 ≈ 1.44, and the 2× cap binds from level 19.
+   1, level 10 ≈ 1.44, and the 1.5× cap binds from level
+   11 (2×, binding from level 19, until the launched-shot
+   fix, 2026-11-10).
    (The drawn flight lives that §B/§C/§D below measure are
    the surface's sampled shadow of these numbers — the
    homeland witness flies them at these exact measures;
@@ -248,7 +259,7 @@ await sleep(300);
 const LAW = {
   anchor: 1056, neutral: 3.0, min: 450, max: 2400,
   flight: (pace) => Math.round(Math.min(2400, Math.max(450, 1056 * pace / 3.0))),
-  size: (lv) => Math.min(2, Math.sqrt(Math.pow(1.0848077, Math.max(1, lv) - 1))),
+  size: (lv) => Math.min(1.5, Math.sqrt(Math.pow(1.0848077, Math.max(1, lv) - 1))),
 };
 const skyMs = LAW.flight(1.6), stoneMs = LAW.flight(4.5), stone10Ms = LAW.flight(4.5 * Math.sqrt(Math.pow(1.0848077, 9)));
 console.log(`  the law's measures: sky L1 ${skyMs} ms · stone L1 ${stoneMs} ms · stone L10 ${stone10Ms} ms (pace-weighted, banded)`);
@@ -257,8 +268,8 @@ ok("§A a stone Awoken's flight is longer than a sky Awoken's for the same shot 
   `sky=${skyMs} stone=${stoneMs}`);
 ok("§A a veteran's flight slows with her size, as her march does (stone L10 pace-weighted past her L1 measure, inside the band)",
   stone10Ms > stoneMs && stone10Ms <= 2400, `stone10=${stone10Ms}`);
-ok("§B the size law grows with level (L1 = 1, L10 ≈ 1.44, and the 2× cap binds before L20's raw 1.93 is outgrown)",
-  LAW.size(1) === 1 && Math.abs(LAW.size(10) - 1.4428) < 0.01 && LAW.size(19) > 1.85 && LAW.size(20) === 2,
+ok("§B the size law grows with level (L1 = 1, L10 ≈ 1.44, and the 1.5× cap binds from L11 — it stood at 2× until the launched-shot fix, 2026-11-10)",
+  LAW.size(1) === 1 && Math.abs(LAW.size(10) - 1.4428) < 0.01 && LAW.size(10) < 1.5 && LAW.size(11) === 1.5 && LAW.size(20) === 1.5,
   `L1=${LAW.size(1)} L10=${LAW.size(10).toFixed(3)} L19=${LAW.size(19).toFixed(3)} L20=${LAW.size(20).toFixed(3)}`);
 
 /* ══ THE RECORDER: every 25 ms, every Matter shard image
@@ -300,8 +311,15 @@ await page.evaluate(() => {
         tick.frays.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2 });
       }
       if (!href.includes("matter-shard")) continue;
-      const r = im.getBoundingClientRect();
-      tick.shards.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: Number(im.getAttribute("width")) });
+      // The shard is measured by its seated frame — the
+      // host <svg data-shard-frame> the surface seats the
+      // frame's painted content in (the launched-shot fix,
+      // 2026-11-10): its box is the drawn measure itself,
+      // centred on the road's point, where the raw <image>
+      // inside it spans the frame's whole canvas.
+      const host = im.closest("svg[data-shard-frame]") ?? im;
+      const r = host.getBoundingClientRect();
+      tick.shards.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: Number(host.getAttribute("width")) });
     }
     rec.ticks.push(tick);
   }, 25);
@@ -363,7 +381,7 @@ while (Date.now() < watchDeadline) {
   const dk = raw.filter(tr => nearF(tr[0], 45) && !nearF(tr[tr.length - 1], 70));
   const widths = pl.map(tr => tr[0].w);
   tracks = raw;
-  if (pl.length >= 3 && dk.length >= 1 && widths.some(w => w > 300) && widths.some(w => w === 216)) break;
+  if (pl.length >= 3 && dk.length >= 1 && widths.some(w => w > 200) && widths.some(w => w === 144)) break;
 }
 const rec = await page.evaluate(() => { clearInterval(window.__flightRec.iv); return window.__flightRec; });
 clearInterval(stillIv);
@@ -383,12 +401,12 @@ const livesOf = (trs) => trs.map(tr => tr[tr.length - 1].t - tr[0].t);
 // §B — a level-10 firer's shard stands wider than a
 // level-1 firer's: the widest placement track against the
 // standing-size ones. (The drawn width is the law's size
-// made visible: 216 × 1.44 ≈ 312 against 216.)
+// made visible: 144 × 1.44 ≈ 208 against 144.)
 const widths = placementTracks.map(tr => median(tr.map(s => s.w)));
 const widest = Math.max(...widths), narrowest = Math.min(...widths);
 console.log(`  placement track widths: ${widths.map(w => Math.round(w)).join(", ")}`);
-ok("§B a level-10 firer's shard stands wider than a level-1 firer's (the law's ~1.44×: ~312 against 216)",
-  widths.length >= 2 && widest >= 290 && narrowest === 216 && widest / narrowest >= 1.3,
+ok("§B a level-10 firer's shard stands wider than a level-1 firer's (the law's ~1.44×: ~208 against 144)",
+  widths.length >= 2 && widest >= 195 && narrowest === 144 && widest / narrowest >= 1.3,
   `widest=${widest.toFixed(0)} narrowest=${narrowest.toFixed(0)}`);
 
 // §C — the arc: on the longest placement track, the mid
@@ -424,8 +442,8 @@ console.log(`  dark tracks: ${darkTracks.length}; lives: ${dLives.map(Math.round
 ok("§D a dark blow still flies its ruled third speed (drawn life ~1584 ms)",
   dLives.length >= 1 && median(dLives) >= 1200 && median(dLives) <= 1900,
   `n=${dLives.length} median=${Math.round(median(dLives))}ms`);
-ok("§D a dark blow still stands at its standing size (drawn width 216 — no level growth rides it)",
-  dWidths.length >= 1 && dWidths.every(w => w === 216),
+ok("§D a dark blow still stands at its standing size (drawn width 144 — no level growth rides it)",
+  dWidths.length >= 1 && dWidths.every(w => w === 144),
   `widths=${dWidths.map(w => Math.round(w)).join(",")}`);
 
 console.log(`\nPROJECTILE FLIGHT DRIVE: ${pass} passed, ${fail} failed`);
