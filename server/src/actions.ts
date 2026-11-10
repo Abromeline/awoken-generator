@@ -42,7 +42,7 @@ import { castModFor, partyBattleSeatFor } from "./table.js";
 // bindings are only ever called at request time, long after
 // both modules stand).
 import { roomSeatsOnLand, moveRoomSeatStand, roomPackForLand, nextRoomPackSeat, roomPackSetMode, noteRoomTale, roomLandLastSeatSeenAt, type RoomPackMode } from "./rooms.js";
-import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+import { enemyACFor, enemyArmorBonus, strikeTargetAcFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 // THE ABILITIES SECTION (Nigel, 2026-10-29): the ability
 // registry's server copy — the cast gates below judge by its
 // requirement table, the twin of the client's (client/src/
@@ -5497,9 +5497,23 @@ async function skillTreeState(ownerKey: string) {
  * other way) — test60 holds the two copies to the same reading,
  * cell for cell, so the mirror can never quietly drift. */
 export const HOMELAND_WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6, arrow: 4 };
-export const HOMELAND_WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
+/** RANGES DOUBLED (Nigel, 2026-11-10): the shot reaches
+ *  doubled — the arrow 4 → 8, the element reaches below
+ *  doubled with it, and the casting ring (HOMELAND_CAST_RING)
+ *  6 → 12 — while MELEE REACH DOES NOT DOUBLE, his words the
+ *  same morning. The melee set is NAMED here, in one place,
+ *  because the code carries no melee flag: swordshield (1),
+ *  sword (1) and SPEAR (2 — ruled explicitly: "spear stays
+ *  2", a polearm's length, held, not loosed) among the
+ *  weapons, and STONE (1) among the elements. Those values
+ *  did not move; everything above them did. The next hand
+ *  that widens a reach reads this note first and honours
+ *  the line. The Table's copies (WEAPON_RANGE_HEX /
+ *  ELEMENT_REACH in table.ts) are held cell for cell by
+ *  test60, as ever. */
+export const HOMELAND_WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 8 };
 export const HOMELAND_WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
-export const HOMELAND_ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+export const HOMELAND_ELEMENT_REACH: Record<string, number> = { stone: 1, root: 4, fire: 4, tide: 6, sky: 8 };
 /** The Blind Fray's wound track: the Table's Fray stands at
  *  hp 3 behind AC 11 (base 10 + its +1 bonus — DARK_ARMOR
  *  there); the homeland's wanderers carry the same body
@@ -5626,12 +5640,17 @@ export function homelandFateMitigate(raw: number, armor: number, attackerLevel: 
  *  table.ts), mirrored for the grove's burst — test61 holds
  *  the two to the same reading, cell for cell. */
 export const HOMELAND_FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
-/** The homeland casting reach: the Table's whole world is six
- *  rings, and the homeland reckons what the Tender can see the
- *  same way Phase D did — ring 6 of his stand. A cast named
- *  beyond it is refused before
- *  any charge. */
-export const HOMELAND_CAST_RING = 6;
+/** The homeland casting reach: once the Table's whole world
+ *  of six rings, DOUBLED by Nigel's ruling of 2026-11-10
+ *  (ranges ×2 — the same ruling that doubled the arrow and
+ *  the element reaches; melee reach alone stood still). The
+ *  homeland now reckons what the Tender can see at ring 12
+ *  of his stand. A cast named beyond it is refused before
+ *  any charge. The Table imports this constant, so both
+ *  grounds' casting rings move as one; the Binder's Heal
+ *  doubling (bindingHealRangeFor) rides on top of the ring,
+ *  as it always has. */
+export const HOMELAND_CAST_RING = 12;
 /** One cast's roll on the homeland — the Table's rollCast read
  *  whole: d20 + castModFor(class, level, school) against DC =
  *  the spell's level + 10; a natural 20 always stands, a
@@ -6733,6 +6752,17 @@ export function beaconHeld(ownerKey: string, nowMs: number): boolean {
 function axialDist(a: { q: number; r: number }, b: { q: number; r: number }): number {
   return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 }
+/** The whole hexes between the hex one stand occupies and
+ *  the hex another does: both stands rounded to their hexes
+ *  (the reckoning the banner bonus already reads), then the
+ *  axial distance — an integer. THE DISTANCE TOLL
+ *  (strikeTargetAcFor, enemyAC.ts) counts by this measure:
+ *  the strike's distance from the firer's hex to the
+ *  target's hex, in whole hexes. */
+function strikeHexDistance(a: { q: number; r: number }, b: { q: number; r: number }): number {
+  const A = axialRound(a.q, a.r), B = axialRound(b.q, b.r);
+  return axialDist(A, B);
+}
 /** The tile a free point stands in: axial (cube) rounding. */
 function axialRound(q: number, r: number): { q: number; r: number } {
   const x = q, z = r, y = -x - z;
@@ -6984,6 +7014,13 @@ export type HomelandStrike = {
    *  shot she loosed by it, so a shot's colour and its effect
    *  always name the same element (Nigel, 2026-10-24). */
   element: string;
+  /** THE DISTANCE TOLL (Nigel, 2026-11-10): the AC this
+   *  blow resolved against — the target's base AC raised by
+   *  the toll (strikeTargetAcFor) — stamped on a placement's
+   *  strikes so the witness itself carries the number the
+   *  referee used, for the hit and the mitigation alike.
+   *  The dark's own strikes carry none. */
+  ac?: number;
   /** THE FLIGHT LAW (Nigel, 2026-11-07): the striker's own
    *  level, read by the map beside the shot's tint — a
    *  placement's shard flies at her march pace and stands at
@@ -8124,7 +8161,14 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       }
       const roll = homelandDN(20);
       const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + companyAttackBonusFor(progress.classKey, ownerKey) + zAwokinAb; // THE SAGE'S COMPANY ATTACK (companyAttackBonusFor — its base +2 and the zodiac's deepening in one reckoning) + THE ZODIAC'S AWOKIN ATTACK BONUS (Recovery #1)
-      const targetAC = Math.max(1, enemyACFor(target.kind) - target.cracked);
+      // THE DISTANCE TOLL (Nigel, 2026-11-10): her element
+      // strike pays +1 target AC for each hex beyond the
+      // first — strikeTargetAcFor (enemyAC.ts) is the one
+      // reckoning, and this ONE targetAC serves both masters
+      // below: the hit is declared against it, and Fate's
+      // mitigation shaves by the same number. Stone cracked
+      // still shaves the base before the toll is laid on.
+      const targetAC = strikeTargetAcFor(Math.max(1, enemyACFor(target.kind) - target.cracked), strikeHexDistance(f, target));
       // THE CRITICAL REACH (Recovery #1): the threshold
       // falls by the owner's crit stars from a natural 20;
       // a roll at or above it lands, and lands critical.
@@ -8134,7 +8178,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         // The witness keeps misses too (the weaponStrike
         // record's own shape): the map lunges only where the
         // referee struck, hit or miss.
-        recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false, element: f.dominant, level: f.level });
+        recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: false, dmg: 0, felled: false, element: f.dominant, level: f.level, ac: targetAC });
         continue;
       }
       const payload = await awakenedPayloadById(f.awakenedId);
@@ -8177,7 +8221,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // is recorded where the referee struck it — the point
       // the dark stood on at the striking, before any shove
       // carries it — so the map's projectile flies true.
-      recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant, level: f.level });
+      recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: true, dmg, felled: target.dead, element: f.dominant, level: f.level, ac: targetAC });
       if (!target.dead) {
         if (f.dominant === "tide") tideWetOnDark(target, tNow);
         if (f.dominant === "stone") target.cracked = Math.min(3, target.cracked + 1);
