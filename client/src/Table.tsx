@@ -4161,11 +4161,33 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                 // glow's rim; a faint source lifts its own
                 // ground only part-way.
                 const duskSubpaths: string[] = [];
+                // THE CURSED LAND'S RELIEF FROM THE DUSK
+                // (Nigel, 2026-11-10 — the homeland's ruling,
+                // carried to the Table by the one-map law):
+                // over a cursed cell the dusk's mask is laid
+                // at a grey, so the veil falls from 0.44 to a
+                // quarter (0.25) and the cursed face's dark
+                // red ink reads as land instead of a void.
+                // The relief wears the tile's own fitted
+                // cell — the very subpath the dusk is drawn
+                // from — and never bleeds onto a neighbour;
+                // the sources' holes are laid over it in the
+                // mask and still rule near a beacon. A hex
+                // the Storytender set dark (light level 0)
+                // takes no relief: the dark she named reads
+                // dark. Clean land's dusk does not move.
+                const CURSED_DUSK_MASK = "#919191"; // luminance 145/255: 0.44 × 145/255 ≈ 0.25
+                const cursedRelief: ReactNode[] = [];
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                 for (const t of sortedTiles) {
                   const { cx, cy } = tileCenter(t);
                   const pts = hexCellPoints(cx, cy, TILE_SIZE).split(" ");
                   duskSubpaths.push(`M${pts.join(" L")} Z`);
+                  if (t.cursed && overrides.get(t.id) !== 0) {
+                    cursedRelief.push(
+                      <polygon key={`relief-${t.id}`} points={pts.join(" ")} fill={CURSED_DUSK_MASK} stroke="none" />,
+                    );
+                  }
                   if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
                   if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
                 }
@@ -4339,6 +4361,7 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                       </radialGradient>
                       <mask id="table-dusk-mask" maskUnits="userSpaceOnUse" x={maskX} y={maskY} width={maskW} height={maskH}>
                         <rect x={maskX} y={maskY} width={maskW} height={maskH} fill="#ffffff" />
+                        {cursedRelief}
                         {strong.map(s => (
                           <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={HOLE_RX} ry={HOLE_RY} fill="url(#table-dusk-hole-strong)" />
                         ))}

@@ -5801,12 +5801,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // to full dusk at the glow's rim; a faint source lifts
       // its own ground only part-way.
       const duskSubpaths: string[] = [];
+      // THE CURSED LAND'S RELIEF FROM THE DUSK (Nigel,
+      // 2026-11-10 — from his play: chunks of the homeland
+      // read as empty black tiles): the cursed face is
+      // near-black deep-red ink, and the flat dusk crushed
+      // it to a void. Over a cursed cell — and only there —
+      // the dusk's mask is laid at a grey, so the veil over
+      // cursed ground falls from 0.44 to a quarter (0.25)
+      // and the ink reads as dark living land. The relief
+      // wears the tile's own fitted cell — the very subpath
+      // the dusk itself is drawn from — so it follows the
+      // face (a floating cursed tile is relieved at its
+      // risen seat) and never bleeds onto a neighbour. It
+      // is a veil only: the light sources' holes are laid
+      // over it in the mask below and still rule near a
+      // beacon, and the server's light reckoning is
+      // untouched. Clean land's dusk does not move.
+      const CURSED_DUSK_MASK = "#919191"; // luminance 145/255: 0.44 × 145/255 ≈ 0.25
+      const cursedRelief: ReactNode[] = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const t of sortedTiles) {
         const { cx, cy } = tilePos(t);
         const lift = t.cursed ? 0 : -5; // the terrain layer's own seat
         const pts = hexCellPoints(cx, cy + lift / zoom, size).split(" ");
         duskSubpaths.push(`M${pts.join(" L")} Z`);
+        if (t.cursed) {
+          cursedRelief.push(
+            <polygon key={`relief-${t.id}`} points={pts.join(" ")} fill={CURSED_DUSK_MASK} stroke="none" />,
+          );
+        }
         if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
         if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
       }
@@ -5997,6 +6020,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             </radialGradient>
             <mask id="land-dusk-mask" maskUnits="userSpaceOnUse" x={maskX} y={maskY} width={maskW} height={maskH}>
               <rect x={maskX} y={maskY} width={maskW} height={maskH} fill="#ffffff" />
+              {cursedRelief}
               {strong.map(s => (
                 <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={HOLE_RX} ry={HOLE_RY} fill="url(#land-dusk-hole-strong)" />
               ))}
