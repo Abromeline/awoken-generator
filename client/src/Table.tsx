@@ -41,7 +41,7 @@ import glyphBlades from "./assets/glyphs/blades.png";
 import glyphCoil from "./assets/glyphs/coil.png";
 import { ANIMATED_GLYPH } from "./effects";
 import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS, shardFrameViewBox } from "./matterShard";
-import { flightMsForPace, sizeScaleForLevel, arcPoint } from "./flightLaw";
+import { flightMsForPace, sizeScaleForLevel, arcPoint, shotGrowthScale } from "./flightLaw";
 import { batsFrameAt, holdRuneFrameAt, SHATTER_PIECES } from "./workingFx";
 import { brambleFrameAt, brambleMoteFrameAt, BRAMBLE_DRAW_W, BRAMBLE_ASPECT, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE } from "./brambleFx";
 import seedSaplingArt from "./assets/starseed/sapling.png";
@@ -4711,6 +4711,15 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                     </filter>
                   );
                 })}
+                {/* THE TAIL'S TINT (Nigel, 2026-11-10): the
+                    soft blur the tail-wake ellipses wear —
+                    the homeland def's twin, one shared
+                    filter; each flight's wake is an ellipse
+                    in its own group, filled with its
+                    element's LIVE palette colour. */}
+                <filter id="shard-tail-soft" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="6" />
+                </filter>
               </defs>
               <g className="shots-layer">
                 {shots.map((shot) => {
@@ -4738,14 +4747,38 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   // only at the flight's own ends), and the
                   // frame is seated through its painted
                   // content box, so its painted width never
-                  // breathes with the open-close cycle.
+                  // breathes with the open-close cycle. THE
+                  // GROWTH TO THE ZENITH rides with it, the
+                  // homeland's own (Nigel, 2026-11-10): the
+                  // drawn measure grows from half at the hand
+                  // to full at the arc's zenith, mirrored down
+                  // (shotGrowthScale in flightLaw.ts), the
+                  // head on the arc's tangent the whole way.
                   const fade = road < 0.06 ? road / 0.06 : road > 0.94 ? (1 - road) / 0.06 : 1;
                   if (fade <= 0) return null;
                   const tint = shot.dark ? null : shardTintFilterId(shot.element);
-                  const sizeScale = shot.dark ? 1 : sizeScaleForLevel(shot.level);
+                  const sizeScale = shot.dark ? 1 : sizeScaleForLevel(shot.level) * shotGrowthScale(road);
                   const shotW = SHOT_W * sizeScale, shotH = SHOT_H * sizeScale;
                   return (
                     <g key={shot.id} pointerEvents="none" opacity={shot.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
+                      {/* THE TAIL'S TINT (Nigel, 2026-11-10),
+                          the homeland wake's twin: behind the
+                          shard, a soft ellipse of the shot's
+                          own element colour — the LIVE palette
+                          colour the tint ramp is built from,
+                          the shot's element being the strike's
+                          served element — centred behind the
+                          drawn box's heart and reaching past
+                          its tail, so it turns on the arc's
+                          tangent and grows on the road with
+                          the shard and never reaches the head.
+                          A neutral shot and a dark blow wear
+                          no wake, as they wear no tint. */}
+                      {tint && (
+                        <ellipse cx={-shotW * 0.30} cy={0} rx={shotW * 0.36} ry={shotH * 0.48}
+                          fill={elementPalette[shot.element as keyof typeof elementPalette]} fillOpacity={0.5}
+                          filter="url(#shard-tail-soft)" />
+                      )}
                       <svg data-shard-frame="" x={-shotW / 2} y={-shotH / 2} width={shotW} height={shotH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
                         <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
                           filter={tint ? `url(#${tint})` : undefined} />

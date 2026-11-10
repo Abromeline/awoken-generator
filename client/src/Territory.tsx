@@ -76,7 +76,7 @@ import { ElementGlyph, type GlyphElement } from "./glyphs";
 import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS, shardFrameViewBox } from "./matterShard";
-import { flightMsForPace, sizeScaleForLevel, arcPoint } from "./flightLaw";
+import { flightMsForPace, sizeScaleForLevel, arcPoint, shotGrowthScale } from "./flightLaw";
 import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
@@ -8953,6 +8953,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 </filter>
               );
             })}
+            {/* THE TAIL'S TINT (Nigel, 2026-11-10): the soft
+                blur the tail-wake ellipses wear — one shared
+                filter; each flight's wake is an ellipse in
+                its own group, filled with its element's LIVE
+                palette colour, so it grows and turns with
+                the shot itself. */}
+            <filter id="shard-tail-soft" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="6" />
+            </filter>
           </defs>
           {strikeFlights.map((f) => {
             const tint = shardTintFilterId(f.element);
@@ -9015,12 +9024,52 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             // fills the one drawn measure and its painted
             // centre rides this point, so the shot's width
             // never breathes with the open-close cycle.
+            // THE GROWTH TO THE ZENITH (Nigel, 2026-11-10,
+            // correcting the launched shot the same day —
+            // "i'm ok with the shot starting small and
+            // growing to its full size at the zenith; it
+            // should point in the direction of flight while
+            // doing so"): the morning's one-width reading
+            // overshot — the drawn measure now GROWS along
+            // the road, from half at the hand to the full
+            // measure at the arc's zenith and mirrored down
+            // (shotGrowthScale in flightLaw.ts), laid over
+            // the seated content so the frames still cannot
+            // breathe — the growth is a smooth function of
+            // the road, never the cycle's steps. The head
+            // keeps the arc's tangent the whole way (heading
+            // above), so the shard points along its flight
+            // while it grows. A dark blow keeps its standing
+            // size and straight road, untouched, as ever.
             const fade = road < 0.06 ? road / 0.06 : road > 0.94 ? (1 - road) / 0.06 : 1;
             if (fade <= 0) return null;
-            const sizeScale = f.dark ? 1 : sizeScaleForLevel(f.level);
+            const sizeScale = f.dark ? 1 : sizeScaleForLevel(f.level) * shotGrowthScale(road);
             const drawW = SHARD_DRAW_W * sizeScale, drawH = SHARD_DRAW_H * sizeScale;
             return (
               <g key={f.id} pointerEvents="none" opacity={f.hit ? 1 : 0.65} transform={`translate(${x} ${y}) rotate(${heading})`}>
+                {/* THE TAIL'S TINT (Nigel, 2026-11-10 — "i
+                    also meant for those tails to be tinted
+                    with the elemental color of each Awokin"):
+                    behind the shard, a soft wake of the
+                    shot's own element colour — the LIVE
+                    palette colour the tint ramp above is
+                    built from (palette.ts), the shot's
+                    element being the strike's served element
+                    (the striking part's element). The ellipse
+                    lives in this flight's own group, centred
+                    behind the drawn box's heart and reaching
+                    past its tail, so it turns on the arc's
+                    tangent and grows on the road with the
+                    shard, and it never reaches the head: the
+                    head reads as his art, the tail streams
+                    its element. His files are untouched; a
+                    neutral shot and a dark blow wear no wake,
+                    as they wear no tint. */}
+                {!f.dark && tint && (
+                  <ellipse cx={-drawW * 0.30} cy={0} rx={drawW * 0.36} ry={drawH * 0.48}
+                    fill={elementPalette[f.element as keyof typeof elementPalette]} fillOpacity={0.5}
+                    filter="url(#shard-tail-soft)" />
+                )}
                 <svg data-shard-frame="" x={-drawW / 2} y={-drawH / 2} width={drawW} height={drawH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
                   <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
                     filter={tint ? `url(#${tint})` : undefined} />

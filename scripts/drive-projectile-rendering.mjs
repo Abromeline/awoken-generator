@@ -299,10 +299,21 @@ await page.evaluate(() => {
       const dFray = frays.length ? Math.min(...frays.map(f => Math.hypot(cx - f.cx, cy - f.cy))) : 9999;
       let f = rec.byEl.get(im);
       if (!f) {
-        f = { first: now, last: now, w: Number(host.getAttribute("width")), dFirst: dFray, dLast: dFray, hrefs: new Set() };
+        // w is the width at first sight, kept for the
+        // record; wMax/wMin carry the flight's drawn span —
+        // under the growth to the zenith (Nigel, 2026-11-10)
+        // a shot's width travels from half its measure to
+        // the full of it, so §B3 below judges the PEAK (the
+        // full size the level law names) and asks the span
+        // to witness the small start, never a single width.
+        const w0 = Number(host.getAttribute("width"));
+        f = { first: now, last: now, w: w0, wMax: w0, wMin: w0, dFirst: dFray, dLast: dFray, hrefs: new Set() };
         rec.byEl.set(im, f);
         rec.flights.push(f);
       }
+      const wNow = Number(host.getAttribute("width"));
+      f.wMax = Math.max(f.wMax, wNow);
+      f.wMin = Math.min(f.wMin, wNow);
       f.last = now;
       f.dLast = dFray;
       f.hrefs.add(href.split("/").pop());
@@ -341,7 +352,7 @@ await sleep(6000);
 const brec = await page.evaluate(() => {
   const rec = window.__projRec;
   clearInterval(rec.iv);
-  return { peak: rec.peak, ticks: rec.ticks, flights: rec.flights.map(f => ({ first: f.first, last: f.last, w: f.w, dFirst: f.dFirst, dLast: f.dLast, frames: f.hrefs.size })) };
+  return { peak: rec.peak, ticks: rec.ticks, flights: rec.flights.map(f => ({ first: f.first, last: f.last, w: f.w, wMax: f.wMax, wMin: f.wMin, dFirst: f.dFirst, dLast: f.dLast, frames: f.hrefs.size })) };
 });
 apiStop = true;
 await apiLoop.catch(() => {});
@@ -354,8 +365,25 @@ console.log(`  browser window: served ${servedInWindow.length} strikes, drawn ${
 ok("§B1 every strike served fresh in the window is drawn on the map", drawnInWindow.length >= servedInWindow.length - 2 && servedInWindow.length >= 60,
   `drawn=${drawnInWindow.length} served=${servedInWindow.length}`);
 ok("§B2 peak concurrent shards pass the old keep of 25 — no live flight is dropped unseen", brec.peak >= 26, `peak=${brec.peak}`);
-ok("§B3 every level-1 shard stands twice its first size (drawn width 144 — three times, 216, until the launched-shot fix, 2026-11-10) — the FLIGHT LAW (2026-11-07) grows a shard only with its firer's level, and every fighter here stands at level 1", brec.flights.length > 0 && brec.flights.every(f => f.w === 144),
-  `widths=${[...new Set(brec.flights.map(f => f.w))].join(",")}`);
+const judgedB3 = brec.flights.filter(f => f.last - f.first >= 400);
+const judgedPeaks = judgedB3.map(f => f.wMax);
+const peaksInBand = judgedPeaks.filter(w => w >= 136 && w <= 145.5).length;
+/* The levels actually served in this world, read from the
+   strikes themselves (the service stamps each with its
+   striker's level): every fighter ENTERS at level 1, but a
+   long fight pays XP and a firer can stand a level higher
+   before it ends — the 2026-11-10 re-run read a fullest
+   peak of 149.9, the level-2 measure to a tenth (144 ×
+   1.0415). So a peak above the level-1 measure is lawful
+   only as a served level's own measure, judged below. */
+const servedLevels = [...new Set([...browserWindowStrikes.values()].map(s => Math.max(1, s.level ?? 1)))].sort((a, b) => a - b);
+const measureForLevel = (lv) => 144 * Math.min(1.5, Math.sqrt(Math.pow(1.0848077, Math.max(1, lv) - 1)));
+const allowedMeasures = servedLevels.map(measureForLevel);
+const overBand = judgedPeaks.filter(w => w > 145.5);
+const overLawful = overBand.every(w => allowedMeasures.some(m => m > 144 && Math.abs(w - m) / m <= 0.03));
+ok("§B3 every shard reaches its full measure at its zenith and never passes the law's size for its firer's level (RESTATED for the growth to the zenith, Nigel 2026-11-10: the drawn width is no longer one number for a flight's whole life — it grows from half at the hand to the full measure — so this judges each flight's PEAK (the 144 measure at level 1: twice the shard's first size; three times, 216, until the launched-shot fix, 2026-11-10). A sampled peak can only UNDER-read the zenith — the recorder, starved by this dense scene's render weight, can miss the zenith's exact frame — so the level-1 band is judged as a distribution (≥85% of flights seen ≥400 ms peak within 136–145.5, the median peak on the measure). A peak ABOVE that band must sit on a higher served level's own measure (a firer levelled mid-fight by the XP law), and no peak may pass the highest served measure. Some flight is witnessed small on its road (wMin ≤ 120). The level law beneath is unchanged — the FLIGHT LAW (2026-11-07) grows a shard's size only with its firer's level)",
+  brec.flights.length > 0 && judgedB3.length >= 5 && peaksInBand / judgedB3.length >= 0.85 && median(judgedPeaks) >= 140 && median(judgedPeaks) <= 145 && Math.max(...judgedPeaks) <= Math.max(...allowedMeasures) * 1.01 && overLawful && brec.flights.some(f => f.wMin <= 120),
+  `judged=${judgedB3.length} inBand=${peaksInBand} medianPeak=${median(judgedPeaks).toFixed(1)} maxPeak=${Math.max(...judgedPeaks).toFixed(1)} servedLevels=${servedLevels.join("/")} smallestSeen=${Math.min(...brec.flights.map(f => f.wMin)).toFixed(1)}`);
 const completed = brec.flights.filter(f => f.last < recEndWall - 200 && f.last - f.first > 300);
 const darkFlights = completed.filter(f => f.dFirst < 45);
 const placementFlights = completed.filter(f => f.dFirst >= 45 && f.dLast < 45);
@@ -512,7 +540,10 @@ await tpage.evaluate(() => {
       const href = im.getAttribute("href") || "";
       if (!href.includes("matter-shard")) rec.badHref++;
       let s = rec.byEl.get(im);
-      if (!s) { s = { first: now, last: now, w: Number((im.closest("svg[data-shard-frame]") ?? im).getAttribute("width")), href }; rec.byEl.set(im, s); rec.shots.push(s); }
+      if (!s) { const w0 = Number((im.closest("svg[data-shard-frame]") ?? im).getAttribute("width")); s = { first: now, last: now, w: w0, wMax: w0, wMin: w0, href }; rec.byEl.set(im, s); rec.shots.push(s); }
+      const wNowT = Number((im.closest("svg[data-shard-frame]") ?? im).getAttribute("width"));
+      s.wMax = Math.max(s.wMax, wNowT);
+      s.wMin = Math.min(s.wMin, wNowT);
       s.last = now;
     }
     rec.concurrent = n;
@@ -640,7 +671,7 @@ for (const s of wstate.state?.strikes ?? []) if ((s.id ?? 0) > syncId) servedAft
 const trec = await tpage.evaluate(() => {
   const rec = window.__tableRec;
   clearInterval(rec.iv);
-  return { peak: rec.peak, smil: rec.smil, badHref: rec.badHref, shots: rec.shots.map(s => ({ first: s.first, last: s.last, w: s.w, href: s.href })) };
+  return { peak: rec.peak, smil: rec.smil, badHref: rec.badHref, shots: rec.shots.map(s => ({ first: s.first, last: s.last, w: s.w, wMax: s.wMax, wMin: s.wMin, href: s.href })) };
 });
 const drawnAfterSync = trec.shots.filter(s => s.first >= syncWall);
 console.log(`  Table window: ordered ${taps} curse-strikes; served ${servedAfterSync.size} strikes after the sync; drawn ${drawnAfterSync.length} shots; ledger peak ${ledgerPeak}; peak concurrent ${trec.peak}`);
@@ -656,8 +687,10 @@ ok("§T4 the served ledger outgrows the struck 40-gate — no struck blow is dro
 ok("§T1 every shot wears the homeland's Matter Shard face — no element-GIF bolt remains in the layer", trec.shots.length > 0 && trec.badHref === 0 && trec.shots.every(s => s.href.includes("matter-shard")),
   `shots=${trec.shots.length} badHref=${trec.badHref}`);
 ok("§T1 no SMIL rides the shots layer (the old bolts' animateMotion is struck)", trec.smil === 0, `smil samples=${trec.smil}`);
-ok("§T2 every level-1 shot stands at the homeland's measure on this stage's hexes (drawn width 144 × 40/54 ≈ 106.7 — 160 until the launched-shot fix, 2026-11-10) — the FLIGHT LAW (2026-11-07) grows a shot only with its firer's level, and the Table's hands here stand at level 1", trec.shots.length > 0 && trec.shots.every(s => Math.abs(s.w - 144 * 40 / 54) < 0.5),
-  `widths=${[...new Set(trec.shots.map(s => s.w))].join(",")}`);
+const tFullMeasure = 144 * 40 / 54;
+ok("§T2 every level-1 shot reaches the homeland's measure at its zenith on this stage's hexes and never passes it (RESTATED for the growth to the zenith, Nigel 2026-11-10: a shot's width grows from half at the hand, so this judges PEAKS — no shot peaks past the full measure (144 × 40/54 ≈ 106.7 — 160 until the launched-shot fix, 2026-11-10), the fullest peak lands on the measure (≥102.7), and shots seen for ≥300 ms each peak at ≥78, the growth's span on a ~563 ms Sky flight. The level law beneath is unchanged — the FLIGHT LAW (2026-11-07) grows a shot's size only with its firer's level, and the Table's hands here stand at level 1)",
+  trec.shots.length > 0 && trec.shots.every(s => s.wMax <= tFullMeasure + 1.5) && Math.max(...trec.shots.map(s => s.wMax)) >= tFullMeasure - 4 && trec.shots.filter(s => s.last - s.first >= 300).every(s => s.wMax >= 78),
+  `peaks=${[...new Set(trec.shots.map(s => Math.round(s.wMax)))].slice(0, 12).join(",")}`);
 const tCompleted = trec.shots.filter(s => s.last < lastServeWall && s.last - s.first > 300);
 const tLife = median(tCompleted.map(s => s.last - s.first));
 console.log(`  Table shot lives: n=${tCompleted.length} median=${tLife}ms`);

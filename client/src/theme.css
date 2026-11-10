@@ -2564,7 +2564,9 @@ body.defeat-flash {
    wanted here — screen blending never engaged through this stacking
    context anyway, which is why the black used to paint as a box. */
 .projectile{position:absolute;font-size:30px;line-height:1;transform:translate(-50%,-50%);filter:drop-shadow(0 0 8px currentColor);will-change:transform}
-.projectile .proj-img{display:block;width:104px;height:auto;transform-origin:center;pointer-events:none}
+.projectile .proj-spin{position:relative;display:block;transform-origin:center}
+.projectile .proj-tail{position:absolute;right:52%;top:50%;width:78%;height:76%;transform:translateY(-50%);border-radius:50%;opacity:.55;pointer-events:none}
+.projectile .proj-img{display:block;width:104px;height:auto;transform-origin:center;pointer-events:none;position:relative}
 .projectile .proj-glyph{display:inline-block;transform-origin:center}
 .beam-strike{position:absolute;width:110px;height:150px;transform:translate(-50%,-100%);overflow:hidden;pointer-events:none;z-index:61}
 .beam-strike img{width:100%;height:100%;object-fit:cover;animation:beam-flare .95s ease-out forwards}
