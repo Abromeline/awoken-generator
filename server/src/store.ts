@@ -894,6 +894,32 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS defence_works (
   created_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_defence_works_owner ON defence_works (owner_key);`);
+// MARCHING ISLANDS (Nigel, 2026-11-09): one row per island
+// march in flight — the order an Air Awoken gave its floating
+// land. The group's membership is snapshotted at the order
+// (tile_ids, JSON), the road is the hex line it drifts
+// (road, JSON of {q,r}), anchor_q/anchor_r is the group's
+// anchor hex when the order was given (the ordering Awoken's
+// own tile), and minutes_per_hex is the quoted pace the three
+// factors reckoned. Settled lazily at read, like the marches:
+// while a row stands, the land drifts; at its hour the tiles
+// themselves take the destination's hexes and the row is gone.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS island_marches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  tile_ids TEXT NOT NULL,
+  road TEXT NOT NULL,
+  anchor_q INTEGER NOT NULL,
+  anchor_r INTEGER NOT NULL,
+  dest_q INTEGER NOT NULL,
+  dest_r INTEGER NOT NULL,
+  minutes_per_hex REAL NOT NULL,
+  since INTEGER NOT NULL,
+  ends INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_island_marches_owner ON island_marches (owner_key);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   owner_key TEXT NOT NULL,
   weapon_key TEXT NOT NULL,

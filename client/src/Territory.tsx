@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
+import { api, type Awakened, type TerritoryTile, type FieldPlacement, type IslandMarchView } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, blendedMixFace, cliffSide, floatGroupBody, onMixLayersReady, type TileMix } from "./terrainArt";
 import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
@@ -529,6 +529,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // 2026-10-18); null lets the popup rest on the first free wedge.
   const [pendingWedge, setPendingWedge] = useState<number | null>(null);
   const [tiles, setTiles] = useState<TerritoryTile[]>([]);
+  // MARCHING ISLANDS (Nigel, 2026-11-09): the land's live
+  // island orders, served with every snapshot — the map
+  // drifts each marching group between hexes and traces its
+  // road to its flag from these.
+  const [islandMarches, setIslandMarches] = useState<IslandMarchView[]>([]);
   // The First Seed (Nigel via Wake, 2026-10-17): a fresh Tender holds
   // no ground — the empty state is where the Last Bastion begins, not
   // a dead end. The world is sown on mount (ensureFirstSeed), and the
@@ -1021,6 +1026,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // The marching layer (War-Ground, Nigel 2026-10-16): patrol roads
   // are data; positions are derived. Setting state + the march clock.
   const [patrolSettingFor, setPatrolSettingFor] = useState<number | null>(null);
+  // MARCHING ISLANDS: the Awokin whose island order is armed
+  // (the next tap on the land is its destination) and the
+  // quote the server has spoken for the tapped destination,
+  // standing in the march bar until the Tender confirms.
+  const [islandMarchFor, setIslandMarchFor] = useState<number | null>(null);
+  const [islandQuote, setIslandQuote] = useState<(Awaited<ReturnType<typeof api.quoteIslandMarch>>) | null>(null);
   const [patrolDraft, setPatrolDraft] = useState<number[]>([]);
   // THE ORDERS WHEEL (Nigel, 2026-10-22 — the marching-orders
   // spec, ported from the Proving Ground's proof): clicking a
@@ -1606,7 +1617,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // standing frames. The cast pose keeps its own brief
   // clock above, as it carries the pose's settle timeout.
   const clockFast = anyStrikeFlight || anyBladeFlight || anyBrambleGrowing || anyDropFlight;
-  const clockSlow = anyPatrol || anyMarch || patrolSettingFor !== null || anyTransientFx;
+  const clockSlow = anyPatrol || anyMarch || patrolSettingFor !== null || anyTransientFx || islandMarches.length > 0;
   useEffect(() => {
     if (!clockFast && !clockSlow) return;
     const iv = window.setInterval(() => setMarchNow(Date.now()), clockFast ? 50 : 125);
@@ -2192,6 +2203,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     appliedTokenRef.current = snap.token;
     const refreshed = snap.t;
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
+    setIslandMarches(refreshed.islandMarches ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setWorkings(refreshed.workings ?? []);
     // In a room, a guest's figure stands at their SEAT's stand —
@@ -3031,6 +3043,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const beginAbility = (key: string, leadId: number) => {
     const lead = placements.find(p => p.awakenedId === leadId);
     if (!lead) return;
+    if (key === "island-march") {
+      // MARCHING ISLANDS (Nigel, 2026-11-09): begun, the
+      // order arms like a march — the next tap on the land
+      // is the island's destination, quoted in the march bar
+      // (road, pace, price) before it is given.
+      setAbilityLeadId(null);
+      setIslandQuote(null);
+      setIslandMarchFor(leadId);
+      setSelectedAwoken(leadId);
+      showHexNotice(`Island March — tap the land ${lead.name} should drift to. Its road will be traced, and its pace and price spoken, before you confirm.`);
+      return;
+    }
     if (key === "building") {
       setAbilityActiveKey("building");
       setStrikeStrikerId(leadId);
@@ -3040,6 +3064,20 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setBuildNote(`Building — ${lead.name} leads the cast, and every fielded Awoken with 2 Rock or more builds beside them. Choose a piece, then tap the land: the piece RISES from the ground — it does not appear. Walls and doors rise on a floor's edge.`);
     }
   };
+
+  /** MARCHING ISLANDS at the wheel (Nigel, 2026-11-09): the
+   *  registry's Island March counts toward the Abilities
+   *  door only for an Awokin the gate itself names — level
+   *  above 3, any Air in its parts, standing on floating
+   *  land. The server judges the same gate at its own door;
+   *  this only keeps the door from opening on an order the
+   *  land would refuse, as the abilities-door law asks. */
+  const islandGateOpen = (p: FieldPlacement): boolean => {
+    const t = tiles.find(x => x.id === p.tileId);
+    return (p.level ?? 1) > 3 && !!t && tileFloats(t) && !t.cursed && (elementSumsOfPlacement(p).sky ?? 0) >= 1;
+  };
+  const qualifiedForWheel = (p: FieldPlacement) =>
+    qualifiedAbilities(elementSumsOfPlacement(p)).filter(def => def.key !== "island-march" || islandGateOpen(p));
 
   const buildOrdersEntries = (ids: number[]): WheelEntry[] => {
     if (ids.length > 1) {
@@ -3054,7 +3092,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const p = placements.find(x => x.awakenedId === id);
     if (!p) return [];
     const entries: WheelEntry[] = [];
-    if (p.marchPath) {
+    const myIsland = islandMarches.find(m => m.awakenedId === id);
+    if (myIsland) {
+      // MARCHING ISLANDS: the ordering Awokin's one live
+      // order is the island's — its halt stands where the
+      // march's Halt stands, as the march law's mirror.
+      entries.push({ key: "ord-island-recall", emoji: "✋", label: "Halt island", act: () => { void (async () => { try { await api.recallIslandMarch({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name}'s island turns for home.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The halt was refused."); } })(); } } as WheelEntry);
+    } else if (p.marchPath) {
       entries.push({ key: "ord-recall", emoji: "✋", label: "Halt march", act: () => { void (async () => { try { await api.recallMarch({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name} halts where it stands.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The halt was refused."); } })(); } } as WheelEntry);
     } else {
       entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [id] }); setSelectedAwoken(id); showHexNotice(`March — tap the ground ${p.name} should march to, or drag a line for it to stand on.`); } } as WheelEntry);
@@ -3080,7 +3124,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // Cast — 2 Rock, as Nigel ruled in 2026-10-27 ("an
     // awoken with build ability 2 rock energy must be
     // available to raise stone form the ground").
-    if (qualifiedAbilities(elementSumsOfPlacement(p)).length) {
+    if (qualifiedForWheel(p).length) {
       entries.push({ key: "ord-abilities", sigil: "ability", label: "Abilities", act: () => {
         setSelectedAwoken(id);
         setAbilityLeadId(id);
@@ -4195,6 +4239,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       }
       handleCastTap(tile, pt); return;
     }
+    // MARCHING ISLANDS (Nigel, 2026-11-09): the armed island
+    // order takes this tap as its destination — the server
+    // quotes it whole (the gate, the road, the pace the
+    // three factors reckon, the price) and the quote stands
+    // in the march bar until the Tender confirms. A refusal
+    // speaks in plain words and the order stays armed.
+    if (islandMarchFor !== null) {
+      const awId = islandMarchFor;
+      void (async () => {
+        try {
+          const q = await api.quoteIslandMarch({ awakenedId: awId, tileId: tile.id });
+          setIslandQuote(q);
+        } catch (err) {
+          showHexNotice(err instanceof Error ? err.message : "The island march was refused.");
+        }
+      })();
+      return;
+    }
     if (pendingMarch) {
       // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
       // the march; this tap IS the order — fired at once, no
@@ -4529,8 +4591,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // (ISO_E / ISO_SE / isoOffset at the top of this file) — the same
     // basis the overlay cells are solved from, so map, selection, and
     // hit-testing can never drift apart.
+    // MARCHING ISLANDS (Nigel, 2026-11-09): each marching
+    // group's fractional drift at this frame — the road point
+    // at the elapsed fraction of its hour, in hexes, so a
+    // member tile's place is its settled place plus the
+    // drift. Faces, the group's black body, its shadow and
+    // every figure standing on it all read tilePos, so the
+    // whole landmass drifts as one and its riders ride. The
+    // cursed ground rows are never members: they stay where
+    // they were birthed, leftover under the road.
+    const islandDriftByTileId = new Map<number, { dq: number; dr: number }>();
+    for (const m of islandMarches) {
+      const steps = Math.max(0, m.road.length - 1);
+      if (!steps) continue;
+      const frac = Math.min(1, Math.max(0, (marchNow - m.since) / Math.max(1, m.ends - m.since)));
+      const pos = frac * steps;
+      const i = Math.min(steps - 1, Math.floor(pos));
+      const k = pos - i;
+      const a = m.road[i], b = m.road[i + 1];
+      const dq = a.q + (b.q - a.q) * k - m.originQ;
+      const dr = a.r + (b.r - a.r) * k - m.originR;
+      for (const memberId of m.tileIds) islandDriftByTileId.set(memberId, { dq, dr });
+    }
     const tilePos = (t: any) => {
-      const { px, py } = isoOffset(t.q, t.r, size);
+      const drift = islandDriftByTileId.get(t.id);
+      const { px, py } = isoOffset(t.q + (drift?.dq ?? 0), t.r + (drift?.dr ?? 0), size);
       const cx = originX + px;
       // A floating isle hovers above its own ground (the Building
       // System): the risen tile draws at its lift, its shadow
@@ -5009,7 +5094,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       }
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -6730,6 +6815,49 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         </g>
       );
     })() : null;
+    // MARCHING ISLANDS (Nigel, 2026-11-09): while an island
+    // marches, its road is traced THIN AND DOTTED from the
+    // island's drifted place to its destination flag — the
+    // march's own tracing language, flown at the island's
+    // height. The quoting Tender sees the same trace along
+    // the quoted road before confirming.
+    const islandCentreAt = (q: number, r: number, z: number) => {
+      const { px, py } = isoOffset(q, r, size);
+      return { cx: originX + px, cy: originY + py - floatRise(size, z) };
+    };
+    const islandTraceFor = (key: string, pts: { cx: number; cy: number }[]) => (
+      <g key={key} className="island-trace" pointerEvents="none">
+        <polyline points={pts.map(c => `${c.cx},${c.cy}`).join(" ")} fill="none"
+          stroke="rgba(255,215,0,0.8)" strokeWidth={1.2 / zoom} strokeDasharray={`${1 / zoom} ${5 / zoom}`} strokeLinecap="round" />
+        {pts.length > 0 && <text x={pts[pts.length - 1].cx} y={pts[pts.length - 1].cy} textAnchor="middle" fontSize={size * 0.3} fill="#ffd700">⚑</text>}
+      </g>
+    );
+    const islandTraceLayer = (() => {
+      const layers: ReactNode[] = [];
+      for (const m of islandMarches) {
+        const anchorTile = tiles.find(t => t.id === m.tileIds[0]);
+        const z = anchorTile ? (anchorTile.z ?? 0) : 2;
+        const steps = Math.max(0, m.road.length - 1);
+        if (!steps) continue;
+        const frac = Math.min(1, Math.max(0, (marchNow - m.since) / Math.max(1, m.ends - m.since)));
+        const pos = frac * steps;
+        const i = Math.min(steps - 1, Math.floor(pos));
+        const k = pos - i;
+        const a = m.road[i], b = m.road[i + 1];
+        const start = islandCentreAt(a.q + (b.q - a.q) * k, a.r + (b.r - a.r) * k, z);
+        const pts = [start, ...m.road.slice(i + 1).map(h => islandCentreAt(h.q, h.r, z))];
+        layers.push(islandTraceFor(`island-trace-${m.id}`, pts));
+      }
+      if (islandQuote && islandMarchFor !== null) {
+        const lead = placements.find(p => p.awakenedId === islandMarchFor);
+        const homeTile = lead ? tiles.find(t => t.id === lead.tileId) : undefined;
+        if (homeTile && islandQuote.road.length > 1) {
+          const pts = islandQuote.road.map(h => islandCentreAt(h.q, h.r, homeTile.z ?? 0));
+          layers.push(islandTraceFor("island-trace-quote", pts));
+        }
+      }
+      return layers.length ? <>{layers}</> : null;
+    })();
     // The line, while the right hand draws it (the orders
     // law; the blips ruled by Nigel, 2026-10-23): the line
     // itself, and on it one BLIP for each Awokin the order
@@ -7446,6 +7574,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {dropFxLayer}
           {rainFallLayer}
           {patrolGuideLayer}
+          {islandTraceLayer}
           {lineLayer}
           {bandLayer}
           {hoverLayer}
@@ -9412,7 +9541,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
       {abilityLeadId != null && (() => {
         const lead = placements.find(p => p.awakenedId === abilityLeadId);
         if (!lead) return null;
-        const leadQualified = qualifiedAbilities(elementSumsOfPlacement(lead));
+        const leadQualified = qualifiedForWheel(lead);
         const buildingDef = abilityByKey("building");
         const crew = buildingDef ? placements.filter(p => abilityQualifies(buildingDef.requires, elementSumsOfPlacement(p))) : [];
         const crewPower = crew.reduce((s, p) => s + elementSumsOfPlacement(p).stone, 0);
@@ -9795,6 +9924,35 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               <button className="stance-btn" onClick={() => void settle([], "The patrol is called in — the warden stands home again.")}>🛑 End patrol</button>
             )}
             <button className="stance-btn" onClick={() => { setPatrolSettingFor(null); setPatrolDraft([]); }}>✕ Cancel</button>
+          </div>
+        );
+      })()}
+      {/* MARCHING ISLANDS (Nigel, 2026-11-09): the island
+          quote stands in the march bar's own furniture — the
+          road traced on the map, the pace and the price
+          spoken here, one Confirm to give the order, as a
+          march is quoted. */}
+      {islandQuote && (() => {
+        const who = tenderItems.find(a => a.id === islandQuote.awakenedId);
+        const mins = islandQuote.totalMinutes;
+        const roadTime = mins >= 120 ? `about ${Math.round(mins / 6) / 10} hours` : `about ${mins} minutes`;
+        return (
+          <div className="patrol-bar island-quote-bar" style={{ left: "50%", top: "92%" }}>
+            <span className="patrol-bar-label">🏝️ {who?.name ?? "The island"}'s island — {islandQuote.groupSize} {islandQuote.groupSize === 1 ? "tile" : "tiles"}, {islandQuote.steps} {islandQuote.steps === 1 ? "hex" : "hexes"} at a hex per {islandQuote.minutesPerHex} min · ⚡{islandQuote.energy} · {roadTime} on the road</span>
+            <button type="button" className="stance-btn" onClick={() => { void (async () => {
+              const q = islandQuote;
+              try {
+                const res = await api.orderIslandMarch({ awakenedId: q.awakenedId, tileId: q.tileId });
+                setIslandQuote(null);
+                setIslandMarchFor(null);
+                showHexNotice(`The island is on the march — ${res.groupSize} ${res.groupSize === 1 ? "tile" : "tiles"}, ${res.steps} hexes at a hex per ${res.minutesPerHex} minutes. It drifts the whole road; halt it from ${who?.name ?? "its"} orders wheel to turn it home.`);
+                await refreshMarching();
+              } catch (err) {
+                showHexNotice(err instanceof Error ? err.message : "The island march was refused.");
+                setIslandQuote(null);
+              }
+            })(); }}>✓ March the island</button>
+            <button type="button" className="stance-btn" onClick={() => { setIslandQuote(null); setIslandMarchFor(null); }}>✕ Cancel</button>
           </div>
         );
       })()}

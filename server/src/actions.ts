@@ -1988,6 +1988,171 @@ export function floatLockedTile(ownerKey: string, tiles: { id: number; q: number
   return bastionLockKeys(ownerKey, tiles).has(`${tile.q},${tile.r}`);
 }
 
+/** MARCHING ISLANDS (Nigel, 2026-11-09 19:53 — his words:
+ *  "any lvl of air over lvl 3 may issue march orders to a
+ *  floating tile but very very slowly. the number of tiles
+ *  connected and the lvl of the awoken and that awokens air
+ *  attunement all factor into the movement of a tile. base
+ *  movement rate of a tile is 1 hex per 10 minutes. the move
+ *  is gradual and tracked with a thin tracing, dotted line.").
+ *
+ *  THE GATE: an Awoken of level ABOVE 3 whose parts hold ANY
+ *  Air (its Sky sum, read by the sum of the parts — the only
+ *  "air attunement" an Awoken has) may order the floating
+ *  land it STANDS ON to march. One order moves the whole
+ *  connected GROUP — the same landmass the map's float-group
+ *  reckoning draws as one body.
+ *
+ *  THE RATE — THE FORMULA (the worked proposal prepared
+ *  for Nigel's judgment, 2026-11-09, as he then ruled it
+ *  the same evening, 20:44 — "Slower overall": EVERY time
+ *  in the proposal DOUBLED, the shape untouched; still
+ *  subject to his play, and the weights live in
+ *  islandMinutesPerHex ALONE so a ruling changes them in
+ *  one edit): minutes per hex =
+ *      20 × √(connected tiles) ÷ strength,
+ *      strength = (level + Air) ÷ 5, capped at 3.
+ *  The weakest Awoken who can give the order at all — level
+ *  4, Air 1, a single tile — has strength exactly 1 and
+ *  marches at 1 hex per 20 minutes: his named base of 10,
+ *  doubled by his own word. Every factor bends the rate in
+ *  his directions: more joined tiles, slower — by square
+ *  root, so a joined mountain is heavier without becoming
+ *  immovable (2 tiles ×1.4 the time, 4 ×2, 7 ×2.6, 12 ×3.5,
+ *  19 ×4.4); higher level and more Air, faster — added
+ *  together so each counts plainly; and the cap of 3 means
+ *  no Awoken, however strong, moves any island faster than
+ *  6.7 minutes per hex for a single tile. Worked examples
+ *  (minutes per hex, his doubled figures):
+ *   · 1 tile, Lv 4 / Air 1 → 20.0 · the pair, same → 28.3.
+ *   · 7 tiles, Lv 4 / Air 1 → 53.0 · 7 tiles, Lv 7 / Air 3 → 26.5.
+ *   · 1 tile, Lv 10 / Air 6 → 6.7 · 12 tiles, Lv 10 / Air 6 → 23.1.
+ *   · 19 tiles, Lv 15 / Air 10 → 29.1.
+ *
+ *  THE DRIFT: an order is one row in island_marches — the
+ *  group's membership snapshotted at the order, the road a
+ *  hex line (an island flies; its road is the straight line
+ *  of hexes), the hour reckoned from since/ends. Settlement
+ *  is lazy, inside getTerritory, like the marches': while
+ *  the row stands the land drifts (its place derived from
+ *  road + clock wherever the land is read); at its hour the
+ *  member tiles take the destination's hexes, whole, z
+ *  unchanged, and the row is gone. The cursed ground beneath
+ *  is LEFTOVER, never carried: the ground rows stay where
+ *  they were birthed, at origin and along the way alike. */
+export const ISLAND_BASE_MINUTES_PER_HEX = 20;
+/** THE ISLAND PACE — the one place the ruled weights live
+ *  (see the reckoning above): minutes per hex =
+ *  20 × √(tiles) ÷ strength, strength = (level + Air) ÷ 5
+ *  capped at 3, the whole rounded to a tenth of a minute.
+ *  The 20 is Nigel's base 10 doubled by his "Slower
+ *  overall" ruling of 2026-11-09 20:44. */
+export function islandMinutesPerHex(groupSize: number, level: number, air: number): number {
+  const strength = Math.min(3, (Math.max(1, level) + Math.max(0, air)) / 5);
+  return Math.round(((ISLAND_BASE_MINUTES_PER_HEX * Math.sqrt(Math.max(1, groupSize))) / strength) * 10) / 10;
+}
+
+export interface IslandMarchRow {
+  id: number; awakenedId: number; tileIds: number[];
+  road: { q: number; r: number }[];
+  anchorQ: number; anchorR: number; destQ: number; destR: number;
+  minutesPerHex: number; since: number; ends: number;
+}
+
+export function islandMarchRows(ownerKey: string): IslandMarchRow[] {
+  const rows = sqlite.prepare("SELECT * FROM island_marches WHERE owner_key = ? ORDER BY id").all(ownerKey) as any[];
+  const out: IslandMarchRow[] = [];
+  for (const r of rows) {
+    let tileIds: number[] = []; let road: { q: number; r: number }[] = [];
+    try { const t = JSON.parse(r.tile_ids); if (Array.isArray(t)) tileIds = t.filter((x: any) => typeof x === "number"); } catch { /* broken row settles below */ }
+    try { const t = JSON.parse(r.road); if (Array.isArray(t)) road = t.filter((p: any) => p && typeof p.q === "number" && typeof p.r === "number"); } catch { /* broken row settles below */ }
+    out.push({
+      id: Number(r.id), awakenedId: Number(r.awakened_id), tileIds, road,
+      anchorQ: Number(r.anchor_q), anchorR: Number(r.anchor_r),
+      destQ: Number(r.dest_q), destR: Number(r.dest_r),
+      minutesPerHex: Number(r.minutes_per_hex), since: Number(r.since), ends: Number(r.ends),
+    });
+  }
+  return out;
+}
+
+/** The floating group a tile belongs to: the connected
+ *  component of floating, uncursed tiles under the six
+ *  neighbourhood — the very landmass the map computes in
+ *  Territory's float-group pass, read here from the land's
+ *  own rows. (At one hex at most one uncursed floater can
+ *  stand — every vacated plane beneath it is cursed — so
+ *  keying by hex is exact.) */
+export function islandGroupOf(tiles: any[], start: { q: number; r: number }): any[] {
+  const floaters = (tiles as any[]).filter(t => !t.cursed && tileFloats(t));
+  const byCoord = new Map<string, any>(floaters.map(t => [`${t.q},${t.r}`, t]));
+  const seed = byCoord.get(`${start.q},${start.r}`);
+  if (!seed) return [];
+  const members: any[] = [];
+  const seen = new Set<number>([seed.id]);
+  const queue: any[] = [seed];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    members.push(cur);
+    for (const [dq, dr] of DIRS6_AXIAL) {
+      const n = byCoord.get(`${cur.q + dq},${cur.r + dr}`);
+      if (n && !seen.has(n.id)) { seen.add(n.id); queue.push(n); }
+    }
+  }
+  return members;
+}
+
+/** A hex line from a to b (cube lerp + round): the road an
+ *  island flies. Consecutive duplicates removed; both ends
+ *  stand on the line. */
+export function islandRoadFor(a: { q: number; r: number }, b: { q: number; r: number }): { q: number; r: number }[] {
+  const n = hexDistTiles(a as any, b as any);
+  if (n <= 0) return [{ q: a.q, r: a.r }];
+  const ax = a.q, az = a.r, ay = -ax - az;
+  const bx = b.q, bz = b.r, by = -bx - bz;
+  const out: { q: number; r: number }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    let x = ax + (bx - ax) * t, y = ay + (by - ay) * t, z = az + (bz - az) * t;
+    let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+    const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+    if (dx > dy && dx > dz) rx = -ry - rz;
+    else if (dy > dz) ry = -rx - rz;
+    else rz = -rx - ry;
+    const hex = { q: rx, r: rz };
+    if (!out.length || out[out.length - 1].q !== hex.q || out[out.length - 1].r !== hex.r) out.push(hex);
+  }
+  return out;
+}
+
+/** An island march's drifted anchor at a moment: the road
+ *  point at the elapsed fraction of its hour — a fractional
+ *  hex, between hexes while the march lives (the move is
+ *  gradual, never a hop). */
+export function islandAnchorAt(row: IslandMarchRow, now: number): { q: number; r: number; frac: number; gained: number } {
+  const steps = Math.max(0, row.road.length - 1);
+  const span = Math.max(1, row.ends - row.since);
+  const frac = Math.min(1, Math.max(0, (now - row.since) / span));
+  if (!steps || !row.road.length) return { q: row.anchorQ, r: row.anchorR, frac, gained: 0 };
+  const pos = frac * steps;
+  const i = Math.min(steps - 1, Math.floor(pos));
+  const k = pos - i;
+  const a = row.road[i], b = row.road[i + 1];
+  return { q: a.q + (b.q - a.q) * k, r: a.r + (b.r - a.r) * k, frac, gained: Math.floor(pos) };
+}
+
+/** Shift a marching group whole by a hex delta: the member
+ *  tiles take new hexes (z unchanged), and every figure
+ *  standing on them keeps its own standing point, shifted
+ *  with its tile. The cursed ground rows are not members
+ *  and never move — leftover, as ruled. */
+export function shiftIslandGroup(ownerKey: string, tileIds: number[], dq: number, dr: number): void {
+  if (!tileIds.length || (dq === 0 && dr === 0)) return;
+  const marks = tileIds.map(() => "?").join(",");
+  sqlite.prepare(`UPDATE territory_tiles SET q = q + ?, r = r + ? WHERE owner_key = ? AND id IN (${marks})`).run(dq, dr, ownerKey, ...tileIds);
+  sqlite.prepare(`UPDATE field_placements SET pos_q = pos_q + ?, pos_r = pos_r + ? WHERE owner_key = ? AND tile_id IN (${marks}) AND pos_q IS NOT NULL AND pos_r IS NOT NULL`).run(dq, dr, ownerKey, ...tileIds);
+}
+
 /** The lift's whole price for one tile: the Air measure plus
  *  one per building piece riding it (the 2026-10-27 law, kept
  *  in one place so the lift and the lock's foresight reckon
@@ -11595,6 +11760,10 @@ export const handlers = {
     const ownerKey = landKeyFor(ctx);
     // Marches land before the territory is read (War-Ground, 2026-10-16).
     await this.settleMarches(ownerKey);
+    // Islands land (and engine-less islands settle where
+    // their drift had won) before the territory is read
+    // (Marching Islands, 2026-11-09).
+    await this.settleIslandMarches(ownerKey);
     // Columns land and launch before the territory is read
     // (the Columns, 2026-10-17): the Eye is settled here.
     await this.settleIncursions(ownerKey);
@@ -12110,6 +12279,10 @@ export const handlers = {
       const sums = aw ? await elementSumsOf(aw) : { tide: 0, sky: 0, stone: 0, root: 0, fire: 0 };
       (p as any).elements = sums;
       (p as any).stone = sums.stone;
+      // The placement's level, served beside the sums (the
+      // island-march gate reads it at the wheel, as the
+      // flight law reads it from the strikes).
+      (p as any).level = aw ? Math.max(1, awokenLevelOf((aw as any).experience ?? 0)) : 1;
     }
     const placedIdSet = new Set(placements.map(p => p.awakenedId));
     const stagedIdSet = new Set(stagedIdsFor(actorKeyFor(ctx)));
@@ -12198,7 +12371,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -12787,6 +12960,14 @@ export const handlers = {
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
     if (!placement.length) badRequest("That Awokin is not on your field.");
+    // MARCHING ISLANDS: a figure standing on a marching
+    // island rides it — no single step leaves a drifting
+    // island, and its ordering Awokin least of all.
+    {
+      const islandRows = islandMarchRows(ownerKey);
+      if (islandRows.some(r => r.awakenedId === parsed.data.awakenedId)) badRequest("That Awokin is marching its island — recall the island, or let it arrive.");
+      if (islandRows.some(r => r.tileIds.includes(placement[0].tileId))) badRequest("That Awokin rides a marching island — it can take no orders until the island lands.");
+    }
     // Target must be a purified tile owned by the Tender.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(
@@ -15345,6 +15526,14 @@ export const handlers = {
     const placement = rows[0] as any;
     if (!placement) badRequest("That Awokin does not stand on the field — only the stationed can march.");
     if (placement.marchPath) badRequest("That Awokin is already on the march — recall it, or let it arrive.");
+    // MARCHING ISLANDS: an Awokin standing on a marching
+    // island rides it — it takes no march of its own until
+    // the island lands (the ordering Awokin above all).
+    {
+      const islandRows = islandMarchRows(ownerKey);
+      if (islandRows.some(r => r.awakenedId === awakenedId)) badRequest("That Awokin is marching its island — recall the island, or let it arrive.");
+      if (islandRows.some(r => r.tileIds.includes(placement.tileId))) badRequest("That Awokin rides a marching island — it can take no orders until the island lands.");
+    }
     if (placement.tileId === tileId) badRequest("It stands there already.");
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
     const dest = tiles.find(t => t.id === tileId) as any;
@@ -15506,6 +15695,220 @@ export const handlers = {
       marchPosQ: null, marchPosR: null,
     } as any).where(eq(schema.fieldPlacements.id, placement.id));
     return { ok: true as const, awakenedId, recalled: true, stepsHome: reached };
+  },
+
+  // ── MARCHING ISLANDS (Nigel, 2026-11-09): the island's
+  // own settle, run inside getTerritory beside settleMarches.
+  // An island whose hour has come lands whole on its
+  // destination's hexes. An island whose ordering Awoken has
+  // left the field (dissipation, a call-in) stops where it
+  // is: it settles at the last hex truly gained, the recall
+  // geometry without the road home — the simpler honest rule,
+  // named here: the land keeps what the drift had truly won
+  // when its engine left it.
+  async settleIslandMarches(ownerKey: string) {
+    const rows = islandMarchRows(ownerKey);
+    if (!rows.length) return;
+    const now = Date.now();
+    for (const row of rows) {
+      if (!row.tileIds.length || row.road.length < 2) {
+        sqlite.prepare("DELETE FROM island_marches WHERE id = ?").run(row.id);
+        continue;
+      }
+      if (now >= row.ends) {
+        shiftIslandGroup(ownerKey, row.tileIds, row.destQ - row.anchorQ, row.destR - row.anchorR);
+        sqlite.prepare("DELETE FROM island_marches WHERE id = ?").run(row.id);
+        continue;
+      }
+      const orderer = sqlite.prepare("SELECT id FROM field_placements WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, row.awakenedId) as any;
+      if (!orderer) {
+        const { gained } = islandAnchorAt(row, now);
+        if (gained > 0) {
+          const hex = row.road[gained];
+          shiftIslandGroup(ownerKey, row.tileIds, hex.q - row.anchorQ, hex.r - row.anchorR);
+        }
+        sqlite.prepare("DELETE FROM island_marches WHERE id = ?").run(row.id);
+      }
+    }
+  },
+
+  /** The marching islands, served with the land: each order
+   *  with its road and its DRIFTED anchor (a fractional hex)
+   *  at this read — the map draws the group at the drift and
+   *  traces the road from there to the flag. */
+  islandMarchView(ownerKey: string) {
+    const now = Date.now();
+    return islandMarchRows(ownerKey).map(row => {
+      const at = islandAnchorAt(row, now);
+      return {
+        id: row.id, awakenedId: row.awakenedId, tileIds: row.tileIds,
+        road: row.road, anchorQ: at.q, anchorR: at.r,
+        originQ: row.anchorQ, originR: row.anchorR,
+        destQ: row.destQ, destR: row.destR,
+        minutesPerHex: row.minutesPerHex, since: row.since, ends: row.ends,
+      };
+    });
+  },
+
+  /** The island order's whole judgement, shared by the quote
+   *  and the order itself so the two can never part ways:
+   *  the gate (level above 3, any Air in the parts, standing
+   *  ON floating land), the group, the road, the pace the
+   *  three factors reckon, the price, and every refusal in
+   *  plain words. Returns the reckoning or throws the words. */
+  async islandOrderCheck(ownerKey: string, awakenedId: number, tileId: number) {
+    const rows = await db.select().from(schema.fieldPlacements)
+      .where(and(eq(schema.fieldPlacements.awakenedId, awakenedId), eq(schema.fieldPlacements.ownerKey, ownerKey))).limit(1);
+    const placement = rows[0] as any;
+    if (!placement) badRequest("That Awokin does not stand on the field — only the stationed can march an island.");
+    if (placement.marchPath) badRequest("That Awokin is on the march — recall it, or let it arrive, before it marches an island.");
+    const active = islandMarchRows(ownerKey);
+    if (active.some(r => r.awakenedId === awakenedId)) badRequest("That Awokin already marches an island — recall the island, or let it arrive.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const mine = (tiles as any[]).find(t => t.id === placement.tileId);
+    if (!mine || !tileFloats(mine) || mine.cursed) badRequest("That Awokin does not stand on floating land — an island march is ordered from the island itself.");
+    if (active.some(r => r.tileIds.includes(mine.id))) badRequest("That island is already on the march.");
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)).limit(1);
+    const aw = awRows[0] as any;
+    if (!aw) badRequest("That Awokin is not yours to order.");
+    const level = Math.max(1, awokenLevelOf(aw.experience ?? 0));
+    if (level <= 3) badRequest(`Only an Awokin past level 3 may march an island — ${aw.name ?? "that Awokin"} is level ${level}.`);
+    const sums = await elementSumsOf(aw);
+    if ((sums.sky ?? 0) < 1) badRequest(`${aw.name ?? "That Awokin"} holds no Air in its parts — an island answers only to an Air Awokin.`);
+    const group = islandGroupOf(tiles as any[], mine);
+    if (!group.length) badRequest("That Awokin does not stand on floating land — an island march is ordered from the island itself.");
+    if (active.some(r => group.some((g: any) => r.tileIds.includes(g.id)))) badRequest("That island is already on the march.");
+    // A building piece standing on the group bars the road:
+    // pieces are seated by hex, not by tile, and do not ride.
+    const pieces = loadBuildPieces(ownerKey);
+    const memberKeys = new Set(group.map((g: any) => `${g.q},${g.r}`));
+    const pieceAboard = pieces.some(p =>
+      group.some((g: any) => pieceTopZ(p, tiles as any[]) === (g.z ?? 0)) &&
+      footprintHexes(p.footprint).some(h => memberKeys.has(`${h.q},${h.r}`)));
+    if (pieceAboard) badRequest("A building stands on that land — the island cannot march until it is taken down.");
+    const dest = (tiles as any[]).find(t => t.id === tileId);
+    if (!dest) badRequest("That hex is not on your land.");
+    const dq = dest.q - mine.q, dr = dest.r - mine.r;
+    const steps = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
+    if (steps === 0) badRequest("The island floats there already.");
+    // THE DESTINATION MUST HOLD THE WHOLE SHAPE: every
+    // landing hex inside the homeland (a ground row stands
+    // there), clear of the bastion's ring, and clear of every
+    // other floating tile — two islands never share a hex.
+    const groundKeys = new Set((tiles as any[]).filter(t => (t.z ?? 0) === 0).map(t => `${t.q},${t.r}`));
+    const locked = bastionLockKeys(ownerKey, tiles as any[]);
+    const otherFloaters = new Set((tiles as any[])
+      .filter(t => !t.cursed && tileFloats(t) && !group.some((g: any) => g.id === t.id))
+      .map(t => `${t.q},${t.r}`));
+    for (const g of group as any[]) {
+      const key = `${g.q + dq},${g.r + dr}`;
+      if (!groundKeys.has(key)) badRequest("That road runs off your land — the island's whole shape must land on your ground.");
+      if (locked.has(key)) badRequest("That ground is locked to the bastion — the bastion's own hex and the six around it never hold a marching island.");
+      if (otherFloaters.has(key)) badRequest("Another island floats there — two islands never share a hex.");
+    }
+    const road = islandRoadFor({ q: mine.q, r: mine.r }, { q: dest.q, r: dest.r });
+    const roadSteps = Math.max(1, road.length - 1);
+    const minutesPerHex = islandMinutesPerHex(group.length, level, sums.sky);
+    const assetRows = await db.select().from(schema.layerAssets);
+    const assetStats = new Map<number, AssetStats>();
+    for (const r of assetRows) {
+      const rar = raritySchema.safeParse(r.rarity);
+      if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
+    }
+    const layers = parseLayers(aw.compositionJson, assetStats);
+    const payload = await awakenedPayloadById(aw.id);
+    const power = payload?.power ?? layers.reduce((s: number, l: any) => s + (l.power ?? 0), 0);
+    // THE PRICE (A KEEPER READING, flagged for Nigel's word):
+    // the march law's shape — the ordering Awoken's own
+    // per-hex move cost (1 + ⌊(power−1)/3⌋, the moveAwoken
+    // law) × the road's hexes × the group's tiles. Slowness
+    // is the island's true price; this is its toll, quoted
+    // before the order like any march.
+    const energy = roadSteps * (1 + Math.floor((power - 1) / 3)) * group.length;
+    return {
+      placement, aw, level, air: sums.sky, group, dest,
+      road, steps: roadSteps, minutesPerHex,
+      totalMinutes: Math.round(roadSteps * minutesPerHex * 10) / 10,
+      energy,
+    };
+  },
+
+  // QUOTE AN ISLAND MARCH: the judgement whole, the purse
+  // untouched — the road, the pace, the hour and the price
+  // spoken before the order is given, as a march is quoted.
+  async quoteIslandMarch(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    await this.settleIslandMarches(ownerKey);
+    const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("An island march is an Awokin and the hex its island marches to.");
+    const q = await this.islandOrderCheck(ownerKey, parsed.data.awakenedId, parsed.data.tileId);
+    return {
+      ok: true as const, awakenedId: parsed.data.awakenedId, tileId: parsed.data.tileId,
+      groupSize: q.group.length, steps: q.steps, minutesPerHex: q.minutesPerHex,
+      totalMinutes: q.totalMinutes, energy: q.energy, level: q.level, air: q.air,
+      road: q.road,
+    };
+  },
+
+  // ORDER AN ISLAND MARCH: the quote judged again at the
+  // door, the price taken, the order stored whole — group,
+  // road, hour. The Awoken rides: it stands on the island
+  // for the whole march, and the land's other doors refuse
+  // it new orders while the island drifts (as a marching
+  // Awoken is refused). What stands on the group's other
+  // tiles rides with its tile.
+  async orderIslandMarch(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    await this.settleIslandMarches(ownerKey);
+    const parsed = z.object({ awakenedId: z.number().int().positive(), tileId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("An island march is an Awokin and the hex its island marches to.");
+    const { awakenedId, tileId } = parsed.data;
+    const q = await this.islandOrderCheck(ownerKey, awakenedId, tileId);
+    if (!(await spendEnergy(actorKeyFor(ctx), q.energy))) badRequest(`Not enough energy — that island march costs ${q.energy}.`);
+    const now = Date.now();
+    const anchor = q.group.find((g: any) => g.id === q.placement.tileId) ?? q.group[0];
+    sqlite.prepare(`INSERT INTO island_marches (owner_key, awakened_id, tile_ids, road, anchor_q, anchor_r, dest_q, dest_r, minutes_per_hex, since, ends, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(ownerKey, awakenedId, JSON.stringify(q.group.map((g: any) => g.id)), JSON.stringify(q.road),
+        anchor.q, anchor.r, q.dest.q, q.dest.r, q.minutesPerHex, now, now + Math.round(q.steps * q.minutesPerHex * 60000), now);
+    // ORDERS END PARTY MEMBERSHIP (Nigel, 2026-10-20), as a
+    // march does: the ordering Awokin stands under orders.
+    removePartyMember(ownerKey, awakenedId);
+    if (!ctx?.room) {
+      recordRoadEvent(actorKeyFor(ctx), "order", String(awakenedId));
+      await pokeEntranceRoad(actorKeyFor(ctx));
+    }
+    return {
+      ok: true as const, awakenedId, tileId, groupSize: q.group.length, steps: q.steps,
+      minutesPerHex: q.minutesPerHex, totalMinutes: q.totalMinutes, energy: q.energy,
+    };
+  },
+
+  // RECALL AN ISLAND MARCH (the march's recall, at island
+  // pace): the island turns at the last hex truly gained and
+  // drifts home at the same rate; the outbound hour and the
+  // price are spent either way, as a recall is free and
+  // refunds nothing.
+  async recallIslandMarch(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    await this.settleIslandMarches(ownerKey);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("A recall names the Awokin whose island marches.");
+    const { awakenedId } = parsed.data;
+    const row = islandMarchRows(ownerKey).find(r => r.awakenedId === awakenedId);
+    if (!row) badRequest("That Awokin marches no island.");
+    const now = Date.now();
+    const { gained } = islandAnchorAt(row, now);
+    if (gained <= 0) {
+      sqlite.prepare("DELETE FROM island_marches WHERE id = ?").run(row.id);
+      return { ok: true as const, awakenedId, recalled: true, stepsHome: 0 };
+    }
+    const gainedHex = row.road[gained];
+    shiftIslandGroup(ownerKey, row.tileIds, gainedHex.q - row.anchorQ, gainedHex.r - row.anchorR);
+    const homeRoad = row.road.slice(0, gained + 1).reverse();
+    sqlite.prepare(`UPDATE island_marches SET road = ?, anchor_q = ?, anchor_r = ?, dest_q = ?, dest_r = ?, since = ?, ends = ? WHERE id = ?`)
+      .run(JSON.stringify(homeRoad), gainedHex.q, gainedHex.r, row.anchorQ, row.anchorR, now, now + Math.round(gained * row.minutesPerHex * 60000), row.id);
+    return { ok: true as const, awakenedId, recalled: true, stepsHome: gained };
   },
 
   async getWave(args: unknown, ctx?: ActionContext) {

@@ -89,6 +89,20 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     requires: { stone: 2 },
     blurb: "the stone build pieces",
   },
+  {
+    // MARCHING ISLANDS (Nigel, 2026-11-09): an Air Awoken of
+    // level above 3, standing on floating land, may give that
+    // land march orders — very, very slowly. The registry
+    // carries the elemental face of the gate (any Air in the
+    // sum of the parts); the level and the standing are
+    // judged where the wheel pulls the entry (Territory) and
+    // again at the server's own door.
+    key: "island-march",
+    name: "Island March",
+    mark: "☁️",
+    requires: { sky: 1 },
+    blurb: "march the floating land it stands on — very, very slowly",
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {
