@@ -41,3 +41,29 @@ export function enemyArmorBonus(kind: string): number {
 export function enemyACFor(kind: string): number {
   return ENEMY_AC_BASE + enemyArmorBonus(kind);
 }
+
+/** THE DISTANCE TOLL (Nigel, 2026-11-10): "each hex beyond
+ *  this first increases target ac by 1." An Awokin's ELEMENT
+ *  strike pays for its reach: the target's AC rises by one
+ *  for every whole hex of the strike's distance past the
+ *  first. The raised number is the ONE number both masters
+ *  read — the hit is declared against it (d20 + bonus) and
+ *  the AC ratio equation then shaves by the SAME number as
+ *  its armor term, exactly as the base AC has always served
+ *  both. The toll is reckoned ONCE, here, and both referees
+ *  (the homeland's Awoken Answer in actions.ts, the Table's
+ *  strikeOnce in table.ts) read it through this one door —
+ *  never a scattered addition at a roll site.
+ *
+ *  Who pays: ELEMENT strikes only, as spoken. The Tender's
+ *  weapon shots (the arrow doubled to 8 like the rest) and
+ *  the Tender's own casts pay nothing — their AC stands at
+ *  the base. The distance arrives as WHOLE hexes: each
+ *  ground counts the hexes between the hex the striker
+ *  stands on and the hex the target stands on (the
+ *  homeland rounds both stands to their hexes and reads
+ *  its axial distance; the Table reads its hexDist) — the
+ *  rounding here only guards a fractional caller. */
+export function strikeTargetAcFor(baseAc: number, distanceHexes: number): number {
+  return baseAc + Math.max(0, Math.round(distanceHexes) - 1);
+}

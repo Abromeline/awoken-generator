@@ -30,7 +30,7 @@ import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey, hashPassword, verifyPassword, tenderFromToken } from "./tenders.js";
 import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, addAspectPoints, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS, LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS, LIGHT_BURN_DIE, LIGHT_BURN_TICK_S, type AttunementElement } from "./actions.js";
-import { enemyACFor, enemyArmorBonus, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
+import { enemyACFor, enemyArmorBonus, strikeTargetAcFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { rollFellDrops, drainDropNotices, rollFellTake, describeDrops, dropDisplayName, addToInventory, inventoryCanHold, type FellDrop } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
 import { refreshGrimoire, spellByKey, healSpell, hpForCast, spendAttunement, attunementPools, attunementLevel, pageSlotsCastFor, pageHueFor, castHuesFor, pourLaidFor } from "./grimoire.js";
@@ -1385,13 +1385,22 @@ function dominantElement(layers: { element?: string | null }[]): string {
 export const FATE_DIE: Record<string, number> = { sky: 4, root: 6, tide: 8, stone: 12, fire: 10, neutral: 6, unaligned: 6, dark: 6 };
 const ELEMENT_HIT_BONUS: Record<string, number> = { stone: 1, root: 2, tide: 3, sky: 4, fire: 5 };
 /** ELEMENT REACH (Phase B): how many hexes (×69px) an element's
- *  light strikes across the continuous field. */
-export const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+ *  light strikes across the continuous field. DOUBLED by
+ *  Nigel's ruling of 2026-11-10 (ranges ×2), stone alone
+ *  standing — the melee set is NAMED at the homeland's copy
+ *  (HOMELAND_ELEMENT_REACH in actions.ts): swordshield,
+ *  sword and spear among the weapons, stone among the
+ *  elements. test60 holds this copy to the homeland's, cell
+ *  for cell. */
+export const ELEMENT_REACH: Record<string, number> = { stone: 1, root: 4, fire: 4, tide: 6, sky: 8 };
 /** THE RUNIC WEAPON (Phase A2, striking from Phase B): its die,
  *  its reach in hexes, its cadence, and the AC it lends a bare
- *  Tender, by wielded key. The key is read LIVE at strike time. */
+ *  Tender, by wielded key. The key is read LIVE at strike time.
+ *  (The arrow's reach doubled to 8 with the 2026-11-10 ruling;
+ *  swordshield 1, sword 1 and spear 2 are melee and did not
+ *  move.) */
 export const WEAPON_DIE: Record<string, number> = { swordshield: 6, sword: 10, spear: 6, arrow: 4 };
-export const WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 4 };
+export const WEAPON_RANGE_HEX: Record<string, number> = { swordshield: 1, sword: 1, spear: 2, arrow: 8 };
 export const WEAPON_COOLDOWN_MS: Record<string, number> = { swordshield: 1000, sword: 1100, spear: 1050, arrow: 1400 };
 const WEAPON_AC: Record<string, number> = { swordshield: 3, sword: 1, spear: 0, arrow: 0 };
 const WEAPON_KEYS = ["swordshield", "sword", "spear", "arrow"];
@@ -5868,7 +5877,16 @@ async function runRound(room: Room): Promise<void> {
         + (room.bastion?.ambush && room.bastion.begun ? 1 : 0); // the ambush lends its edge to the roll
       const critAt = 20 - (ownerSeat?.expKey ? fxSum(ownerSeat.expKey, "critChance") : 0);
       const crit = roll >= critAt;
-      const hit = crit || (roll !== 1 && roll + bonus >= target.armor);
+      // THE DISTANCE TOLL (Nigel, 2026-11-10): her element
+      // strike pays +1 target AC for each hex beyond the
+      // first (hexDist of her hex to the dark's hex) —
+      // strikeTargetAcFor (enemyAC.ts) is the one reckoning,
+      // and this ONE armor serves both masters below: the
+      // hit is declared against it, and Fate's mitigation
+      // shaves by the same number. The Tender's weapon
+      // (fireWeapon) pays no toll, as ruled.
+      const targetArmor = strikeTargetAcFor(target.armor, hexDist(unit.hex, target.hex));
+      const hit = crit || (roll !== 1 && roll + bonus >= targetArmor);
       if (!hit) {
         witness(unit.pos, target.pos, unit.card.element ?? "unaligned", "light", false, false, null, unitFlight);
         if (roll === 1) tell(room, `${unit.card.name}'s strike goes wide — a cast of one, and the dark keeps its ground.`);
@@ -5877,7 +5895,7 @@ async function runRound(room: Room): Promise<void> {
       let raw = fatePartsDamage(unit.card, crit, ownerSeat?.expKey ? fxSum(ownerSeat.expKey, "critDamage") : 0)
         + (stdWard ? (stdWard.nums.strikeBonus ?? 1) : 0)
         + (bcnWard ? (bcnWard.nums.darkBonus ?? 1) : 0);
-      const dmg = fateMitigate(raw, target.armor, unit.card.level ?? 1);
+      const dmg = fateMitigate(raw, targetArmor, unit.card.level ?? 1);
       target.hp -= dmg;
       // THE FELL LEDGER (the battle port): her damage is
       // weighed for the felling pot — real Awokin only;

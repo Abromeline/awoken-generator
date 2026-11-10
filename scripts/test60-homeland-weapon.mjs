@@ -98,8 +98,8 @@ const forceWeaponDue = (me) => db.prepare("UPDATE tender_progress SET weapon_nex
     }
   }
   ok("the reach table reads whole: base by weapon, the element's reach once attuned (depth ≥ 1)", rangeOk);
-  ok("LONGSHAFT: the spear's Signature adds a hex on either road (3 bare, 5 sky-attuned)",
-    A.homelandWeaponRangeFor("spear", null, 0, true) === 3 && A.homelandWeaponRangeFor("spear", "sky", 1, true) === 5);
+  ok("LONGSHAFT: the spear's Signature adds a hex on either road (3 bare — the spear itself stays 2, melee does not double, Nigel 2026-11-10 — 9 sky-attuned, sky's reach doubled to 8)",
+    A.homelandWeaponRangeFor("spear", null, 0, true) === 3 && A.homelandWeaponRangeFor("spear", "sky", 1, true) === 9);
 }
 
 /* ── §1 FIRST BLOOD: a wanderer in reach is struck on the

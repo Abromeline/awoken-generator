@@ -14,7 +14,8 @@
 // Silences hold: no casting while fallen, classless (Heal
 // alone, the Lv 1 art, still answers), or purse-empty — all
 // refused before any charge; and no cast reaches beyond
-// ring 6 of his stand. (test61)
+// ring 12 of his stand (ring 6 until the ranges doubled,
+// Nigel 2026-11-10). (test61)
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,13 +98,15 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
       level grid through the exported homelandCastRoll (which
       is what castMapWorking rolls with), not by dice weather.
       The grove's dice are the Table's FATE_DIE, cell for
-      cell, and the reach is the Table's whole world: ring 6. */
+      cell, and the reach is ring 12 of his stand — the
+      Table's whole world of six, doubled by Nigel's ruling
+      of 2026-11-10 (ranges ×2). */
 {
   const A = await import("../server/dist/actions.js");
   const T = await import("../server/dist/table.js");
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   ok("mirror: the grove's dice (HOMELAND_FATE_DIE) are the Table's FATE_DIE, cell for cell", eq(A.HOMELAND_FATE_DIE, T.FATE_DIE), JSON.stringify(A.HOMELAND_FATE_DIE));
-  ok("the casting reach is ring 6 of his stand — the Table's whole world", A.HOMELAND_CAST_RING === 6);
+  ok("the casting reach is ring 12 of his stand — the Table's world of six, doubled (Nigel, 2026-11-10)", A.HOMELAND_CAST_RING === 12);
   let grid = true; let where = "";
   for (const cls of [null, "warden", "runewright", "binder", "witch", "sage"]) {
     for (const school of ["ward", "rune", "binding", "spell"]) {
@@ -301,19 +304,22 @@ const placementHp = (id) => db.prepare("SELECT hp FROM field_placements WHERE id
     r2?.purified === true && t2.cursed === 0, `purified=${r2?.purified} cursed=${t2.cursed}`);
 }
 
-/* ── §5 THE REACH: a cast named beyond ring 6 of his stand is
-      refused before any charge — the purse untouched, the
-      ground unwritten. */
+/* ── §5 THE REACH: a cast named beyond the ring of his stand
+      is refused before any charge — the purse untouched, the
+      ground unwritten. The ring was 6 until the ranges
+      doubled (Nigel, 2026-11-10): ring 12 now, so the refusal
+      is proven at ring 13, with the ring named in the words. */
 {
   const { token, me } = await claimTender("Reach Tender", 200);
   const tile = seedTile(me);
   tile(0, 0, 0);
   let far = 0;
-  for (let q = 1; q <= 7; q++) far = tile(q, 0, 1);
+  for (let q = 1; q <= 13; q++) far = tile(q, 0, 1);
   await call("chooseClass", { classKey: "warden" }, token);
   setEnergy(me, 50);
   const r = await castRaw(token, { spellKey: "blade", hue: "unaligned", tileId: far });
-  ok("a cast at ring 7 is refused (400)", r.status === 400, `status=${r.status} ${JSON.stringify(r.data)}`);
+  ok("a cast at ring 13 is refused (400) — beyond the doubled ring 12", r.status === 400, `status=${r.status} ${JSON.stringify(r.data)}`);
+  ok("the refusal names the ring it keeps (ring 12)", JSON.stringify(r.data).includes("ring 12"), JSON.stringify(r.data));
   ok("the refusal cost nothing and wrote nothing", energyOf(me) === 50 &&
     db.prepare("SELECT COUNT(*) AS n FROM territory_workings WHERE owner_key = ?").get(me).n === 0);
 }
