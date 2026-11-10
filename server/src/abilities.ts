@@ -55,6 +55,17 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     name: "Building",
     requires: { stone: 2 },
   },
+  {
+    // MARCHING ISLANDS (Nigel, 2026-11-09): the registry's
+    // elemental face of the gate — any Air at all in the sum
+    // of the parts. The gate's other half (level above 3)
+    // and its standing condition (the Awoken stands ON a
+    // floating tile) are judged at the island order's own
+    // door in actions.ts, where levels and land are read.
+    key: "island-march",
+    name: "Island March",
+    requires: { sky: 1 },
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

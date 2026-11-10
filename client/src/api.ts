@@ -238,6 +238,10 @@ export interface FieldPlacement {
    *  (client/src/abilities.ts); the server judges every cast
    *  itself, at its own door, by the registry's twin table. */
   elements?: Record<ElementName, number>;
+  /** The Awoken's level, served beside the sums (the
+   *  island-march gate — level above 3 — reads it at the
+   *  wheel; the server judges it again at its own door). */
+  level?: number;
   tileId: number;
   placedAt: string;
   lastMovedAt: string;
@@ -273,6 +277,27 @@ export interface FieldPlacement {
    *  axial): where the patrol stands at its road's far end. */
   patrolPosQ?: number | null;
   patrolPosR?: number | null;
+}
+
+/** A marching island, served with the land (Marching
+ *  Islands, 2026-11-09): the group's snapshotted tiles, its
+ *  road, and its DRIFTED anchor at the serving read — a
+ *  fractional hex, between hexes while the march lives. The
+ *  map draws the group at the drift and traces the road. */
+export interface IslandMarchView {
+  id: number;
+  awakenedId: number;
+  tileIds: number[];
+  road: { q: number; r: number }[];
+  anchorQ: number;
+  anchorR: number;
+  originQ: number;
+  originR: number;
+  destQ: number;
+  destR: number;
+  minutesPerHex: number;
+  since: number;
+  ends: number;
 }
 
 export interface CreditInfo {
@@ -934,7 +959,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
@@ -1119,6 +1144,15 @@ export const api = {
     post<{ ok: true; follow: boolean }>("setPlacementFollow", args),
   recallMarch: (args: { awakenedId: number }) =>
     post<{ ok: true; awakenedId: number; recalled: boolean; stepsHome: number }>("recallMarch", args),
+  /** MARCHING ISLANDS (Nigel, 2026-11-09): quote an island
+   *  march (the judgement whole, the purse untouched), give
+   *  the order, or recall the island home. */
+  quoteIslandMarch: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; awakenedId: number; tileId: number; groupSize: number; steps: number; minutesPerHex: number; totalMinutes: number; energy: number; level: number; air: number; road: { q: number; r: number }[] }>("quoteIslandMarch", args),
+  orderIslandMarch: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; awakenedId: number; tileId: number; groupSize: number; steps: number; minutesPerHex: number; totalMinutes: number; energy: number }>("orderIslandMarch", args),
+  recallIslandMarch: (args: { awakenedId: number }) =>
+    post<{ ok: true; awakenedId: number; recalled: boolean; stepsHome: number }>("recallIslandMarch", args),
   damageTileHp: (value: { tileId: number; damage: number }) => post<{ ok: boolean; hp: number; cursed: boolean }>("damageTileHp", value),
   damageAwokenHp: (value: { awakenedId: number; damage: number }) => post<{ ok: boolean; hp: number; maxHp: number; dissipated?: boolean; awakenedId?: number; xpGain?: number; leveledUp?: boolean; newLevel?: number }>("damageAwokenHp", value),
   demolishBuilding: (value: { buildingId: number }) => post<{ ok: boolean }>("demolishBuilding", value),
