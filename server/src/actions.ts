@@ -1945,6 +1945,60 @@ type MixLedger = Record<TerrainMixElement, number>;
  *  use in liftTileByAir and nothing else. */
 const MIX_LIFT_AIR_COST = 10;
 
+/** THE FLOAT THRESHOLD (Nigel, 2026-11-09 — the floating-tiles
+ *  ruling): a tile FLOATS at Z 2 and above; Z 1 is grounded,
+ *  stacked land. Before this ruling, risen ground (z > 0) read
+ *  as a floating isle from its first lift; now the threshold
+ *  stands at 2 everywhere the server asks the question, and the
+ *  client's FLOAT_MIN_Z in Territory.tsx is its twin. */
+export const FLOAT_MIN_Z = 2;
+export function tileFloats(t: { z?: number | null }): boolean { return (t.z ?? 0) >= FLOAT_MIN_Z; }
+
+/** THE BASTION LOCK (Nigel, 2026-11-09): any tile near a
+ *  bastion is locked to the bastion's perimeter — "the six
+ *  hexes around the bastion" (his tap, settling the meaning):
+ *  the bastion's own tile and the six touching it never float.
+ *  Bastion tiles are the union of the held seed's bastion
+ *  building tile (bastionRowFor) and every seed tile standing
+ *  at beacon or bastion stage — the same set the lighting
+ *  reckoning reads. Returns the axial keys of the bastion
+ *  tiles themselves; the lock covers them and their rings. */
+const DIRS6_AXIAL = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]] as const;
+export function bastionLockKeys(ownerKey: string, tiles: { id: number; q: number; r: number }[]): Set<string> {
+  const locked = new Set<string>();
+  const bastionTiles: { q: number; r: number }[] = [];
+  const byId = new Map(tiles.map(t => [t.id, t]));
+  const row = bastionRowFor(ownerKey);
+  if (row) { const t = byId.get(row.tileId); if (t) bastionTiles.push(t); }
+  const seeds = sqlite.prepare("SELECT tile_id AS tileId, level, state FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[];
+  for (const s of seeds) {
+    if (String(s.state) === "first") continue;
+    const stage = seedStageForLevel(Number(s.level ?? 1));
+    if (stage !== "beacon" && stage !== "bastion") continue;
+    const t = byId.get(Number(s.tileId));
+    if (t) bastionTiles.push(t);
+  }
+  for (const b of bastionTiles) {
+    locked.add(`${b.q},${b.r}`);
+    for (const [dq, dr] of DIRS6_AXIAL) locked.add(`${b.q + dq},${b.r + dr}`);
+  }
+  return locked;
+}
+export function floatLockedTile(ownerKey: string, tiles: { id: number; q: number; r: number }[], tile: { q: number; r: number }): boolean {
+  return bastionLockKeys(ownerKey, tiles).has(`${tile.q},${tile.r}`);
+}
+
+/** The lift's whole price for one tile: the Air measure plus
+ *  one per building piece riding it (the 2026-10-27 law, kept
+ *  in one place so the lift and the lock's foresight reckon
+ *  the same figure). */
+export function mixLiftCost(ownerKey: string, tile: any, allTiles: any[]): number {
+  const pieceCount = loadBuildPieces(ownerKey).filter(p =>
+    pieceTopZ(p, allTiles as any[]) === (tile.z ?? 0) &&
+    footprintHexes(p.footprint).some(h => h.q === tile.q && h.r === tile.r)).length;
+  return MIX_LIFT_AIR_COST + pieceCount;
+}
+
 function emptyMixLedger(): MixLedger { return { sky: 0, stone: 0, tide: 0, root: 0 }; }
 const roundMix = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -2026,18 +2080,23 @@ async function persistMixLedger(tile: any, ledger: MixLedger): Promise<{ turned:
  *  raises the hex again, birthing another cursed hex at the
  *  plane it leaves. The price is spent as it lifts (see
  *  MIX_LIFT_AIR_COST's pencil note). */
-async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Promise<boolean> {
+async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Promise<{ lifted: boolean; floatLocked: boolean }> {
   // BUILDING RIDES THE TILE (Nigel, 2026-10-27): each building
   // piece standing on the tile raises the Air price of lifting
   // it by 1 — the pieces ride the tile as it climbs, so the
   // count is taken once, before the first lift.
   const allTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
-  const pieceCount = loadBuildPieces(ownerKey).filter(p =>
-    pieceTopZ(p, allTiles as any[]) === (tile.z ?? 0) &&
-    footprintHexes(p.footprint).some(h => h.q === tile.q && h.r === tile.r)).length;
-  const liftCost = MIX_LIFT_AIR_COST + pieceCount;
+  const liftCost = mixLiftCost(ownerKey, tile, allTiles as any[]);
+  // THE BASTION LOCK (Nigel, 2026-11-09): ground in the
+  // bastion's perimeter — its own hex and the six around it —
+  // NEVER floats: a lift that would carry this tile to Z 2
+  // does not happen, and its Air is not spent. The climb to
+  // Z 1 (grounded height) is not the lock's business.
+  const locked = floatLockedTile(ownerKey, allTiles as any[], tile);
   let lifted = false;
+  let floatLocked = false;
   while (ledger.sky >= liftCost) {
+    if (locked && (tile.z ?? 0) + 1 >= FLOAT_MIN_Z) { floatLocked = true; break; }
     ledger.sky = roundMix(ledger.sky - liftCost);
     const vacatedZ = tile.z ?? 0;
     tile.z = vacatedZ + 1;
@@ -2055,7 +2114,7 @@ async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Pr
     await db.update(schema.territoryTiles).set({ z: tile.z } as any)
       .where(eq(schema.territoryTiles.id, tile.id));
   }
-  return lifted;
+  return { lifted, floatLocked };
 }
 
 /** Press points into a tile's ledger — the ONE funnel every
@@ -2063,17 +2122,17 @@ async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Pr
  *  shrine's pour, the Tender's Attune act. Each element's
  *  points land on its own line; the label follows; Air at its
  *  measure lifts the hex. */
-async function pressMixIntoTile(ownerKey: string, tile: any, deltas: Partial<Record<TerrainMixElement, number>>): Promise<{ turned: boolean; lifted: boolean }> {
+async function pressMixIntoTile(ownerKey: string, tile: any, deltas: Partial<Record<TerrainMixElement, number>>): Promise<{ turned: boolean; lifted: boolean; floatLocked: boolean }> {
   const { ledger } = mixLedgerOf(tile);
   let moved = false;
   for (const el of TERRAIN_MIX_ELEMENTS) {
     const d = deltas[el] ?? 0;
     if (d > 0) { ledger[el] = roundMix(ledger[el] + d); moved = true; }
   }
-  if (!moved) return { turned: false, lifted: false };
-  const lifted = await liftTileByAir(ownerKey, tile, ledger);
+  if (!moved) return { turned: false, lifted: false, floatLocked: false };
+  const { lifted, floatLocked } = await liftTileByAir(ownerKey, tile, ledger);
   const { turned } = await persistMixLedger(tile, ledger);
-  return { turned, lifted };
+  return { turned, lifted, floatLocked };
 }
 
 /** A created stage seals: its gift lands in the terrain bank and
@@ -12174,7 +12233,11 @@ export const handlers = {
     if ((next.buildStage ?? 0) === 1) {
       badRequest("The stone has not finished gathering — that ground cannot hold you yet.");
     }
-    if ((next.z ?? 0) > 0 && !airborne) {
+    // THE FLOAT THRESHOLD (Nigel, 2026-11-09): only a FLOATING
+    // tile (z ≥ 2) bars the walking road — Z 1 is grounded,
+    // stacked land, and the Tender walks onto it as onto any
+    // ground. The leap's law stands for the isles above.
+    if (tileFloats(next) && !airborne) {
       badRequest("No road climbs to the floating isle — leap, and land at its height.");
     }
     const prev = bodyRow?.prevId != null ? (tiles.find((t: any) => t.id === bodyRow.prevId) as any) : null;
@@ -12368,6 +12431,26 @@ export const handlers = {
     // alike, as each standing press point feeds both.
     const attuneProgress = await getTenderProgress(actorKeyFor(ctx));
     const laid = pourLaidFor(attuneProgress.classKey, null, 1);
+    // THE BASTION LOCK, SPOKEN AT THE DOOR (Nigel, 2026-11-09):
+    // an Air lay that would float bastion-locked ground is
+    // refused BEFORE the spend, in plain words, through this
+    // same door every Attune refusal uses — the lift does not
+    // happen and the point is never taken. (The press funnels
+    // that speak no words — the settle, the shrine — simply
+    // do not lift there; liftTileByAir holds the lock itself.)
+    if (element === "sky") {
+      const rateLaid = laid * (1 + fxSum(ownerKey, "attunementRate"));
+      const tilesNow = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      if (floatLockedTile(ownerKey, tilesNow as any[], tile)) {
+        const cost = mixLiftCost(ownerKey, tile, tilesNow as any[]);
+        let skyAfter = mixLedgerOf(tile).ledger.sky + rateLaid;
+        let zAfter = tile.z ?? 0;
+        while (skyAfter >= cost && zAfter + 1 < FLOAT_MIN_Z) { skyAfter -= cost; zAfter += 1; }
+        if (skyAfter >= cost && zAfter + 1 >= FLOAT_MIN_Z) {
+          badRequest("This ground is locked to the bastion — the bastion's own hex and the six around it never float. Your Air is not spent.");
+        }
+      }
+    }
     const spent = await spendAttunement(actorKeyFor(ctx), element, 1);
     if (!spent.ok) badRequest(`Attuning the ground costs 1 ${element} point — your ${element} pool holds ${Math.floor(spent.held)}.`);
     // THE ATTUNEMENT RATE (the zodiac's clause, Recovery
@@ -12722,7 +12805,15 @@ export const handlers = {
     const dq = Math.abs(tile[0].q - fromTile[0].q);
     const dr = Math.abs(tile[0].r - fromTile[0].r);
     const dist = Math.max(dq, dr, Math.abs((tile[0].q + tile[0].r) - (fromTile[0].q + fromTile[0].r)));
-    if (dist !== 1) badRequest("Can only move to adjacent tiles.");
+    // THE RISE AT THE LAST STEP (Nigel, 2026-11-09): an order
+    // aimed at a floating tile is itself the road up — a step
+    // straight up (or down) between a floating tile and the
+    // ground of its own hex is a lawful step, the rise the
+    // march's last step makes, here in the single step's form.
+    const sameHexRise = dist === 0
+      && (tile[0].z ?? 0) !== (fromTile[0].z ?? 0)
+      && Math.max(tile[0].z ?? 0, fromTile[0].z ?? 0) >= FLOAT_MIN_Z;
+    if (dist !== 1 && !sameHexRise) badRequest("Can only move to adjacent tiles.");
     // No tile capacity refuses a step (THE CROWDING GATE,
     // Nigel 2026-10-18): numbers cost speed, never ground.
     // Server-authoritative move cost: 1 + floor((power - 1) / 3)
@@ -15272,8 +15363,24 @@ export const handlers = {
     // System): a step whose centre line crosses a standing
     // build wall is no step — the road goes around, and only a
     // land with no way around at all refuses the march.
-    const road = findAnyRoad(tiles as any, placement.tileId, tileId, buildStepBlocked(ownerKey));
-    if (!road) badRequest("No road runs there — the ground itself bars the way.");
+    // ORDERED TO THE TOP (Nigel, 2026-11-09): a march whose
+    // destination FLOATS (z ≥ 2) rides the ordinary road to
+    // the ground of that hex and rises at its last step — the
+    // order aimed at the floating tile is itself the road up;
+    // no other door is opened. The road graph runs on the
+    // ground (z 0), so the road is found to the destination
+    // hex's ground row and the floating tile appended as the
+    // final step; settlement lands the walker on the road's
+    // last tile, which is the isle itself.
+    let roadDestId = tileId;
+    if (tileFloats(dest)) {
+      const groundRow = (tiles as any[]).find(t => t.q === dest.q && t.r === dest.r && (t.z ?? 0) === 0);
+      if (!groundRow) badRequest("No road runs there — the ground itself bars the way.");
+      roadDestId = groundRow.id;
+    }
+    const groundRoad = findAnyRoad(tiles as any, placement.tileId, roadDestId, buildStepBlocked(ownerKey));
+    if (!groundRoad) badRequest("No road runs there — the ground itself bars the way.");
+    const road = roadDestId === tileId ? groundRoad : [...groundRoad, tileId];
     const steps = road.length - 1;
     // A free point must belong to the ground it names:
     // within the destination hex or hard beside it, never

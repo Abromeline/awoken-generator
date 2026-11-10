@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Awakened, type TerritoryTile, type FieldPlacement } from "./api";
-import { useTerrainArt, terrainImgFor, stageForTile, trayStageOf, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, type TileMix } from "./terrainArt";
+import { useTerrainArt, terrainImgFor, stageForTile, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, blendedMixFace, cliffSide, floatGroupBody, onMixLayersReady, type TileMix } from "./terrainArt";
 import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
 import { abilityByKey, abilityQualifies, elementSumsOfPlacement, qualifiedAbilities, requirementText } from "./abilities";
@@ -216,11 +216,28 @@ function isoOffset(q: number, r: number, size: number): { px: number; py: number
  *  a jump at its height reads as landing on the isle's face. */
 export function floatLift(size: number): number { return Math.round(size * 0.48); }
 
+/** THE FLOAT THRESHOLD (Nigel, 2026-11-09 — the floating-tiles
+ *  ruling): a tile FLOATS at Z 2 and above; Z 1 stays grounded,
+ *  stacked land like any other. Before this ruling every risen
+ *  tile (z > 0) read as a floating isle; the one threshold now
+ *  stands everywhere the game asks whether a tile floats —
+ *  the render, the stride, the roads, the panel's words — and
+ *  the server's FLOAT_MIN_Z is its twin. */
+export const FLOAT_MIN_Z = 2;
+export function tileFloats(t: { z?: number | null }): boolean { return (t.z ?? 0) >= FLOAT_MIN_Z; }
+/** How high a tile hovers above its own ground: nothing at
+ *  Z 1, one float-step at Z 2, climbing a step per Z beyond —
+ *  the rise reads with the Z it has honestly climbed. */
+export function floatRise(size: number, z: number | null | undefined): number {
+  const zz = z ?? 0;
+  return zz >= FLOAT_MIN_Z ? (zz - 1) * floatLift(size) : 0;
+}
+
 function tileCenterScreen(t: { q: number; r: number; height?: number; z?: number }, pan: { x: number; y: number }, zoom: number): { cx: number; cy: number } {
   const size = HEX_BASE_SIZE * zoom;
   const TRAY_LIFT = Math.round(size * 0.2);
   const { px, py } = isoOffset(t.q, t.r, size);
-  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0) };
+  return { cx: 250 + px + pan.x, cy: 170 + py + pan.y - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z) };
 }
 
 /** The inverse of tileCenterScreen for ground points: a
@@ -443,6 +460,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // The creator's uploaded stage art, shared cache with the workshop's
   // Terrain Stages section; tiles resolve through terrainImgFor below.
   const { data: terrainArt } = useTerrainArt();
+  // THE BLENDED FACE (Nigel, 2026-11-09): the mix textures
+  // composite offscreen (terrainArt's blendedMixFace); the first
+  // frames may precede their loading, so repaint once when they
+  // stand ready and every mixed face lands as one face.
+  const [, setMixArtReady] = useState(0);
+  useEffect(() => onMixLayersReady(() => {
+    // A cliff art load can complete DURING a render (the browser
+    // may already hold the bytes) — never set state mid-render;
+    // the repaint lands on the next tick instead.
+    setTimeout(() => setMixArtReady((n) => n + 1), 0);
+  }), []);
   // The creator's live enemy art (UI Workspace uploads/selection),
   // resolved server-side; every enemy on the field wears it.
   const { data: enemyArtData } = useEnemyArt();
@@ -2477,14 +2505,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
   const crossingBlocked = (a: TerritoryTile, b: TerritoryTile, now: number): boolean => {
     const eng = tenderJumpRef.current;
-    if ((b.z ?? 0) > 0) return !jumpApex(eng, now);
+    if (tileFloats(b)) return !jumpApex(eng, now);
     if (hexDistOf(a, b) === 1) {
       if (((b.height ?? 1) - (a.height ?? 1)) >= 2 && !jumpAirborne(eng, now)) return true;
     }
     return false;
   };
   const crossingNeedsAir = (a: TerritoryTile, b: TerritoryTile): boolean => {
-    if ((b.z ?? 0) > 0) return true;
+    if (tileFloats(b)) return true;
     if (hexDistOf(a, b) === 1) {
       if (((b.height ?? 1) - (a.height ?? 1)) >= 2) return true;
     }
@@ -2498,16 +2526,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     let best: TerritoryTile | null = null;
     let bestD = Infinity;
     for (const t of tenderTilesRef.current) {
-      if ((t.z ?? 0) > 0) continue;
+      if (tileFloats(t)) continue;
       const c = tileCenterScreen(t, tenderPanRef.current, tenderZoomRef.current);
       const d = Math.hypot(c.cx - x, c.cy - y);
       if (d < bestD) { bestD = d; best = t; }
     }
     if (!best) return null;
     const cur = tenderTilesRef.current.find(t => t.id === tenderAnchorRef.current);
-    if (cur && (cur.z ?? 0) > 0 && cur.q === best.q && cur.r === best.r) return cur;
+    if (cur && tileFloats(cur) && cur.q === best.q && cur.r === best.r) return cur;
     if (jumpApex(tenderJumpRef.current, now)) {
-      const isle = tenderTilesRef.current.find(t => (t.z ?? 0) > 0 && t.q === best!.q && t.r === best!.r);
+      const isle = tenderTilesRef.current.find(t => tileFloats(t) && t.q === best!.q && t.r === best!.r);
       if (isle) return isle;
     }
     return best;
@@ -4507,7 +4535,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // A floating isle hovers above its own ground (the Building
       // System): the risen tile draws at its lift, its shadow
       // stays on the newborn beneath (drawn in the tile's face).
-      const cy = originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
+      const cy = originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z);
       return { cx, cy };
     };
     // The marching layer's derivation (lives here, beside tilePos —
@@ -4618,9 +4646,35 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // of light. An Awoken gives no light at all — not on
     // her own hex, and nothing beside her glows for her
     // standing there.
+    // THE PAINTER'S KEY (defect fix, 2026-11-09 — Nigel, from the
+    // floating-tiles proof shots: "I can see the corrupted hex
+    // showing above the hexes that should be above it"): a tile
+    // paints by the screen-y of its GROUND, never by its drawn
+    // centre. The risen rows share one hex's ground between them
+    // — the cursed newborn at z 0, its z-1 sibling, the floater
+    // at z ≥ 2 — but tilePos lifts each row's centre by its own
+    // rise, so keying the sort on tilePos seated the under-rows
+    // one float-step NORTH of their true ground: their tall
+    // cursed art (painted to the canvas's foot, drips and all)
+    // then painted OVER the southern neighbours that the
+    // painter's law says must cover them. The key below is the
+    // ground itself: the lattice point with only the tray steps
+    // counted (a grounded stack's top face truly stands higher
+    // on its own ground; the float rise is air, not ground, and
+    // never moves the key). The floater still draws within its
+    // own hex's turn — above its ground rows, by the z tiebreak —
+    // exactly where the old isle drew; only the under-rows come
+    // home to their ground.
+    const groundKeyY = (t: any): number => {
+      const { py } = isoOffset(t.q, t.r, size);
+      return originY + py - (Math.max(1, t.height || 1) - 1) * TRAY_LIFT;
+    };
     const sortedTiles = [...tiles].sort((a, b) => {
-      const pa = tilePos(a), pb = tilePos(b);
-      return pa.cy - pb.cy;
+      const d = groundKeyY(a) - groundKeyY(b);
+      if (d !== 0) return d;
+      // One hex, several rows: the lower plane paints first, the
+      // floater last — a stack's own order on its own ground.
+      return (a.z ?? 0) - (b.z ?? 0);
     });
     // Entity layer: Awoken + buildings render ABOVE all terrain (Option A)
     // XYZ: entities sit on the tile top face, lifted by terrain height
@@ -5085,6 +5139,73 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
     });
 
+    // ── FLOATING GROUPS (Nigel, 2026-11-09 — the floating-tiles
+    // ruling): tiles floating side by side float together as one
+    // landmass, and the black translucent body hangs only around
+    // the group's OUTER edges — between joined tiles there is no
+    // body and no seam. Groups are the connected components of
+    // the floating tiles (z ≥ FLOAT_MIN_Z) under the six
+    // neighbourhood; each group's body is the union of its
+    // members' island silhouettes, drawn once, beneath every
+    // member face (in the members' own tile pass below, keyed
+    // by the group's first member in draw order). A lone floater
+    // is a group of one and wears the same body.
+    const floatGroups: { members: any[]; firstId: number; img: { url: string; x: number; y: number; w: number; h: number } | null }[] = [];
+    {
+      const floaters = tiles.filter((t: any) => !t.cursed && tileFloats(t));
+      const byCoordF = new Map<string, any>(floaters.map((t: any) => [`${t.q},${t.r}`, t]));
+      const seenF = new Set<number>();
+      const DIRS6F = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      for (const seed of floaters) {
+        if (seenF.has(seed.id)) continue;
+        const members: any[] = [];
+        const queue: any[] = [seed];
+        seenF.add(seed.id);
+        while (queue.length) {
+          const cur = queue.shift()!;
+          members.push(cur);
+          for (const [dq, dr] of DIRS6F) {
+            const n = byCoordF.get(`${cur.q + dq},${cur.r + dr}`);
+            if (n && !seenF.has(n.id)) { seenF.add(n.id); queue.push(n); }
+          }
+        }
+        // Each member's face-image box, in the tile pass's own
+        // geometry (purified faces share one measure).
+        const boxes = members.map((m: any) => {
+          const { cx, cy } = tilePos(m);
+          const mKey = TERRAIN[m.element] ? m.element : "neutral";
+          const mOff = TERRAIN_IMG_OFFSET[mKey] ?? { dx: 0, dy: 0 };
+          const w = size * 2.41;
+          const h = size * (TERRAIN_IMG_PLACE[mKey]?.h ?? 1.608);
+          return { x: cx - size * 1.2106 + mOff.dx * size, y: cy - size * 0.6857 + (mOff.dy + (TERRAIN_IMG_PLACE[mKey]?.dy ?? 0)) * size, w, h };
+        });
+        const minX = Math.min(...boxes.map((b) => b.x));
+        const minY = Math.min(...boxes.map((b) => b.y));
+        const body = floatGroupBody(boxes.map((b) => ({ x: (b.x - minX) / b.w, y: (b.y - minY) / b.h })));
+        const firstId = sortedTiles.find((st: any) => members.some((m: any) => m.id === st.id))?.id ?? members[0].id;
+        floatGroups.push({
+          members, firstId,
+          img: body ? { url: body.url, x: minX, y: minY, w: body.wUnits * boxes[0].w, h: body.hUnits * boxes[0].h } : null,
+        });
+      }
+    }
+    const floatBodyByTileId = new Map<number, { url: string; x: number; y: number; w: number; h: number }>();
+    for (const g of floatGroups) if (g.img) floatBodyByTileId.set(g.firstId, g.img);
+
+    // The cursed tiles' face clips, hoisted out of the tile
+    // pass: a <clipPath> defined inside a tile's own <g> is not
+    // reliably live when the browser paints the tile (Chrome
+    // drops the reference), so the defs stand before the pass,
+    // one per cursed tile, each its own fitted cell.
+    const faceClipDefs = tiles.filter((t: any) => t.cursed).map((t: any) => {
+      const { cx, cy } = tilePos(t);
+      return (
+        <clipPath key={`face-clip-${t.id}`} id={`face-clip-${t.id}`}>
+          <polygon points={hexCellPoints(cx, cy, size)} />
+        </clipPath>
+      );
+    });
+
     const elements = sortedTiles.map((t, i) => {
       // Flat-top XYZ: tilePos handles axial->pixel + height lift
       const { cx, cy } = tilePos(t);
@@ -5107,8 +5228,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {/* A FLOATING ISLE's shadow (the Building System,
               2026-10-19): the risen tile's shade lies on the
               ground it left — the newborn beneath wears it. */}
-          {(t as any).z > 0 && (
-            <ellipse cx={cx} cy={cy + floatLift(s) + s * 0.12} rx={s * 1.05} ry={s * 0.5}
+          {tileFloats(t as any) && (
+            <ellipse cx={cx} cy={cy + floatRise(s, (t as any).z) + s * 0.12} rx={s * 1.05} ry={s * 0.5}
               fill="rgba(0,0,0,0.32)" pointerEvents="none" />
           )}
           {/* Isometric tile: 1920x1280 PNG; painted face measured 1730×944
@@ -5116,64 +5237,132 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               image so the face center lands exactly on the tile's
               lattice point (cx, cy); imgOff seats off-template art. */}
           {t.cursed ? (
-            <image href={TERRAIN[tileKey]}
-              x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-              preserveAspectRatio="xMidYMid meet" />
+            /* THE CURSED FACE KEEPS ITS OWN HEX (defect fix,
+               2026-11-09 — Nigel, from the floating-tiles proof
+               shots: "I can see the corrupted hex showing above
+               the hexes that should be above it"): his cursed
+               canvas (1920×1510) carries its corruption BELOW
+               the painted face — a dark skirt of drips and
+               tendrils running to the canvas's foot (measured:
+               strong ink to source y ≈1475, while the face's
+               southern edge — the same measure every element
+               face ends at, y ≈1235 of its 1280 — sits at
+               ≈1264 on this taller canvas). Drawn whole, that
+               skirt paints straight onto the southern
+               neighbours' faces in a hard straight band, over
+               hexes the painter's law says must cover it. The
+               face now draws clipped to its own fitted cell —
+               the same polygon every overlay on this map shares
+               (hexCellPoints above) — so a cursed hex ends at
+               its own southern border exactly as an element hex
+               does. The art is untouched; the wisps ABOVE the
+               face stay (they rise into the hex's own upper
+               reach, where the fitted cell still holds them);
+               only the southward spill is cut. The halo and the
+               glow below wear the same clip, for the same law:
+               the halo's rim (ry 0.92·s) overshot the face's
+               south by ~0.37·s of dark wash. */
+            <g clipPath={`url(#face-clip-${t.id})`}>
+              <image href={TERRAIN[tileKey]}
+                x={cx - s * 1.2106 + imgOff.dx * s} y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s} width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
+                preserveAspectRatio="xMidYMid meet" />
+            </g>
           ) : (
-            /* The stack (Nigel, 2026-10-15): a purified hex is drawn
-               as its trays — the growing tray at the bottom wearing
-               the stage of its fill, every sealed tray above it at
-               stage 3, the top tray (drawn last) at the tile's
-               anchor. Each tray is the full tile image, stepped down
-               by TRAY_LIFT per level beneath the top. */
-            Array.from({ length: Math.max(1, (t as any).height || 1) }, (_, i) => {
+            /* The stack (Nigel, 2026-10-15; reshaped 2026-11-09 —
+               "Blend the stack into one face"): a purified hex is
+               drawn as ONE top face over ONE continuous side. The
+               top face wears the engine's stage (stageForTile), or,
+               for a mixed hex, the four textures composited into a
+               single blended face (below). Beneath the top, where
+               each level once drew the full tile image stepped down
+               by TRAY_LIFT — a staircase of hard-edged slabs — the
+               stack now hangs a single cliff edge: the island's
+               silhouette filled with translucent black (Nigel's
+               amendment, 2026-11-09 — what stands underneath
+               another tray is black, never purple), one unbroken
+               wash shading down the whole drop with no seam at
+               any level, easing at its tip into the land below.
+               Single-height tiles draw exactly as they always did. */
+            (() => {
               const total = Math.max(1, (t as any).height || 1);
-              const sealed = (t as any).traysSealed ?? 0;
-              const isGrowing = i === 0 && sealed < 6;
-              // The top tray wears the engine's stage (stageForTile);
-              // beneath it, the growing tray wears its fill's stage
-              // and sealed trays wear stage 3.
-              const stage = i === total - 1 ? stageForTile(t) : isGrowing ? trayStageOf((t as any).growPoints ?? 0) : 3;
-              const drop = (total - 1 - i) * TRAY_LIFT;
+              const topStage = stageForTile(t);
+              const topSrc = terrainImgFor(tileKey, topStage, terrainArt);
+              const imgX = cx - s * 1.2106 + imgOff.dx * s;
+              const imgY = cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s;
+              const imgW = s * 2.41;
+              const imgH = s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608);
               const mix = (t as any).mix as TileMix | null | undefined;
-              if (i === total - 1 && mixStands(mix)) {
-                // THE LAYERED FACE (Nigel, 2026-10-25 — terrain
-                // mixing): the top tray's single-element face
-                // gives way to his four textures, stacked in his
-                // order (TERRAIN_LAYER_ORDER, bottom → top), each
-                // standing at the opacity of its element's ledger
-                // line — the mixture IS the face now. The trays
-                // beneath keep the stack's stepped form, and the
-                // new face carries no glass rim: the textures
-                // stand as he drew them. Each texture seats on
-                // the face's centre at the painted face's width
-                // (the standing art's measure: 1730 of its 1920).
-                const fw = s * 2.41 * (1730 / 1920);
-                return (
-                  <g key={`tray-${t.id}-${i}`}>
-                    {TERRAIN_LAYER_ORDER.map((el) => {
-                      const art = TERRAIN_LAYER_ART[el];
-                      const w = fw;
-                      const h = w * art.hPerW;
-                      return (
-                        <image key={el} href={art.src}
-                          x={cx - w / 2} y={cy + drop - h / 2 + art.seatDy * h}
-                          width={w} height={h}
-                          opacity={mixLayerOpacity(mix?.[el])}
-                          preserveAspectRatio="xMidYMid meet" />
-                      );
-                    })}
-                  </g>
-                );
-              }
+              const drop = (total - 1) * TRAY_LIFT;
+              // A FLOATING tile (z ≥ 2) hangs no cliff: its
+              // underneath is the floating group's own black
+              // body (drawn first in this group, below), around
+              // the joined landmass's outer edges only — the
+              // stack's side belongs to grounded stacks (the
+              // blend build's law, now the grounded tile's).
+              const cliff = total > 1 && !tileFloats(t as any) ? cliffSide(topSrc, drop / imgH) : null;
+              const floatBody = floatBodyByTileId.get(t.id);
               return (
-                <image key={`tray-${t.id}-${i}`} href={terrainImgFor(tileKey, stage, terrainArt)}
-                  x={cx - s * 1.2106 + imgOff.dx * s}
-                  y={cy - s * 0.6857 + (imgOff.dy + (TERRAIN_IMG_PLACE[tileKey]?.dy ?? 0)) * s + drop}
-                  width={s * 2.41} height={s * (TERRAIN_IMG_PLACE[tileKey]?.h ?? 1.608)}
-                  preserveAspectRatio="xMidYMid meet" />
+                <g key={`stack-${t.id}`}>
+                  {floatBody && (
+                    <image href={floatBody.url}
+                      x={floatBody.x} y={floatBody.y}
+                      width={floatBody.w} height={floatBody.h}
+                      preserveAspectRatio="none" pointerEvents="none" />
+                  )}
+                  {cliff && (
+                    <image href={cliff}
+                      x={imgX} y={imgY}
+                      width={imgW} height={imgH}
+                      preserveAspectRatio="none" pointerEvents="none" />
+                  )}
+                  {mixStands(mix) ? (
+                    // THE BLENDED FACE (Nigel, 2026-11-09): the
+                    // layered face of 2026-10-25 — his four
+                    // textures stacked in his order
+                    // (TERRAIN_LAYER_ORDER, bottom → top), each at
+                    // the opacity of its ledger line — drew as four
+                    // separate translucent images and read as a
+                    // purple stack of ghosts. The textures now
+                    // composite ONCE per mixture onto a single
+                    // canvas (terrainArt's blendedMixFace:
+                    // source-over, paint over paint, cached by the
+                    // mix's signature) and the map draws that one
+                    // finished face where the four stood. While the
+                    // textures are still loading the old four-image
+                    // stack stands in, so the map never waits.
+                    (() => {
+                      const fw = s * 2.41 * (1730 / 1920);
+                      const blended = blendedMixFace(mix!);
+                      if (blended) {
+                        return (
+                          <image href={blended}
+                            x={cx - imgW / 2} y={cy - imgH / 2}
+                            width={imgW} height={imgH}
+                            preserveAspectRatio="none" pointerEvents="none" />
+                        );
+                      }
+                      return TERRAIN_LAYER_ORDER.map((el) => {
+                        const art = TERRAIN_LAYER_ART[el];
+                        const w = fw;
+                        const h = w * art.hPerW;
+                        return (
+                          <image key={el} href={art.src}
+                            x={cx - w / 2} y={cy - h / 2 + art.seatDy * h}
+                            width={w} height={h}
+                            opacity={mixLayerOpacity(mix?.[el])}
+                            preserveAspectRatio="xMidYMid meet" />
+                        );
+                      });
+                    })()
+                  ) : (
+                    <image href={topSrc}
+                      x={imgX} y={imgY}
+                      width={imgW} height={imgH}
+                      preserveAspectRatio="xMidYMid meet" />
+                  )}
+                </g>
               );
-            })
+            })()
           )}
           {/* The turning seal stood here until 2026-10-25: a hex
               whose bank was filling toward a switch wore the glyph
@@ -5223,8 +5412,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             </text>
           )}
           {t.cursed && (
-            <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
-              fill="url(#corruptionHalo)" pointerEvents="none" />
+            <g clipPath={`url(#face-clip-${t.id})`}>
+              <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
+                fill="url(#corruptionHalo)" pointerEvents="none" />
+            </g>
           )}
           {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
               GLOW crimson-violet from within — the dark bruising the land
@@ -5232,7 +5423,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               smolder at the edge of the light. Layered polygons, no SVG
               filters, so the iPad stays smooth. */}
           {t.cursed && (
-            <g className="corruption-glow" pointerEvents="none">
+            <g className="corruption-glow" clipPath={`url(#face-clip-${t.id})`} pointerEvents="none">
               <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill="rgba(110,6,26,0.16)" stroke="none" />
               <polygon points={pts} fill="rgba(148,14,52,0.20)" stroke="none" />
               {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
@@ -5702,7 +5893,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const ghosts: { q: number; r: number }[] = [];
       const DIRS6 = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
       for (const t of tiles) {
-        if ((t.z ?? 0) > 0) continue;
+        if (tileFloats(t)) continue;
         for (const [dq, dr] of DIRS6) {
           const q = t.q + dq, r = t.r + dr, key = `${q},${r}`;
           if (have.has(key) || seen.has(key)) continue;
@@ -6119,7 +6310,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const pieceLiftY = (p: BuildPiece): number => {
       const t = pieceTileOf(p);
       if (!t) return 0;
-      return -(Math.max(1, t.height || 1) - 1) * TRAY_LIFT - ((t.z ?? 0) > 0 ? floatLift(size) : 0);
+      return -(Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z);
     };
     const BUILD_WALL_H = 30; // the wall's rise, in land units — and a floor's emergence depth: the Stone Cast sinks an unrisen piece by the un-emerged share of this same measure
     const buildFloorsLayer = (
@@ -7235,6 +7426,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     return (
       <>
         <g key="land-back" className="land-cam" transform={camTransform}>
+          <defs>{faceClipDefs}</defs>
           {elements}
         </g>
         {hitLayer}
@@ -9368,7 +9560,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         return (
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <strong>{(t as any).z > 0 ? "A floating isle" : "A work rising"} — {stageName}</strong>
+              <strong>{tileFloats(t as any) ? "A floating isle" : "A work rising"} — {stageName}</strong>
               <span style={{ fontSize: 12, opacity: 0.8 }}>terrain bank {terrainBank}</span>
             </div>
             {stage >= 1 && stage <= 4 && (
