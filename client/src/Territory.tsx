@@ -6453,8 +6453,55 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       return -(Math.max(1, t.height || 1) - 1) * TRAY_LIFT - floatRise(size, t.z);
     };
     const BUILD_WALL_H = 30; // the wall's rise, in land units — and a floor's emergence depth: the Stone Cast sinks an unrisen piece by the un-emerged share of this same measure
+    // THE FLOOR'S THICKNESS (Nigel, 2026-11-10 — "the floor
+    // tiles in building aren't being shown with their thickness
+    // edge — they are just flat"): a FINISHED floor (frac ≥ 1)
+    // wears a code-drawn thickness band along its outer
+    // southern edges: the footprint's southern boundary extruded
+    // straight down by FLOOR_SLAB_D land units, painted in the
+    // land's own cliff family — the translucent black wash of
+    // terrainArt's cliffSide (0.34 at the face, deepening to
+    // 0.60, easing to 0.30 at the tip), served here as one
+    // gradient over the band's own depth so a thin slab reads
+    // its shallow slice of the same fall. The band hugs the
+    // footprint's own geometry (plate → axial → land through the
+    // standing landPt, riding the tile's lift like the face
+    // does), so it can never drift from the floor it thickens.
+    // AN EDGE IS OUTER when the two floors' shared-edge
+    // reckoning finds no sibling floor across it: an edge two
+    // floors share is INTERIOR and wears no band (the six
+    // wedges of one hex band only around their outside, exactly
+    // as a floating group's body hangs only on its outer
+    // edges); an edge shared with a WALL is NOT interior — the
+    // wall stands ON the floor's edge and the slab still falls
+    // beneath it. The band paints INSIDE the piece's own group,
+    // under its face, and the floors paint in the ground's own
+    // dressing order (this layer), never in the standings — so
+    // a figure standing south of a floor always paints over its
+    // band, and the band never over a figure. While a floor is
+    // still rising (frac < 1) nothing here draws: the rise's
+    // own apron clip stands untouched, exactly as it stood.
+    const FLOOR_SLAB_D = 9;
+    const floorPiecesAll = buildPieces.filter(p => p.kind === "triangle" || p.kind === "square");
+    const floorEdgeUsers = new Map<string, number>();
+    for (const fp of floorPiecesAll) {
+      const n = fp.footprint.length;
+      for (let i = 0; i < n; i++) {
+        const a = fp.footprint[i], b = fp.footprint[(i + 1) % n];
+        const key = [a, b].map(v => `${Math.round(v[0] * 1000)},${Math.round(v[1] * 1000)}`).sort().join("|");
+        floorEdgeUsers.set(key, (floorEdgeUsers.get(key) ?? 0) + 1);
+      }
+    }
     const buildFloorsLayer = (
       <g key="build-floors" className="build-floors" pointerEvents="none">
+        <defs>
+          <linearGradient id="floor-slab-wash" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="rgba(0,0,0,0.34)" />
+            <stop offset="0.55" stopColor="rgba(0,0,0,0.52)" />
+            <stop offset="0.85" stopColor="rgba(0,0,0,0.60)" />
+            <stop offset="1" stopColor="rgba(0,0,0,0.30)" />
+          </linearGradient>
+        </defs>
         {buildPieces.filter(p => p.kind === "triangle" || p.kind === "square").map(p => {
           // HIS FACE: a triangle wears the wedge drawn for its
           // orientation, seated by the exact affine of its three
@@ -6488,9 +6535,68 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const liftedPts = liftedVerts.map(v => `${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(" ");
           const apronPts = liftedVerts.map(v => `${v.x.toFixed(1)},${(v.y + 18).toFixed(1)}`).join(" ");
           const south = [...liftedVerts].sort((a, b) => b.y - a.y).slice(0, 2);
+          // THE THICKNESS BAND's geometry (see the reckoning
+          // above the layer): the footprint's SOUTHERN
+          // SILHOUETTE — its lower hull. An edge stands on the
+          // hull when the footprint's own heart and a point
+          // straight BELOW the edge lie on opposite sides of
+          // the edge's line: the edge faces the ground, and the
+          // slab's side hangs from it. (The hull test, not a
+          // height threshold: a rhombus footprint's second
+          // slant ends at its mid-height side corner and is
+          // silhouette all the same.) Hull edges band WHOLE,
+          // walked in stored order; consecutive edges sharing
+          // a vertex merge into one band path; each kept
+          // vertex is extruded straight down by FLOOR_SLAB_D.
+          const bandPaths: string[] = [];
+          if (frac >= 1) {
+            const nV = liftedVerts.length;
+            const isInterior = (i: number): boolean => {
+              const a = p.footprint[i], b = p.footprint[(i + 1) % p.footprint.length];
+              const key = [a, b].map(v => `${Math.round(v[0] * 1000)},${Math.round(v[1] * 1000)}`).sort().join("|");
+              return (floorEdgeUsers.get(key) ?? 0) > 1;
+            };
+            const heartX = liftedVerts.reduce((s, v) => s + v.x, 0) / nV;
+            const heartY = liftedVerts.reduce((s, v) => s + v.y, 0) / nV;
+            const sideOf = (A: { x: number; y: number }, B: { x: number; y: number }, px: number, py: number) =>
+              (B.x - A.x) * (py - A.y) - (B.y - A.y) * (px - A.x);
+            const onHull = (A: { x: number; y: number }, B: { x: number; y: number }): boolean => {
+              const sHeart = sideOf(A, B, heartX, heartY);
+              const sBelow = sideOf(A, B, (A.x + B.x) / 2, (A.y + B.y) / 2 + 10);
+              return sHeart * sBelow < 0;
+            };
+            const ptStr = (v: { x: number; y: number }) => `${v.x.toFixed(1)},${v.y.toFixed(1)}`;
+            const openSegs: { x: number; y: number }[][] = [];
+            for (let i = 0; i < nV; i++) {
+              if (isInterior(i)) continue;
+              const A = liftedVerts[i], B = liftedVerts[(i + 1) % nV];
+              if (onHull(A, B)) openSegs.push([A, B]);
+            }
+            const samePt = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+              Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+            const chains: { x: number; y: number }[][] = [];
+            for (const seg of openSegs) {
+              const last = chains[chains.length - 1];
+              if (last && samePt(last[last.length - 1], seg[0])) last.push(seg[1]);
+              else chains.push([...seg]);
+            }
+            if (chains.length > 1 && samePt(chains[chains.length - 1][chains[chains.length - 1].length - 1], chains[0][0])) {
+              const tailChain = chains.pop()!;
+              chains[0] = [...tailChain, ...chains[0].slice(1)];
+            }
+            for (const chain of chains) {
+              const top = chain.map(ptStr).join(" L");
+              const bot = [...chain].reverse().map(v => `${v.x.toFixed(1)},${(v.y + FLOOR_SLAB_D).toFixed(1)}`).join(" L");
+              bandPaths.push(`M${top} L${bot} Z`);
+            }
+          }
           return (
             <g key={p.id} data-piece={p.id} data-state={p.state ?? "standing"} data-frac={frac}
               data-clip={frac < 1 ? "seat" : undefined} data-sink={frac < 1 ? ((1 - frac) * BUILD_WALL_H).toFixed(1) : "0"}>
+              {bandPaths.map((d, bi) => (
+                <path key={`slab-${bi}`} className="floor-slab" data-slab={p.id} data-depth={FLOOR_SLAB_D}
+                  d={d} fill="url(#floor-slab-wash)" stroke="none" />
+              ))}
               {frac < 1 && (
                 <clipPath id={clipId}>
                   <path d={ptsPath(liftedPts)} />
