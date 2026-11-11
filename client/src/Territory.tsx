@@ -5801,18 +5801,153 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // to full dusk at the glow's rim; a faint source lifts
       // its own ground only part-way.
       const duskSubpaths: string[] = [];
+      // THE CURSED LAND'S RELIEF FROM THE DUSK (Nigel,
+      // 2026-11-10 — from his play: chunks of the homeland
+      // read as empty black tiles): the cursed face is
+      // near-black deep-red ink, and the flat dusk crushed
+      // it to a void. Over cursed ground the dusk's mask is
+      // laid at a grey, so the veil falls from 0.44 to a
+      // quarter (0.25) and the ink reads as dark living
+      // land. It is a veil only: the light sources' holes
+      // are laid over it in the mask below and still rule
+      // near a beacon, and the server's light reckoning is
+      // untouched.
+      // THE RELIEF'S SHAPE — ONE CONTINUOUS WASH (Nigel's
+      // rework ruling, 2026-11-10 18:15 EST, refusing the
+      // first build's one exact hex per tile: "light is
+      // being trapped inside hex's and not continuous" —
+      // "Rework it: one continuous wash over the cursed
+      // land"): cursed tiles that touch form ONE REGION;
+      // each region's cells are melted into a single
+      // outline (an edge two cells share is interior and
+      // cancels), and the outline is laid in the mask as a
+      // full-strength core wearing a half-strength rim
+      // band outside itself, so the veil steps down
+      // gradually across the frontier and spills a whisper
+      // onto the clean side — light pooling, never celled.
+      // No hex-shaped relief geometry remains anywhere. A
+      // floating cursed tile hovers apart from the ground:
+      // it is a region of one at its risen seat, a small
+      // soft pool. The region's heart keeps the sanctioned
+      // grey below; the rim softens only the frontier.
+      // (A Gaussian blur over the outline was tried first
+      // and fell on the proof drive's evidence: with the
+      // wash live the renderer pegged a core and a
+      // screenshot starved past its 600 s window, where
+      // the unblurred builds answer at once — the stepped
+      // rim carries the same law for the price of one
+      // extra path per region.)
+      const CURSED_DUSK_MASK = "#919191"; // luminance 145/255: 0.44 × 145/255 ≈ 0.25
+      const CURSED_RIM_MASK = "#c8c8c8"; // luminance 200/255: 0.44 × 200/255 ≈ 0.345, the half-strength rim
+      // The rim band: half a hex size wide (≈ a quarter
+      // of a hex width) outside the region's outline,
+      // drawn as a stroke of twice that width centred on
+      // the outline — its inner half hides under the core.
+      const WASH_RIM = size * 0.5;
+      const cursedCells: { q: number; r: number; floats: boolean; verts: [number, number][] }[] = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const t of sortedTiles) {
         const { cx, cy } = tilePos(t);
         const lift = t.cursed ? 0 : -5; // the terrain layer's own seat
         const pts = hexCellPoints(cx, cy + lift / zoom, size).split(" ");
         duskSubpaths.push(`M${pts.join(" L")} Z`);
+        if (t.cursed) {
+          cursedCells.push({ q: t.q, r: t.r, floats: tileFloats(t), verts: hexCellVertices(cx, cy, size) });
+        }
         if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
         if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
       }
       const duskPath = duskSubpaths.join(" ");
       const maskX = minX - size * 3, maskY = minY - size * 3;
       const maskW = (maxX - minX) + size * 6, maskH = (maxY - minY) + size * 6;
+      // The regions: grounded cursed tiles join by axial
+      // touch (tiles stacked on one hex join too); each
+      // floating cursed tile stands alone.
+      const RELIEF_DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      const groundByHex = new Map<string, number[]>();
+      cursedCells.forEach((c, i) => {
+        if (c.floats) return;
+        const k = `${c.q},${c.r}`;
+        const arr = groundByHex.get(k) ?? [];
+        arr.push(i);
+        groundByHex.set(k, arr);
+      });
+      const regionOf = new Array<number>(cursedCells.length).fill(-1);
+      const reliefRegions: number[][] = [];
+      cursedCells.forEach((c, i) => {
+        if (regionOf[i] >= 0) return;
+        const id = reliefRegions.length;
+        regionOf[i] = id;
+        if (c.floats) { reliefRegions.push([i]); return; }
+        const members: number[] = [];
+        const stack = [i];
+        while (stack.length) {
+          const j = stack.pop()!;
+          members.push(j);
+          const cj = cursedCells[j];
+          const keys = [`${cj.q},${cj.r}`, ...RELIEF_DIRS.map(([dq, dr]) => `${cj.q + dq},${cj.r + dr}`)];
+          for (const k of keys) for (const n of groundByHex.get(k) ?? []) {
+            if (regionOf[n] < 0) { regionOf[n] = id; stack.push(n); }
+          }
+        }
+        reliefRegions.push(members);
+      });
+      // Melt each region into one outline: count every
+      // cell edge; an edge counted twice is interior and
+      // cancels; the edges counted once stitch into
+      // boundary loops (even-odd fill keeps any hole a
+      // region wraps around). Vertices are matched on
+      // the same tenth-of-a-unit grid the cells are
+      // drawn to, so neighbours share exactly.
+      const cursedWash: ReactNode[] = reliefRegions.map((members, ri) => {
+        const qk = (x: number, y: number) => `${Math.round(x * 10)},${Math.round(y * 10)}`;
+        const edgeCount = new Map<string, number>();
+        const edgeEnds = new Map<string, [string, string]>();
+        for (const mi of members) {
+          const verts = cursedCells[mi].verts;
+          for (let e = 0; e < verts.length; e++) {
+            const a = qk(verts[e][0], verts[e][1]);
+            const b = qk(verts[(e + 1) % verts.length][0], verts[(e + 1) % verts.length][1]);
+            const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+            edgeCount.set(key, (edgeCount.get(key) ?? 0) + 1);
+            if (!edgeEnds.has(key)) edgeEnds.set(key, [a, b]);
+          }
+        }
+        const adj = new Map<string, { to: string; key: string }[]>();
+        for (const [key, n] of edgeCount) {
+          if (n !== 1) continue;
+          const [a, b] = edgeEnds.get(key)!;
+          const la = adj.get(a) ?? []; la.push({ to: b, key }); adj.set(a, la);
+          const lb = adj.get(b) ?? []; lb.push({ to: a, key }); adj.set(b, lb);
+        }
+        const usedEdges = new Set<string>();
+        const loops: string[] = [];
+        for (const [key, n] of edgeCount) {
+          if (n !== 1 || usedEdges.has(key)) continue;
+          const [a0, b0] = edgeEnds.get(key)!;
+          usedEdges.add(key);
+          const walk: string[] = [a0, b0];
+          let cur = b0;
+          let guard = 0;
+          while (cur !== a0 && guard++ < 100000) {
+            const nxt = (adj.get(cur) ?? []).find((e) => !usedEdges.has(e.key));
+            if (!nxt) break;
+            usedEdges.add(nxt.key);
+            cur = nxt.to;
+            if (cur !== a0) walk.push(cur);
+          }
+          if (cur === a0 && walk.length >= 3) {
+            loops.push(`M${walk.map((p) => p.split(",").map((v) => (Number(v) / 10).toFixed(1)).join(" ")).join(" L")} Z`);
+          }
+        }
+        const d = loops.join(" ");
+        return (
+          <g key={`wash-${ri}`} data-cursed-region={ri}>
+            <path d={d} fill="none" stroke={CURSED_RIM_MASK} strokeWidth={WASH_RIM * 2} strokeLinejoin="round" />
+            <path d={d} fill={CURSED_DUSK_MASK} fillRule="evenodd" stroke="none" />
+          </g>
+        );
+      });
       // SHADOWS: what stands in the light throws its shade
       // on the ground behind it, away from the nearest
       // strong source — towers at their drawn seats (the
@@ -5997,6 +6132,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             </radialGradient>
             <mask id="land-dusk-mask" maskUnits="userSpaceOnUse" x={maskX} y={maskY} width={maskW} height={maskH}>
               <rect x={maskX} y={maskY} width={maskW} height={maskH} fill="#ffffff" />
+              {cursedWash}
               {strong.map(s => (
                 <ellipse key={`hole-${s.key}`} cx={s.x} cy={s.y} rx={HOLE_RX} ry={HOLE_RY} fill="url(#land-dusk-hole-strong)" />
               ))}
