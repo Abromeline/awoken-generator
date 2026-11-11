@@ -31,6 +31,7 @@ import { WORKING_DEFS } from "./workingsData";
 import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } from "./hotbar";
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { deckWindow, nextDeckPage } from "./deckWindow";
+import { createEnemyGlideStore, foldEnemyGlide, enemyGlidePoint, enemyGlideLive } from "./enemyGlide";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, jumpHoverTick, jumpHovering, jumpCurseExempt, jumpEndHover, ladderSpeedAt, ladderTable, JPHYS, type JumpEngine } from "./jump";
 import { Corner, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
@@ -679,6 +680,24 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [wanderers, setWanderers] = useState<{ id: number; tileId: number; kind: string; posQ: number; posR: number; hp?: number; maxHp?: number }[]>([]);
   const wanderersRef = useRef(wanderers);
   wanderersRef.current = wanderers;
+  // THE SMOOTH GLIDE (the fix run's last rung, rung 1,
+  // 2026-11-11): each wanderer's last two served points and
+  // their arrival moments — the map draws the dark BETWEEN
+  // serves, gliding from the previous point to the latest
+  // over the interval the two serves took, clamped at the
+  // latest (never extrapolated) and snapped on teleports.
+  // The store is bookkeeping beside the render, folded in
+  // applyWorldSnapshot; the math itself lives in
+  // enemyGlide.ts, where the drive proves it.
+  const enemyGlideRef = useRef(createEnemyGlideStore());
+  // The glide's own frame state: while any enemy glide is
+  // unfinished, the render clock below runs on
+  // requestAnimationFrame and this counter is what it bumps
+  // — a frame counter read by nothing, whose ONLY work is to
+  // re-render the map so the glide is drawn walking. It
+  // carries no truth (the glide reads the wall clock through
+  // the store), so a dropped frame loses nothing.
+  const [, setGlideFrame] = useState(0);
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): what the felled dark leaves behind,
   // carried on the Tender's back — served by every
@@ -1678,6 +1697,36 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const iv = window.setInterval(() => setMarchNow(Date.now()), clockFast ? 50 : 125);
     return () => window.clearInterval(iv);
   }, [clockFast, clockSlow]);
+  // THE GLIDE'S OWN CLOCK (the smooth glide, rung 1,
+  // 2026-11-11): while any enemy glide is unfinished, the
+  // map re-renders on requestAnimationFrame, so the dark
+  // walks at the display's own rate between serves instead
+  // of stepping at the interval clock's 50/125 ms grain.
+  // The loop is SELF-GATING: each frame asks the store
+  // whether any glide is still live, and the moment none is
+  // — every enemy arrived, or standing still — the loop
+  // stops and does not restart until a fresh render finds
+  // live motion again (a new snapshot's fold, above). At
+  // rest there is no loop at all: no idle battery burn on
+  // the iPad this surface is built for. The loop bumps only
+  // the frame counter and reads marchNow never — the drawn
+  // point comes from the store and the wall clock directly
+  // in the wanderer binding below, so the ONE CLOCK's
+  // cadences for flights and growths are untouched.
+  const glideLiveNow = enemyGlideLive(enemyGlideRef.current, Date.now());
+  useEffect(() => {
+    if (!glideLiveNow) return;
+    let raf = 0;
+    let stopped = false;
+    const step = () => {
+      if (stopped) return;
+      if (!enemyGlideLive(enemyGlideRef.current, Date.now())) return;
+      setGlideFrame(f => f + 1);
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => { stopped = true; cancelAnimationFrame(raf); };
+  }, [glideLiveNow, wanderers]);
   /** The order to the written Blade on one of the
    *  wandering dark, refereed by the server (api.looseBlade).
    *  A loose that lands speaks for itself here (the flight,
@@ -2269,6 +2318,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTenderStand(roomSelfStandRef.current ?? refreshed.tender ?? null);
     setSummoning(refreshed.summoning ?? { company: [], reinforcements: [], summonersPower: 0, standCursed: false });
     setWanderers(refreshed.wanderers ?? []);
+    // THE SMOOTH GLIDE: this snapshot's wanderers fold into
+    // the glide store at the moment they land — the fold's
+    // arrival moment is the glide interval's own end.
+    foldEnemyGlide(enemyGlideRef.current, refreshed.wanderers ?? [], Date.now());
     battleLiveRef.current = (refreshed.wanderers ?? []).length > 0;
     noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
@@ -2292,6 +2345,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       seeds: snap.seeds ? snap.seeds.length : -1,
       columns: snap.columns ? snap.columns.length : -1,
     };
+    // THE GLIDE'S CENSUS (the smooth glide's drive,
+    // 2026-11-11): the glide store's tracks, exposed the
+    // same way — a drive reads the drawn point's own inputs
+    // (prev/latest/arrival moments) without touching the
+    // module, and asserts the draw from them.
+    (window as any).__awokenEnemyGlide = [...enemyGlideRef.current.entries()].map(([id, tr]) => ({
+      id, prev: tr.prev, prevAt: tr.prevAt, latest: tr.latest, latestAt: tr.latestAt,
+    }));
     return true;
   };
   const refreshTerritory = async (loopSeq?: number) => {
@@ -4609,6 +4670,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // Render hex grid with mathematical perspective tilt.
   // Hex tiles are tilted (landscape view), Awoken are projected to the tilted
   // positions but drawn upright (not skewed).
+  // THE TERRAIN SPLIT's cache and key (the smooth glide,
+  // rung 1, 2026-11-11): takeTerrainFaces returns the CACHED
+  // element array when the key is unchanged — the identical
+  // object, which is what makes React skip the whole tile
+  // subtree on a figures-only tick — and stores the fresh
+  // array when the key moves. The key names every input the
+  // tile faces read: the land's own state by identity (a new
+  // snapshot is a new array; an unchanged one is the same
+  // object), the camera, the art, and the island marches
+  // (marching land moves its faces). The clocks, the
+  // wanderers, the Tender's figure and the frame census are
+  // deliberately ABSENT: they move figures, not land.
+  const terrainCacheRef = useRef<{ key: string; faces: ReactNode } | null>(null);
+  const terrainKeySeqRef = useRef(0);
+  const takeTerrainFaces = (key: string, faces: ReactNode): ReactNode => {
+    const cache = terrainCacheRef.current;
+    if (cache && cache.key === key) return cache.faces;
+    terrainCacheRef.current = { key, faces };
+    return faces;
+  };
+  const terrainCacheKey = [
+    tiles, islandMarches, terrainArt, pan.x, pan.y, zoom, frameId,
+    buildPieces, workings, mapSeeds, defenceWorks, buildings,
+  ].map(v => (typeof v === "object" && v !== null ? `#${(v as any).__glideId ?? ((v as any).__glideId = ++terrainKeySeqRef.current)}` : String(v))).join("|");
   const renderGrid = () => {
     // THE CAMERA (the flicker fix, Nigel 2026-10-23: "get the map
     // to stop flickering when its being moved"). The land is drawn
@@ -7629,7 +7714,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // stands where it walks — its own stored point on
           // the land, read through the same iso delta as
           // every figure's standing point.
-          const dp = isoOffset(w.posQ, w.posR, size);
+          // THE SMOOTH GLIDE (rung 1, 2026-11-11): the point
+          // read here is the GLIDING point — between serves
+          // the dark is drawn walking from its previous
+          // served point to its latest, on the wall clock,
+          // clamped at the latest and snapped on teleports
+          // (enemyGlide.ts). The anchor tile (w.tileId) is
+          // the latest serve's, as it always was — a walk
+          // crosses its own hex's border only in the last
+          // fraction of a step, and the free point was
+          // always read as a delta off the anchor's heart,
+          // indifferent to which side of the line it falls.
+          const drawnW = enemyGlidePoint(enemyGlideRef.current, w.id, w, Date.now());
+          const dp = isoOffset(drawnW.q, drawnW.r, size);
           const dc = isoOffset(t.q, t.r, size);
           const cx = base.cx + (dp.px - dc.px);
           const cy = base.cy + (dp.py - dc.py);
@@ -7768,7 +7865,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const t = tiles.find(tt => tt.id === w.tileId);
       if (!t) return;
       const base = tilePos(t);
-      const dp = isoOffset(w.posQ, w.posR, size);
+      // The depth sort reads the same GLIDING point the
+      // node was drawn at (the smooth glide, rung 1), so a
+      // walking enemy crosses in front of and behind the
+      // standings at the line it is actually drawn on.
+      const drawnW = enemyGlidePoint(enemyGlideRef.current, w.id, w, Date.now());
+      const dp = isoOffset(drawnW.q, drawnW.r, size);
       const dc = isoOffset(t.q, t.r, size);
       standingItems.push({ key: `standing-dark-${w.id}`, baseY: base.cy + (dp.py - dc.py), node: <g key={`standing-dark-${w.id}`} pointerEvents="none">{node}</g> });
     });
@@ -7827,6 +7929,23 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // them (buildings, figures, walls, seeds, the dark,
     // defence works), as they painted before this pass.
     standingItems.sort((a, b) => a.baseY - b.baseY);
+    // THE TERRAIN SPLIT (the smooth glide, rung 1,
+    // 2026-11-11): the tile faces built above are HOISTED
+    // out of this render and held in the component's cache,
+    // keyed by everything the faces read EXCEPT the motion
+    // state (the clocks, the wanderers, the frame census).
+    // React keeps the subtree whose element is the identical
+    // object — so on a tick that only moves figures (a glide
+    // frame, a clock tick), the whole tile layer — thousands
+    // of nodes — is not re-diffed at all, and the DOM does
+    // not re-mutate under it. A tick that changes the land
+    // itself (a new snapshot, a pan, a zoom, the art
+    // arriving) changes the key, and the faces rebuild once,
+    // exactly as they always did. The key is assembled from
+    // the state variables' own identities in the component
+    // body (terrainCacheKey, below renderGrid), which is
+    // threaded in as this function's one new input.
+    const terrainFaces = takeTerrainFaces(terrainCacheKey, elements);
     // The Tender's own base line, read back into land space
     // through the camera transform's inverse — he paints
     // between the standings behind his line and those before
@@ -7852,7 +7971,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       <>
         <g key="land-back" className="land-cam" transform={camTransform}>
           <defs>{faceClipDefs}</defs>
-          {elements}
+          {terrainFaces}
         </g>
         {hitLayer}
         <g key="land-front" className="land-cam" transform={camTransform}>
