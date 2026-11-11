@@ -9662,7 +9662,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         <button className="compass-btn east" onClick={() => setPan(p => ({ ...p, x: p.x - 40 }))} aria-label="Pan right">▶</button>
         <button className="compass-btn south" onClick={() => setPan(p => ({ ...p, y: p.y - 40 }))} aria-label="Pan down">▼</button>
         <button className="compass-btn zoom-in" onClick={() => setZoom(z => Math.min(z + 0.2, 3))} aria-label="Zoom in">＋</button>
-        <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} aria-label="Zoom out">－</button>
+        <button className="compass-btn zoom-out" onClick={() => setZoom(z => Math.max(z - 0.2, 0.3))} aria-label="Zoom out">－</button>
         {tenderStand && (
           <button className="compass-btn find-tender" aria-label="Find my Tender"
             onClick={() => { findMyTender(); pingRoadNav("find", roadQueryClient); }}>🧭</button>
