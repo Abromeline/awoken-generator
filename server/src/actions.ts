@@ -1988,6 +1988,94 @@ export function floatLockedTile(ownerKey: string, tiles: { id: number; q: number
   return bastionLockKeys(ownerKey, tiles).has(`${tile.q},${tile.r}`);
 }
 
+/** THE BEACON RING (Nigel, 2026-11-10 08:47, confirmed the same
+ *  breath — "i mean it should be that way" — and restated
+ *  2026-11-10 19:32 for the bastion: "the 6 tiles around the
+ *  bastion are supposed to always be purified by the bastion"):
+ *  THE GROUND SURROUNDING A BEACON IS ALWAYS PURIFIED AND CAN
+ *  NOT FALL. The ring is the beacon's own hex and the six
+ *  around it — radius 1, the FIGHTING light's own footprint.
+ *  Beacon-class ground is the lighting reckoning's own set
+ *  (computeTileLight), and it is three records deep:
+ *    · a starseed grown to the Beacon (level 3) or Bastion
+ *      (level 4) stage, standing fallen, held, or first;
+ *    · the Bastion building (territory_buildings, 'bastion');
+ *    · the first seed IS the lighthouse — "the beacon" of the
+ *      Award Road's beacon lesson — so its ring stands too.
+ *  Two deliberate differences from the bastion lock above:
+ *  the lock skips the 'first' seed (its question was float),
+ *  this law does not — the beacon Nigel named at 08:47 IS the
+ *  lighthouse beacon, and the doused fight of the beacon
+ *  lesson happens on its ground; and the lock reads only the
+ *  held seed's building, where this law reads every standing
+ *  Bastion building, as the light reckoning does.
+ *  NOTHING about the ring reads the light's switch: lit or
+ *  doused, present or away, the ground cannot fall — dousing
+ *  dims the beacon's throw and lets the dark come and fight
+ *  (enemies are never barred from ring ground; only the
+ *  ground's falling is), and the rite of the beacon lesson
+ *  works exactly as it worked. Walls do not shrink the ring:
+ *  light's spread is wall-judged, but this law is about the
+ *  ground a beacon SURROUNDS, not where its light lands.
+ *  The lighthouse's banked light is its own standing law and
+ *  stands beside this one, untouched; runes, wards and Dream
+ *  Shrooms throw FAINT on their own hex and are NOT beacons —
+ *  no ring gathers around them. */
+export function beaconRingKeys(ownerKey: string, tiles: { id: number; q: number; r: number }[]): Set<string> {
+  const ring = new Set<string>();
+  const beaconTiles: { q: number; r: number }[] = [];
+  const byId = new Map(tiles.map(t => [t.id, t]));
+  const seeds = sqlite.prepare("SELECT tile_id AS tileId, level FROM star_seeds WHERE owner_key = ? AND state IN ('fallen','held','first')").all(ownerKey) as any[];
+  for (const s of seeds) {
+    const stage = seedStageForLevel(Number(s.level ?? 1));
+    if (stage !== "beacon" && stage !== "bastion") continue;
+    const t = byId.get(Number(s.tileId));
+    if (t) beaconTiles.push(t);
+  }
+  const buildings = sqlite.prepare("SELECT tile_id AS tileId FROM territory_buildings WHERE owner_key = ? AND building_type = 'bastion'").all(ownerKey) as any[];
+  for (const b of buildings) {
+    const t = byId.get(Number(b.tileId));
+    if (t) beaconTiles.push(t);
+  }
+  for (const b of beaconTiles) {
+    ring.add(`${b.q},${b.r}`);
+    for (const [dq, dr] of DIRS6_AXIAL) ring.add(`${b.q + dq},${b.r + dr}`);
+  }
+  return ring;
+}
+
+/** THE RING KEEPS ITS GROUND: the reconciliation every
+ *  territory read runs after its settles — any cursed tile
+ *  standing inside a beacon's ring is purified where it
+ *  stands, by the house's standing purify write (the Sapling
+ *  rise's own shape: the default element, the curse HP
+ *  cleared, the PURIFIED field-set), free as every
+ *  purification in this house is free — it is the beacon's
+ *  nature, not a purchase. This is what purifies curse
+ *  already standing when a ring comes to cover it (a seed
+ *  fed up to the Beacon stage, a bastion finished), what
+ *  holds the ground while the beacon stands doused, and the
+ *  backstop behind the fall roads' own guards below: the
+ *  dark's pressure is refused at each writing road, and
+ *  anything that ever slipped a road is cleansed here
+ *  before the read serves it. `tiles` are the caller's
+ *  just-loaded rows, purified in place so the read that
+ *  fired the reconciliation serves the ground it cleansed. */
+async function enforceBeaconRings(ownerKey: string, tiles: any[]): Promise<void> {
+  if (!tiles.some((t: any) => t.cursed)) return;
+  const ring = beaconRingKeys(ownerKey, tiles);
+  if (!ring.size) return;
+  for (const t of tiles as any[]) {
+    if (!t.cursed) continue;
+    if (!ring.has(`${t.q},${t.r}`)) continue;
+    await db.update(schema.territoryTiles)
+      .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
+      .where(eq(schema.territoryTiles.id, t.id));
+    t.cursed = 0; t.element = "root"; t.curseHp = null; t.curseMaxHp = null;
+    Object.assign(t, PURIFIED_TILE_FIELDS);
+  }
+}
+
 /** MARCHING ISLANDS (Nigel, 2026-11-09 19:53 — his words:
  *  "any lvl of air over lvl 3 may issue march orders to a
  *  floating tile but very very slowly. the number of tiles
@@ -2258,6 +2346,18 @@ async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Pr
   // does not happen, and its Air is not spent. The climb to
   // Z 1 (grounded height) is not the lock's business.
   const locked = floatLockedTile(ownerKey, allTiles as any[], tile);
+  // THE BEACON RING AT THE VACATED PLANE (Nigel, 2026-11-10):
+  // a birth below always lands on THIS tile's own hex — where
+  // that hex stands inside a beacon's ring, the newborn is
+  // purified on arrival by the ring (below), never cursed:
+  // the ring's set is wider than the bastion lock's (it reads
+  // the first seed and every Beacon-stage seed, lock or no
+  // lock), and a grounded climb to Z 1 is no lock's business,
+  // so the birth itself is where the law speaks. The lift,
+  // its price and its Air are untouched — as at the one safe
+  // square, the ground is purified rather than the act
+  // refused, no new refusal being Nigel's to invent here.
+  const birthInRing = beaconRingKeys(ownerKey, allTiles as any[]).has(`${tile.q},${tile.r}`);
   let lifted = false;
   let floatLocked = false;
   while (ledger.sky >= liftCost) {
@@ -2268,11 +2368,19 @@ async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Pr
     const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
     const { mood } = await getWorldMood();
     const curse = curseHpFor(ring, mood);
-    await db.insert(schema.territoryTiles).values({
-      ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 1, spark: 0,
-      hp: 10, height: 0, sealedTrays: 0, growPoints: 0, topPoints: null,
-      z: vacatedZ, buildStage: 0, curseHp: curse, curseMaxHp: curse,
-    } as any);
+    if (birthInRing) {
+      await db.insert(schema.territoryTiles).values({
+        ownerKey, q: tile.q, r: tile.r, element: "root", cursed: 0, spark: 0,
+        hp: 10, height: 1, sealedTrays: 0, growPoints: 0, topPoints: null,
+        z: vacatedZ, buildStage: 0, curseHp: null, curseMaxHp: null,
+      } as any);
+    } else {
+      await db.insert(schema.territoryTiles).values({
+        ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 1, spark: 0,
+        hp: 10, height: 0, sealedTrays: 0, growPoints: 0, topPoints: null,
+        z: vacatedZ, buildStage: 0, curseHp: curse, curseMaxHp: curse,
+      } as any);
+    }
     lifted = true;
   }
   if (lifted) {
@@ -2329,11 +2437,24 @@ async function completeBuildStage(ownerKey: string, tile: any): Promise<void> {
     const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
     const { mood: skyMood } = await getWorldMood();
     const curse = curseHpFor(ring, skyMood);
-    await db.insert(schema.territoryTiles).values({
-      ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 1, spark: 0,
-      hp: 10, height: 0, sealedTrays: 0, growPoints: 0, topPoints: null, z: 0, buildStage: 0,
-      curseHp: curse, curseMaxHp: curse,
-    } as any);
+    // THE BEACON RING AT THIS BIRTH TOO (Nigel, 2026-11-10):
+    // the tile born underneath stands on this tile's own hex —
+    // inside a beacon's ring it is purified on arrival, as at
+    // the attunement lift's vacated plane (liftTileByAir).
+    const stageTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    if (beaconRingKeys(ownerKey, stageTiles as any[]).has(`${tile.q},${tile.r}`)) {
+      await db.insert(schema.territoryTiles).values({
+        ownerKey, q: tile.q, r: tile.r, element: "root", cursed: 0, spark: 0,
+        hp: 10, height: 1, sealedTrays: 0, growPoints: 0, topPoints: null, z: 0, buildStage: 0,
+        curseHp: null, curseMaxHp: null,
+      } as any);
+    } else {
+      await db.insert(schema.territoryTiles).values({
+        ownerKey, q: tile.q, r: tile.r, element: "neutral", cursed: 1, spark: 0,
+        hp: 10, height: 0, sealedTrays: 0, growPoints: 0, topPoints: null, z: 0, buildStage: 0,
+        curseHp: curse, curseMaxHp: curse,
+      } as any);
+    }
   } else if (stage === 4 && tile.buildFinish === "lower") {
     // FIRE LOWERS: the deep land yields — a pour's worth of
     // tide comes back into the Tender's pool, and the sunken
@@ -2958,10 +3079,14 @@ function corruptionToughness(q: number, r: number): number {
 async function expandFrontier(ownerKey: string, q: number, r: number, depth: number = 2) {
   const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
   const elements = ["tide", "sky", "stone", "root", "neutral"] as const;
-  const existing = await db.select({ q: schema.territoryTiles.q, r: schema.territoryTiles.r })
-    .from(schema.territoryTiles)
+  const existingRows = await db.select().from(schema.territoryTiles)
     .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const existing = existingRows.map(t => ({ q: t.q, r: t.r }));
   const seen = new Set(existing.map(t => `${t.q},${t.r}`));
+  // THE BEACON RING (Nigel, 2026-11-10): the frontier never
+  // mints inside a beacon's ring — no new cursed hex is born
+  // on ground the ring already surrounds.
+  const frontierRingKeys = beaconRingKeys(ownerKey, existingRows as any[]);
   const now = new Date();
   const mood = await getWorldMood();
   // Expand outward in rings up to depth — ensures a buffer of cursed land.
@@ -2976,7 +3101,7 @@ async function expandFrontier(ownerKey: string, q: number, r: number, depth: num
       for (const [dq, dr] of dirs) {
         const nq = cq + dq, nr = cr + dr;
         const key = `${nq},${nr}`;
-        if (!seen.has(key)) {
+        if (!seen.has(key) && !frontierRingKeys.has(key)) {
           seen.add(key);
           const el = elements[Math.floor(Math.random() * elements.length)];
           const ring = Math.max(Math.abs(nq), Math.abs(nr), Math.abs(nq + nr));
@@ -3021,6 +3146,12 @@ async function ensureFrontierBuffer(ownerKey: string) {
       }
     }
   }
+  if (!missing.size) return;
+  // THE BEACON RING (Nigel, 2026-11-10): a missing hex inside
+  // a beacon's ring is no debt the frontier may pay — it is
+  // never minted cursed on ring ground.
+  const bufferRingKeys = beaconRingKeys(ownerKey, tiles as any[]);
+  for (const key of [...missing]) if (bufferRingKeys.has(key)) missing.delete(key);
   if (!missing.size) return;
   // Mint the debt with the frontier law's own values — the same
   // element draw and curse reckoning expandFrontier has always used.
@@ -8085,9 +8216,15 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       // so the curse does not spread under a lit beacon.
       const here = byId.get(d.tileId);
       if (here && !lit) {
+        // THE BEACON RING (Nigel, 2026-11-10): the chew never
+        // worries ring ground at all — the ground surrounding
+        // a beacon can not fall, so no curse pressure gathers
+        // on it; the dark turns to other ground, or to none.
+        const ringKeys = beaconRingKeys(ownerKey, tiles as any[]);
+        const chewable = (n: any) => n && !n.cursed && !ringKeys.has(`${n.q},${n.r}`);
         const nbrs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
-          .map(([dq, dr]) => byKey.get(`${here.q + dq},${here.r + dr}`)).filter((n: any) => n && !n.cursed) as any[];
-        const target = (!here.cursed ? here : undefined) ?? nbrs.find(n => axialDist(d, n) <= ENEMY_BITE_REACH + 0.5);
+          .map(([dq, dr]) => byKey.get(`${here.q + dq},${here.r + dr}`)).filter(chewable) as any[];
+        const target = (chewable(here) ? here : undefined) ?? nbrs.find(n => axialDist(d, n) <= ENEMY_BITE_REACH + 0.5);
         if (target) {
           if (d.chewTileId !== target.id) { d.chewTileId = target.id; d.chewProgress = 0; }
           let raw = 0; for (let i = 0; i < d.power; i++) raw += homelandDN(6);
@@ -10419,8 +10556,17 @@ export const handlers = {
     await db.update(schema.territoryTiles)
       .set({ hp: newHp })
       .where(eq(schema.territoryTiles.id, parsed.data.tileId));
-    // If HP hit 0, curse the tile
+    // If HP hit 0, curse the tile — unless the ground stands
+    // in a beacon's ring (Nigel, 2026-11-10): ring ground can
+    // not fall, however hard the battle wears it; its HP
+    // still pays the blow, and the curse does not land.
     let cursed = false;
+    if (newHp === 0 && !tile[0].cursed) {
+      const landTiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      if (beaconRingKeys(ownerKey, landTiles as any[]).has(`${tile[0].q},${tile[0].r}`)) {
+        return { ok: true as const, hp: newHp, cursed: false };
+      }
+    }
     if (newHp === 0 && !tile[0].cursed) {
       await db.update(schema.territoryTiles)
         .set({ cursed: 1, ...FALLEN_TILE_FIELDS })
@@ -11825,6 +11971,17 @@ export const handlers = {
     // Self-heal: if the frontier is stuck (no cursed tiles beyond purified land), grow it.
     await ensureFrontierBuffer(ownerKey);
     const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    // THE BEACON RING (Nigel, 2026-11-10): before anything
+    // else reads this ground, the ring keeps it — curse
+    // standing inside a beacon's ring is purified where it
+    // stands (enforceBeaconRings), so the settles below and
+    // the served rows alike meet the land as the law holds
+    // it. It runs after ensureFrontierBuffer on purpose: the
+    // frontier's own minting is ring-guarded (above), and any
+    // ground the older roads left cursed inside a ring is
+    // cleansed here, before the safe-square guarantee reckons
+    // what purified ground stands.
+    await enforceBeaconRings(ownerKey, tiles as any[]);
     // ONE SAFE SQUARE, ALWAYS (Nigel, 2026-10-23 22:40):
     // the guarantee stands here, on the ordinary read, after
     // every settle above has had its say (the seed's bank
@@ -12011,6 +12168,10 @@ export const handlers = {
       // scope now (FIX THE CLOCKS): the departure settle pours
       // by the same bodies this settle does.
       const elementPointsOf = async (aw: any): Promise<Record<string, number>> => pressCountsOf(aw?.compositionJson);
+      // THE BEACON RING (Nigel, 2026-11-10): the press's one
+      // fall road (revertToCurse, below) refuses ring ground —
+      // the set is reckoned once for the whole settle.
+      const pressRingKeys = beaconRingKeys(ownerKey, tiles as any[]);
       // The ledger reckoning is pressMixIntoTile (module
       // scope) — the one funnel the standing press, the shrine,
       // and the Tender's Attune act all pour through.
@@ -12087,6 +12248,10 @@ export const handlers = {
         // The bastion (0,0) never falls — the same law the wave
         // defeat honors. Its last tray can be worn bare, not lost.
         if (t.q === 0 && t.r === 0) { t.growPoints = 0; await persistTray(t); return; }
+        // THE BEACON RING (Nigel, 2026-11-10): ring ground can
+        // not fall either — its last tray can be worn bare,
+        // and there the wear stops; the press turns nothing.
+        if (pressRingKeys.has(`${t.q},${t.r}`)) { t.growPoints = 0; await persistTray(t); return; }
         await revertToCurse(t);
       };
       const byTile = new Map<number, any[]>();
@@ -17508,13 +17673,18 @@ export const handlers = {
       // Defeat: a border tile falls, Awoken disperse. Only the
       // bastion (center) is exempt, by its own law — no stance
       // shields a tile (binding shield struck, Nigel, 2026-10-16;
-      // exemption deleted 2026-10-17).
+      // exemption deleted 2026-10-17). THE BEACON RING (Nigel,
+      // 2026-11-10) stands exempt beside the center: ring
+      // ground can not fall, so it is never among the fall's
+      // choices — where every border tile is ring ground, no
+      // tile falls at all.
       const purified = await db.select().from(schema.territoryTiles)
         .where(and(
           eq(schema.territoryTiles.ownerKey, ownerKey),
           eq(schema.territoryTiles.cursed, 0)
         ));
-      const border = purified.filter(t => !(t.q === 0 && t.r === 0));
+      const defeatRingKeys = beaconRingKeys(ownerKey, purified as any[]);
+      const border = purified.filter(t => !(t.q === 0 && t.r === 0) && !defeatRingKeys.has(`${t.q},${t.r}`));
       if (border.length) {
         const victim = border[Math.floor(Math.random() * border.length)];
         const victims = await db.select({ id: schema.fieldPlacements.id, awakenedId: schema.fieldPlacements.awakenedId })
