@@ -2324,6 +2324,19 @@ async function persistMixLedger(tile: any, ledger: MixLedger): Promise<{ turned:
   return { turned };
 }
 
+/** THE LIFT GATE — FULL ATTUNEMENT (Nigel, 2026-11-12,
+ *  restating his ten-cap law of 2026-10-26): "make sure that
+ *  the terrain system only allows tiles to raise that have a
+ *  full attunement or all 4 elements at 10. a tile with 10
+ *  air, 5 root does not raise. 10 air 10 root 10 tide and 10
+ *  rock are the only tiles eligible for elevation raise."
+ *  The four are the terrain ledger's four — sky, root, tide,
+ *  stone. Fire is NOT counted: it stands out of the terrain
+ *  ledger and is neither required nor read here. */
+export function fullyAttunedForLift(ledger: MixLedger): boolean {
+  return ledger.sky >= 10 && ledger.root >= 10 && ledger.tide >= 10 && ledger.stone >= 10;
+}
+
 /** THE LIFT (Nigel, 2026-10-25): height belongs to Air alone —
  *  all four textures stack within the tile's own Z, and when
  *  the Air line reaches the lift's price the WHOLE hex rises
@@ -2332,7 +2345,14 @@ async function persistMixLedger(tile: any, ledger: MixLedger): Promise<{ turned:
  *  strength. Lifts repeat — every further full measure of Air
  *  raises the hex again, birthing another cursed hex at the
  *  plane it leaves. The price is spent as it lifts (see
- *  MIX_LIFT_AIR_COST's pencil note). */
+ *  MIX_LIFT_AIR_COST's pencil note). THE GATE (Nigel,
+ *  2026-11-12): a lift may occur only while the tile stands
+ *  FULLY ATTUNED — all four elements at 10 or more (see
+ *  fullyAttunedForLift). The check stands inside the loop,
+ *  per lift: after a lift spends its Air, the Air line may
+ *  fall below 10, and no further lift in the same press may
+ *  follow. Where the gate refuses, no lift happens and NO
+ *  Air is spent — the Air stays banked in the tile's ledger. */
 async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Promise<{ lifted: boolean; floatLocked: boolean }> {
   // BUILDING RIDES THE TILE (Nigel, 2026-10-27): each building
   // piece standing on the tile raises the Air price of lifting
@@ -2361,6 +2381,11 @@ async function liftTileByAir(ownerKey: string, tile: any, ledger: MixLedger): Pr
   let lifted = false;
   let floatLocked = false;
   while (ledger.sky >= liftCost) {
+    // THE GATE, PER LIFT (Nigel, 2026-11-12): the tile must
+    // stand fully attuned for THIS lift — all four elements
+    // at 10 or more. Short of that, the press ends here: no
+    // lift, and the Air is not spent.
+    if (!fullyAttunedForLift(ledger)) break;
     if (locked && (tile.z ?? 0) + 1 >= FLOAT_MIN_Z) { floatLocked = true; break; }
     ledger.sky = roundMix(ledger.sky - liftCost);
     const vacatedZ = tile.z ?? 0;
@@ -12823,9 +12848,23 @@ export const handlers = {
     if (element === "sky") {
       const rateLaid = laid * (1 + fxSum(ownerKey, "attunementRate"));
       const tilesNow = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+      const ledgerNow = mixLedgerOf(tile).ledger;
+      const cost = mixLiftCost(ownerKey, tile, tilesNow as any[]);
+      // THE LIFT GATE, SPOKEN AT THE DOOR (Nigel, 2026-11-12):
+      // an Air lay that would reach the lift's price on ground
+      // not yet fully attuned is refused BEFORE the spend, in
+      // plain words, through this same door the bastion lock
+      // speaks through — the lift does not happen and the
+      // point is never taken. (The wordless funnels — the
+      // settle, the shrine — simply do not lift there;
+      // liftTileByAir holds the gate itself.) Air laid below
+      // the price is no refusal's business: it banks toward
+      // the climb, as ever.
+      if (ledgerNow.sky + rateLaid >= cost && !fullyAttunedForLift({ ...ledgerNow, sky: ledgerNow.sky + rateLaid })) {
+        badRequest("This ground cannot rise yet — a tile raises only when all four elements stand full: sky, root, tide and stone at 10 each. Your Air is not spent.");
+      }
       if (floatLockedTile(ownerKey, tilesNow as any[], tile)) {
-        const cost = mixLiftCost(ownerKey, tile, tilesNow as any[]);
-        let skyAfter = mixLedgerOf(tile).ledger.sky + rateLaid;
+        let skyAfter = ledgerNow.sky + rateLaid;
         let zAfter = tile.z ?? 0;
         while (skyAfter >= cost && zAfter + 1 < FLOAT_MIN_Z) { skyAfter -= cost; zAfter += 1; }
         if (skyAfter >= cost && zAfter + 1 >= FLOAT_MIN_Z) {
