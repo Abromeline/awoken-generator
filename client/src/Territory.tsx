@@ -6662,7 +6662,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // shallow apron below its southern edge for the
           // slab's drawn skirt, so the part still underground
           // is never drawn — the face itself is never scaled.
-          // The gravel churn rides its southern edge.
+          // The gravel churn rides every exposed border of the
+          // footprint (the reckoning at the seat below).
           const frac = p.frac ?? 1;
           const liftY = pieceLiftY(p);
           const sinkY = (1 - frac) * BUILD_WALL_H + liftY;
@@ -6670,7 +6671,31 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const liftedVerts = p.footprint.map(([q, r]) => { const s = landPt(q, r); return { x: s.x, y: s.y + liftY }; });
           const liftedPts = liftedVerts.map(v => `${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(" ");
           const apronPts = liftedVerts.map(v => `${v.x.toFixed(1)},${(v.y + 18).toFixed(1)}`).join(" ");
-          const south = [...liftedVerts].sort((a, b) => b.y - a.y).slice(0, 2);
+          // THE CHURN'S BORDERS (Nigel, 2026-11-12 — "i want
+          // the gravel effect to render at all boarders of the
+          // piece that are visible following that boarder"):
+          // the churn runs along EVERY exposed edge of the
+          // footprint, not only the southern one. An edge is
+          // EXPOSED when no sibling floor stands across it —
+          // the very reckoning the thickness band below reads
+          // (floorEdgeUsers): an edge two floors share is
+          // interior and churns no more than it bands; an edge
+          // shared with a WALL stays exposed, the wall stands
+          // ON it and the seam still shows. The seats are the
+          // lifted footprint's own edges, in stored order, so
+          // each churn follows its border exactly, at its own
+          // length (the churn's u reads the seat's length).
+          const isInteriorEdge = (i: number): boolean => {
+            const a = p.footprint[i], b = p.footprint[(i + 1) % p.footprint.length];
+            const key = [a, b].map(v => `${Math.round(v[0] * 1000)},${Math.round(v[1] * 1000)}`).sort().join("|");
+            return (floorEdgeUsers.get(key) ?? 0) > 1;
+          };
+          const churnEdges: { ax: number; ay: number; bx: number; by: number }[] = [];
+          for (let i = 0; i < liftedVerts.length; i++) {
+            if (isInteriorEdge(i)) continue;
+            const A = liftedVerts[i], B = liftedVerts[(i + 1) % liftedVerts.length];
+            churnEdges.push({ ax: A.x, ay: A.y, bx: B.x, by: B.y });
+          }
           // THE THICKNESS BAND's geometry (see the reckoning
           // above the layer): the footprint's SOUTHERN
           // SILHOUETTE — its lower hull. An edge stands on the
@@ -6687,11 +6712,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const bandPaths: string[] = [];
           if (frac >= 1) {
             const nV = liftedVerts.length;
-            const isInterior = (i: number): boolean => {
-              const a = p.footprint[i], b = p.footprint[(i + 1) % p.footprint.length];
-              const key = [a, b].map(v => `${Math.round(v[0] * 1000)},${Math.round(v[1] * 1000)}`).sort().join("|");
-              return (floorEdgeUsers.get(key) ?? 0) > 1;
-            };
+            const isInterior = isInteriorEdge;
             const heartX = liftedVerts.reduce((s, v) => s + v.x, 0) / nV;
             const heartY = liftedVerts.reduce((s, v) => s + v.y, 0) / nV;
             const sideOf = (A: { x: number; y: number }, B: { x: number; y: number }, px: number, py: number) =>
@@ -6752,9 +6773,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
                   strokeLinejoin="round" />
               </g>
-              <RiseChurn pieceKey={`f${p.id}`} seed={p.id}
-                ax={south[0].x} ay={south[0].y} bx={south[1].x} by={south[1].y}
-                frac={frac} state={p.state ?? "standing"} />
+              {churnEdges.map((e, ei) => (
+                <RiseChurn key={`churn-${ei}`} pieceKey={`f${p.id}e${ei}`} seed={p.id * 8 + ei}
+                  ax={e.ax} ay={e.ay} bx={e.bx} by={e.by}
+                  frac={frac} state={p.state ?? "standing"} />
+              ))}
             </g>
           );
         })}

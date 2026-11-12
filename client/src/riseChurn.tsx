@@ -2,7 +2,10 @@
  *  dressing, ported faithfully from the rise proof Nigel
  *  approved on 2026-10-26 ("i like it in practice"; the proof
  *  stands at ~/workspace/your_files/rise-animation-proof/). One
- *  churn rides each building piece's ground line: as the piece
+ *  churn rides each ground line a piece shows the world — a
+ *  wall's one base edge, and (Nigel, 2026-11-12) EVERY exposed
+ *  border of a floor's footprint, a churn seated per border:
+ *  as the piece
  *  moves — rising or settling — dark cracks spread along the
  *  ground line from its base, a broken-earth mound bulges at
  *  the seam, gravel in greys/browns/tans is thrown up and out,
@@ -68,7 +71,8 @@ export interface RiseChurnProps {
   /** the crack set's seed (the piece's id) */
   seed: number;
   /** the seam's ends on the land: for a wall its edge, for a
-   *  floor its footprint's southern edge — lift already in */
+   *  floor one exposed border of its footprint — lift already
+   *  in */
   ax: number; ay: number; bx: number; by: number;
   /** the piece's served rise fraction, 0..1 */
   frac: number;
@@ -269,7 +273,8 @@ export function RiseChurn({ pieceKey, seed, ax, ay, bx, by, frac, state }: RiseC
 
   const restO = frac <= 0.01 ? 0 : 0.5;
   return (
-    <g ref={rootRef} className="rise-churn" data-for={pieceKey} data-moving="0" data-stones="0" pointerEvents="none">
+    <g ref={rootRef} className="rise-churn" data-for={pieceKey} data-moving="0" data-stones="0"
+      data-seat={`${ax.toFixed(1)},${ay.toFixed(1)},${bx.toFixed(1)},${by.toFixed(1)}`} pointerEvents="none">
       <defs>
         <radialGradient id={`rise-dust-a-${pieceKey}`}>
           <stop offset="0%" stopColor="rgb(168,150,118)" stopOpacity="1" />
