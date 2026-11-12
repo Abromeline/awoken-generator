@@ -50,7 +50,7 @@
  *  whole-hex piece kind, so the face ships in the registry
  *  below and waits for its kind. */
 import type { Pt } from "./buildGeometry";
-import { HEX_CORNERS, hexCenter, centerAddress } from "./buildGeometry";
+import { HEX_CORNERS, hexCenter, centerAddress, plateToAxial, matchCandidate } from "./buildGeometry";
 
 import triTop from "./assets/building-faces/triangle-floor-top.png";
 import triUpperRight from "./assets/building-faces/triangle-floor-upper-right.png";
@@ -119,51 +119,146 @@ function cornerIndexOf(rel: Pt): number {
   return bd < 0.05 ? best : -1;
 }
 
-/** The drawn face for a placed triangle piece, read from its
- *  stored plate vertices (canonical — the server re-derives them):
- *  a wedge of a construction hex wears its own wedge's face; a
- *  shoulder wears the face of the wedge clockwise from the corner
- *  it hangs on, turned onto its outer edge. Null when the shape
- *  is not one the faces know (the standing geometry serves). */
-export function triangleFaceFor(verts: Pt[]): FloorFaceRender | null {
-  if (!Array.isArray(verts) || verts.length !== 3) return null;
-  // A wedge: one vertex is a construction hex's centre.
-  for (let i = 0; i < 3; i++) {
-    const [fm, fn] = centerAddress(verts[i]);
-    const m = Math.round(fm), n = Math.round(fn);
-    if (Math.abs(fm - m) > 0.02 || Math.abs(fn - n) > 0.02) continue;
-    const c = hexCenter(m, n);
-    if (!nearPt(verts[i], c)) continue;
-    const rest = [0, 1, 2].filter(j => j !== i);
-    const ka = cornerIndexOf([verts[rest[0]][0] - c[0], verts[rest[0]][1] - c[1]]);
-    const kb = cornerIndexOf([verts[rest[1]][0] - c[0], verts[rest[1]][1] - c[1]]);
-    if (ka < 0 || kb < 0 || (ka + 1) % 6 !== kb) return null;
-    return {
-      src: WEDGE_SRC[ka],
-      frame: [FRAME_C, frameCorner(ka), frameCorner(kb)],
-      order: [i, rest[0], rest[1]],
-    };
-  }
-  // A shoulder: one vertex is a hex's corner — the corner it
-  // hangs on. Its generating centre is a neighbouring lattice
-  // point; the wedge clockwise from that corner lends its face.
-  for (let i = 0; i < 3; i++) {
-    const [fm, fn] = centerAddress(verts[i]);
-    for (const m of [Math.floor(fm), Math.ceil(fm)]) {
-      for (const n of [Math.floor(fn), Math.ceil(fn)]) {
-        const c = hexCenter(m, n);
-        const k = cornerIndexOf([verts[i][0] - c[0], verts[i][1] - c[1]]);
-        if (k < 0) continue;
-        const rest = [0, 1, 2].filter(j => j !== i);
-        return {
-          src: WEDGE_SRC[k],
-          frame: [FRAME_C, frameCorner(k), frameCorner((k + 1) % 6)],
-          order: [i, rest[0], rest[1]],
-        };
-      }
+/** True when the plate point stands on a construction hex's
+ *  centre (the lattice test the wedge path has always used). */
+function isCentrePt(p: Pt): boolean {
+  const [fm, fn] = centerAddress(p);
+  const m = Math.round(fm), n = Math.round(fn);
+  if (Math.abs(fm - m) > 0.02 || Math.abs(fn - n) > 0.02) return false;
+  return nearPt(p, hexCenter(m, n));
+}
+/** True when the plate point stands on a construction hex's
+ *  corner (the lattice test the shoulder path has always used). */
+function isCornerPt(p: Pt): boolean {
+  const [fm, fn] = centerAddress(p);
+  for (const m of [Math.floor(fm), Math.ceil(fm)]) {
+    for (const n of [Math.floor(fn), Math.ceil(fn)]) {
+      const c = hexCenter(m, n);
+      if (cornerIndexOf([p[0] - c[0], p[1] - c[1]]) >= 0) return true;
     }
   }
-  return null;
+  return false;
+}
+
+/** The bearing from one plate point to another as a count of
+ *  30° steps (0–11), or −1 when it is off the kit's grain.
+ *  Kit pieces are cut on the 30° grain, so every true edge of
+ *  a floor piece bears on it. */
+function dir30(from: Pt, to: Pt): number {
+  const deg = Math.atan2(to[1] - from[1], to[0] - from[0]) * 180 / Math.PI;
+  const steps = Math.round(deg / 30);
+  const off = Math.abs(((deg - steps * 30 + 540) % 360) - 180);
+  if (off > 3) return -1;
+  return ((steps % 12) + 12) % 12;
+}
+
+interface TriangleSeat {
+  /** Index into the piece's verts of the seat's heart — the
+   *  vertex the frame's heart (FRAME_C) answers to. */
+  heart: number;
+  /** The wedge this seat wears (WEDGE_SRC / frame corners). */
+  wedge: number;
+  /** The piece's vert indices in frame order: the heart, then
+   *  the other two counter-clockwise from it. */
+  order: [number, number, number];
+}
+
+/** Every seat a kit triangle offers, read from the piece's own
+ *  shape alone — no lattice, no stored order. At each vertex,
+ *  the bearings to the other two either step 60° counter-
+ *  clockwise on the grain or that vertex offers no seat. A
+ *  step starting on a 60° bearing is a wedge seat (the vertex
+ *  stands as a hex's heart; the wedge between those corners
+ *  is its own); a step starting on a 30° bearing is a shoulder
+ *  seat (the vertex stands as a hex's corner, wearing the
+ *  wedge clockwise from it — the wedge its two bearings
+ *  straddle). A true kit triangle offers three seats of one
+ *  kind; the placement — the tiling's or a free hand's —
+ *  chooses among them. */
+function triangleSeats(verts: Pt[]): TriangleSeat[] {
+  const seats: TriangleSeat[] = [];
+  for (let i = 0; i < 3; i++) {
+    const rest = [0, 1, 2].filter(x => x !== i);
+    const d1 = dir30(verts[i], verts[rest[0]]);
+    const d2 = dir30(verts[i], verts[rest[1]]);
+    if (d1 < 0 || d2 < 0) continue;
+    let lo = -1;
+    let order: [number, number, number] | null = null;
+    if ((d2 - d1 + 12) % 12 === 2) { lo = d1; order = [i, rest[0], rest[1]]; }
+    else if ((d1 - d2 + 12) % 12 === 2) { lo = d2; order = [i, rest[1], rest[0]]; }
+    if (lo < 0 || !order) continue;
+    const wedge = lo % 2 === 0 ? (lo / 2) % 6 : ((lo + 1) / 2) % 6;
+    seats.push({ heart: i, wedge, order });
+  }
+  return seats;
+}
+
+/** The drawn face for a placed triangle piece, read from its
+ *  stored plate vertices. EVERY kit triangle wears its wedge
+ *  (Nigel, 2026-11-12: "the triangle floor is not using the
+ *  art i uploaded for it" — the first matcher knew only
+ *  triangles tied to a construction hex in the one stored
+ *  winding, so every freely placed floor, and any record in
+ *  another winding, fell back to the stand-in fill). The seat
+ *  is chosen among the piece's own seats (triangleSeats):
+ *  · a piece the tiling knows keeps the seat it has always
+ *    worn — the canonical telling's first vertex is the
+ *    heart: a wedge's centre, a shoulder's corner;
+ *  · a heart standing on a hex's centre seats the same way;
+ *  · a free piece — placed anywhere on the plate, snapped
+ *    onto other free pieces — wears the seat whose outer
+ *    edge stands frontmost on the land (southernmost under
+ *    the iso basis), so the drawing's slab depth hangs on
+ *    the edge the eye reads as the front, exactly as it
+ *    does on every tiling floor.
+ *  Null only when the shape is not a kit triangle at all —
+ *  no real floor piece reaches the stand-in fill any more. */
+export function triangleFaceFor(verts: Pt[]): FloorFaceRender | null {
+  if (!Array.isArray(verts) || verts.length !== 3) return null;
+  // A kit triangle: three sides of the one length.
+  for (let a = 0; a < 3; a++) {
+    for (let b = a + 1; b < 3; b++) {
+      const d = Math.hypot(verts[a][0] - verts[b][0], verts[a][1] - verts[b][1]);
+      if (Math.abs(d - 1) > 0.02) return null;
+    }
+  }
+  const seats = triangleSeats(verts);
+  if (seats.length === 0) return null;
+  const seatOf = (s: TriangleSeat): FloorFaceRender => ({
+    src: WEDGE_SRC[s.wedge],
+    frame: [FRAME_C, frameCorner(s.wedge), frameCorner((s.wedge + 1) % 6)],
+    order: s.order,
+  });
+  // The tiling's own telling, when the piece is one of its:
+  // its first vertex is the heart the faces have always used.
+  if (verts.some(v => isCentrePt(v) || isCornerPt(v))) {
+    const canon = matchCandidate("triangle", verts);
+    if (canon) {
+      const s = seats.find(x => nearPt(verts[x.heart], canon.verts[0]));
+      if (s) return seatOf(s);
+    }
+  }
+  // A heart standing on a hex's centre, tiling or not.
+  const centred = seats.find(s => isCentrePt(verts[s.heart]));
+  if (centred) return seatOf(centred);
+  // A free piece: the seat whose outer edge stands frontmost.
+  // (The iso basis, Territory's own: screen south grows with
+  // 470·q + 948·r of the edge midpoint's axial address.)
+  let best: TriangleSeat | null = null, bestSouth = -Infinity;
+  for (const s of seats) {
+    const o = s.order;
+    const mid: Pt = [
+      (verts[o[1]][0] + verts[o[2]][0]) / 2,
+      (verts[o[1]][1] + verts[o[2]][1]) / 2,
+    ];
+    const [q, r] = plateToAxial(mid);
+    const south = 470 * q + 948 * r;
+    if (south > bestSouth + 1e-9 ||
+        (Math.abs(south - bestSouth) <= 1e-9 && best !== null && s.wedge < best.wedge)) {
+      best = s; bestSouth = south;
+    }
+  }
+  return best ? seatOf(best) : null;
 }
 
 /** THE SQUARE FOUNDATION'S FACE (2026-10-28): cut from L19
