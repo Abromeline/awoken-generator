@@ -6657,11 +6657,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // correction): the floor emerges — sunk by the
           // un-emerged share of the rise, riding its tile's
           // lift (pieceLiftY) the whole way, and CLIPPED to
-          // its seat: the window is the footprint where the
-          // floor will stand (lifted with its tile) plus a
-          // shallow apron below its southern edge for the
-          // slab's drawn skirt, so the part still underground
-          // is never drawn — the face itself is never scaled.
+          // its seat: the window is the footprint ONLY, where
+          // the floor will stand (lifted with its tile), so
+          // the part still underground is never drawn — the
+          // face itself is never scaled. (An earlier window
+          // added an apron shifted 18 below the footprint
+          // "for the slab's drawn skirt"; the thickness band
+          // draws only at frac >= 1, when no clip applies, so
+          // the apron served nothing and leaked the sunk face
+          // below the seat — removed 2026-11-12, Nigel:
+          // "we should not be able to see the tile while its
+          // underground".)
           // The gravel churn rides its southern edge.
           const frac = p.frac ?? 1;
           const liftY = pieceLiftY(p);
@@ -6669,7 +6675,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           const clipId = `rise-clip-f${p.id}`;
           const liftedVerts = p.footprint.map(([q, r]) => { const s = landPt(q, r); return { x: s.x, y: s.y + liftY }; });
           const liftedPts = liftedVerts.map(v => `${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(" ");
-          const apronPts = liftedVerts.map(v => `${v.x.toFixed(1)},${(v.y + 18).toFixed(1)}`).join(" ");
           const south = [...liftedVerts].sort((a, b) => b.y - a.y).slice(0, 2);
           // THE THICKNESS BAND's geometry (see the reckoning
           // above the layer): the footprint's SOUTHERN
@@ -6736,7 +6741,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               {frac < 1 && (
                 <clipPath id={clipId}>
                   <path d={ptsPath(liftedPts)} />
-                  <path d={ptsPath(apronPts)} />
                 </clipPath>
               )}
               <g clipPath={frac < 1 ? `url(#${clipId})` : undefined}
