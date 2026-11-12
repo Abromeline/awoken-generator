@@ -9312,6 +9312,21 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     fill={elementPalette[f.element as keyof typeof elementPalette]} fillOpacity={0.5}
                     filter="url(#shard-tail-soft)" />
                 )}
+                {/* THE SHARD'S GLOW (Nigel, 2026-11-12 — "give
+                    that color more of an elemental glow"): a
+                    soft halo of the shot's own element colour
+                    centred on the shard itself, wearing the
+                    same soft blur as the wake, turning and
+                    growing with the flight as the wake does.
+                    It keeps the TINT's own condition exactly:
+                    it stands wherever the shot's image wears
+                    its tint filter, and a shot with no tint —
+                    a neutral striker — wears no halo. */}
+                {tint && (
+                  <ellipse data-shard-halo="" cx={0} cy={0} rx={drawW * 0.62} ry={drawH * 0.78}
+                    fill={elementPalette[f.element as keyof typeof elementPalette]} fillOpacity={0.55}
+                    filter="url(#shard-tail-soft)" />
+                )}
                 <svg data-shard-frame="" x={-drawW / 2} y={-drawH / 2} width={drawW} height={drawH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
                   <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
                     filter={tint ? `url(#${tint})` : undefined} />
