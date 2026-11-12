@@ -11777,7 +11777,24 @@ export const handlers = {
             if (intensity >= 4) kindPool.push("tangle");
             for (let b = 0; b < beats && rows.length < cap; b++) {
               const occupied = new Set(rows.map(w => w.tileId));
-              for (const t of view) {
+              // BIRTHS SPREAD AROUND THE WHOLE RING (Nigel,
+              // 2026-11-12, answering "why are Fray always
+              // attacking from the same side"): the ring's
+              // tiles are rolled in a FRESH shuffle for each
+              // beat's pass — never in the land's stored
+              // order, which filled births from the same end
+              // of the ring beat after beat, the same arc
+              // marching in. The shuffle restores the
+              // standing law above: randomness chooses WHERE
+              // on the ring a foe enters. The roll itself —
+              // the 20% a tile, the cap, the exclusions read
+              // into `view` — stands exactly as it stood.
+              const ringRoll = [...view];
+              for (let i = ringRoll.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const swap = ringRoll[i]; ringRoll[i] = ringRoll[j]; ringRoll[j] = swap;
+              }
+              for (const t of ringRoll) {
                 if (rows.length >= cap) break;
                 if (occupied.has(t.id)) continue;
                 if (Math.random() < SPAWN_CHANCE) {
