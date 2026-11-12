@@ -32,7 +32,7 @@ import { coarsePointer, loadHotbar, saveHotbar, toggleHotbarKey, HOTBAR_MAX } fr
 import GroundWheel, { type WheelEntry, type WheelTabId } from "./GroundWheel";
 import { deckWindow, nextDeckPage } from "./deckWindow";
 import { createJumpEngine, jumpPress, jumpPoseInfo, jumpAirborne, jumpApex, jumpFlipped, jumpRuned, jumpHoverTick, jumpHovering, jumpCurseExempt, jumpEndHover, ladderSpeedAt, ladderTable, JPHYS, type JumpEngine } from "./jump";
-import { Corner, elementForPiece, type Element } from "./App";
+import { Corner, TradingCard, elementForPiece, type Element } from "./App";
 import { randomWhisper, pickReturnReport } from "./whispers";
 import Friends from "./Friends";
 import { useCourtMarks } from "./courtMarks";
@@ -1077,6 +1077,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // charge is settled against the server's word (hoverSpend).
   useEffect(() => { energyRef.current = energy; }, [energy]);
   const [selectedAwoken, setSelectedAwoken] = useState<number | null>(null); // awakenedId selected on field
+  // CLICK INFORMATION OVER THE ENERGY ORB (Nigel, 2026-11-12):
+  // a tap on a hex raises its tile card — attunement levels, and
+  // for cursed ground its curse health and thorns — and a tap on
+  // a field Awoken raises that Awoken's card, both in the one
+  // spot above the energy orb. The numbers came OFF the faces
+  // (the under-feet readout, the cursed tiles' ♥/🌵) and live
+  // here now. The last tap names what stands; an empty-map tap
+  // dismisses it with the choosing, as selections already close.
+  const [orbInfo, setOrbInfo] = useState<{ kind: "tile"; tileId: number } | { kind: "awoken"; awakenedId: number } | null>(null);
   const [wgTileId, setWgTileId] = useState<number | null>(null); // War-Grounds fine-edit panel: the tile under the warden's hand
   // The marching layer (War-Ground, Nigel 2026-10-16): patrol roads
   // are data; positions are derived. Setting state + the march clock.
@@ -4272,6 +4281,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
 
   const handleHexTap = async (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
+    // Every hex tap names its tile over the energy orb (Nigel,
+    // 2026-11-12): the tile card stands there with the hex's
+    // attunement — and, for cursed ground, its curse health and
+    // thorns. The armed flows below keep their taps exactly as
+    // they stood; the card is information added, never a step.
+    setOrbInfo({ kind: "tile", tileId: tile.id });
     if (attuneElement) { void handleAttuneTap(tile); return; }
     if (castMode && castSpellKey) {
       // THE SHADE UNDER THE TAP (target profiles, Nigel
@@ -5181,6 +5196,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       // orders bar and the under-figure picker
                       // used to stand.
                       setSelectedAwoken(a.id);
+                      setOrbInfo({ kind: "awoken", awakenedId: a.id }); // its card stands over the energy orb (Nigel, 2026-11-12)
                       setSelectedGroup([]); // a single choosing ends the company's
                       setAttackTargeting(false);
                       setMoveTargeting(false);
@@ -5216,33 +5232,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
                     )}
-                    {/* THE CLICKED AWOKEN'S HEALTH AND LEVEL (Nigel,
-                        2026-10-24, from his first play: "i cant
-                        actually see their health anywhere… just add
-                        their hp below when they are clicked lvl
-                        too"). While this Awoken stands chosen — the
-                        click that opens its orders wheel, or a
-                        band-chosen company's member — a small
-                        readout stands BELOW its feet: its level and
-                        its health. Health reads as the engine
-                        keeps it: the standing shield pool first
-                        (it burns before HP) when one stands, then
-                        HP against toughness; a placement never yet
-                        reckoned by the battle is whole at its
-                        toughness. Not a card, not a panel — the
-                        fuller profile card is its own queued build. */}
-                    {(isSelected || selectedGroup.includes(a.id)) && placement && (() => {
-                      const hpNow = placement.hp ?? a.toughness ?? 0;
-                      const hpMax = a.toughness ?? hpNow;
-                      const shieldNow = (placement as any).shield;
-                      const words = `${shieldNow != null && Number(shieldNow) > 0 ? `Shield ${Math.ceil(Number(shieldNow))} · ` : ""}HP ${Math.ceil(hpNow)}/${Math.ceil(hpMax)} · Lv ${awLevel}`;
-                      return (
-                        <text x={kx} y={ky + baseAhs / 2 + 11 / zoom} textAnchor="middle" fontSize={7.5 / zoom} fontWeight={700}
-                          fill="#ffe9b0" style={{ paintOrder: "stroke", stroke: "rgba(10,4,16,0.92)", strokeWidth: 3 / zoom, letterSpacing: "0.03em" }}>
-                          {words}
-                        </text>
-                      );
-                    })()}
+                    {/* The under-feet readout that stood here —
+                        `Shield N · HP x/max · Lv L` in gold beneath
+                        a chosen Awoken (the 2026-10-24 stopgap) — is
+                        STRUCK (Nigel, 2026-11-12: "i do not want the
+                        big gold text under them stating hp and
+                        such"). Those facts live on the Awoken's
+                        card over the energy orb now, raised by the
+                        same click that chooses it; the figure, its
+                        aura and its selection ring stand as they
+                        were. */}
                     {/* The per-Awoken attunement countdown stood here
                         until 2026-10-15 — retired with the ghost it
                         counted toward (see getAttuneRemaining's note). */}
@@ -5578,27 +5577,16 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 style={{ animationDelay: `${(t.id % 7) * 0.7 + 1.3}s` }} />
             </g>
           )}
-          {/* Curse HP on cursed tiles */}
-          {t.cursed && (() => {
-            const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
-            const maxHp = (t as any).curseMaxHp ?? (4 + ring * 6);
-            const hp = (t as any).curseHp ?? maxHp;
-            const thorns = Math.pow(2, Math.max(0, ring - 1));
-            return (
-              <g>
-              <text x={cx} y={cy + 8 / zoom} textAnchor="middle" fontSize={8 / zoom}
-                fill="#ff6666" opacity="0.95" fontWeight="bold">
-                ♥ {hp}
-              </text>
-              {thorns > 1 && (
-                <text x={cx} y={cy + 18 / zoom} textAnchor="middle" fontSize={7 / zoom}
-                  fill="#ffaa00" opacity="0.9" fontWeight="bold">
-                  🌵 {thorns}
-                </text>
-              )}
-              </g>
-            );
-          })()}
+          {/* The cursed tile's numbers stood here — ♥ its curse
+              HP and 🌵 its thorns, read on the face — STRUCK
+              (Nigel, 2026-11-12: "take all of those numbers off
+              and only give that information on a tile card thats
+              placed above the energy orb when a tender clicks
+              that hex"). The same reckoning (curseMaxHp ??
+              4 + ring × 6; thorns 2^(ring−1)) is read by the tile
+              card over the orb now. The corruption glow and the
+              element tint above are NOT numbers and stand as
+              they were. */}
           {/* Burning tile: Fire III art */}
           {t.spark === 2 && fireAspectImg && (
             <image href={fireAspectImg} x={cx - 40 / zoom} y={cy - 50 / zoom} width={80 / zoom} height={80 / zoom}
@@ -5619,7 +5607,19 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               </text>
             </g>
           )}
-          {t.element && t.element !== "neutral" && (
+          {/* The elemental hue of a PURIFIED tile comes from
+              Nigel's artwork alone (Nigel, 2026-11-12): the
+              code-chosen RGBA tint that stood here for every
+              elemented tile is STRUCK for purified ground — the
+              terrain art layers beneath already carry his hues,
+              and no stand-in colour replaces it. For CURSED
+              ground the selfsame tint stays exactly as it is,
+              by his word in the same breath ("cursed tiles tint
+              stays as it is") — cursed tiles are born carrying
+              an element (the frontier mint, the first seed's
+              deal), and this polygon is part of their standing
+              face alongside the corruption glow above. */}
+          {t.cursed && t.element && t.element !== "neutral" && (
             <polygon points={pts} fill={
               t.element === "tide" ? "rgba(74,144,217,0.15)" :
               t.element === "sky" ? "rgba(135,206,235,0.15)" :
@@ -8984,6 +8984,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         if (bandJustClosed()) return; // the band's own click is not a dismissal
         // Clicking empty map dismisses the choosing
         setSelectedAwoken(null);
+        setOrbInfo(null); // the card over the orb closes with the choosing (Nigel, 2026-11-12)
         setSelectedGroup([]);
         setAttackTargeting(false);
         setMoveTargeting(false);
@@ -9562,6 +9563,78 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             <div className="hex-confirm-actions">
               <button type="button" className="abtn" onClick={runHexConfirm}>{confirmLabel}</button>
               <button type="button" className="abtn ghost" onClick={clearHexConfirm}>Not yet</button>
+            </div>
+          </div>
+        );
+      })()}
+      {/* CLICK INFORMATION OVER THE ENERGY ORB (Nigel, 2026-11-12):
+          the one spot the map's click facts live now. A hex tap
+          stands its tile card here — the tile's attunement levels,
+          and for cursed ground its curse health and thorns, the
+          very numbers that came off the tile faces. An Awoken tap
+          stands that Awoken's card here, its living facts beneath
+          the face — the health, shield and level that came off
+          from under its feet. It sits over the orb at the
+          bottom-left, never over the map's middle, and closes
+          with the choosing on an empty-map tap. */}
+      {orbInfo && (() => {
+        if (orbInfo.kind === "tile") {
+          const t = tiles.find(x => x.id === orbInfo.tileId);
+          if (!t) return null;
+          const mix = (t as any).mix as TileMix | null | undefined;
+          const mixLabels: Record<string, string> = { sky: "Air", stone: "Rock", tide: "Water", root: "Root" };
+          const rows = TERRAIN_LAYER_ORDER
+            .map(el => ({ el, pts: mix?.[el] ?? 0 }))
+            .filter(r => r.pts > 0);
+          let curse: { hp: number; maxHp: number; thorns: number } | null = null;
+          if (t.cursed) {
+            const ring = Math.max(Math.abs(t.q), Math.abs(t.r), Math.abs(t.q + t.r));
+            const maxHp = (t as any).curseMaxHp ?? (4 + ring * 6);
+            curse = { hp: (t as any).curseHp ?? maxHp, maxHp, thorns: Math.pow(2, Math.max(0, ring - 1)) };
+          }
+          return (
+            <div className="orb-info-popup orb-info-tilebox" role="status" aria-label="Tile attunement">
+              <div className="orb-info-title">Tile attunement</div>
+              {rows.length > 0 ? rows.map(r => (
+                <div key={r.el} className="orb-info-row"><span>{mixLabels[r.el]}</span><span>{r.pts}</span></div>
+              )) : (
+                <div className="orb-info-note">No attunement stands on this tile.</div>
+              )}
+              {curse && (
+                <div className="orb-info-more">
+                  <div className="orb-info-row"><span>Curse health</span><span>{Math.ceil(curse.hp)} of {Math.ceil(curse.maxHp)}</span></div>
+                  <div className="orb-info-row"><span>Thorns</span><span>{curse.thorns}</span></div>
+                </div>
+              )}
+            </div>
+          );
+        }
+        const a = tenderItems.find(x => x.id === orbInfo.awakenedId);
+        if (!a) return null;
+        const placement = placements.find(p => p.awakenedId === a.id);
+        const hpNow = placement?.hp ?? a.toughness ?? 0;
+        const hpMax = a.toughness ?? hpNow;
+        const shieldNow = (placement as any)?.shield as number | undefined;
+        const level = Math.max(1, (a as any).level ?? Math.floor(Math.sqrt(((a as any).experience ?? 0) / 100)));
+        const aspects = (a.layers ?? []).filter((l: any) => l.category === "aspect");
+        return (
+          <div className="orb-info-popup orb-info-awoken">
+            <TradingCard item={a} />
+            <div className="orb-info-stats">
+              <div className="orb-info-name">{a.name}</div>
+              <div className="orb-info-row"><span>Health</span><span>{Math.ceil(hpNow)} of {Math.ceil(hpMax)}</span></div>
+              {shieldNow != null && Number(shieldNow) > 0 && (
+                <div className="orb-info-row"><span>Shield</span><span>{Math.ceil(Number(shieldNow))}</span></div>
+              )}
+              <div className="orb-info-row"><span>Level</span><span>{level}</span></div>
+              <div className="orb-info-row"><span>Experience</span><span>{(a as any).experience ?? 0} XP</span></div>
+              {aspects.length > 0 && (
+                <div className="orb-info-more">
+                  {aspects.map((asp: any, i: number) => (
+                    <div key={i} className="orb-info-row"><span>{asp.name}</span><span>Lv {asp.aspectLevel ?? 1}</span></div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         );
