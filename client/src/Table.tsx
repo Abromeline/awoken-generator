@@ -24,7 +24,7 @@ import { FrayFaceImg } from "./EnemyFace";
 import { TENDER_CLASSES, TENDER_CLASS_ORDER, tenderDirOf, tenderPose, tenderCastPose, CAST_MS, type TenderClassId, type TenderDir } from "./tenderArt";
 import { WEAPONS, WEAPON_ORDER, weaponImg, shieldImg, type WeaponKey } from "./weaponArt";
 import { BUNDLED_TERRAIN } from "./terrainArt";
-import cursedImg from "./assets/terrain-iso/cursed-v3.png";
+import cursedImg from "./assets/terrain-iso/cursed-v3-light.png";
 import nebulaNegative from "./assets/nebula-negative.jpg";
 import meteorRain from "./assets/meteor-rain.gif";
 import { WORKING_DEFS } from "./workingsData";
