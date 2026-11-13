@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Awakened, type TerritoryTile, type FieldPlacement, type IslandMarchView } from "./api";
+import { api, type Awakened, type TerritoryTile, type FieldPlacement, type IslandMarchView, type BrickStandView } from "./api";
 import { useTerrainArt, terrainImgFor, stageForTile, TERRAIN_LAYER_ORDER, TERRAIN_LAYER_ART, mixLayerOpacity, mixStands, blendedMixFace, cliffSide, floatGroupBody, onMixLayersReady, type TileMix } from "./terrainArt";
 import { triangleFaceFor, squareFaceFor, affineFor, wallSeatFor, FLOOR_FRAME_W, FLOOR_FRAME_H } from "./buildingFaces";
 import { PiecesMenu, isWallKind, type PieceTool, type WallKind } from "./PiecesMenu";
@@ -77,6 +77,7 @@ import { AspectAttunement } from "./AspectAttunement";
 import { elementPalette } from "./palette";
 import { MATTER_SHARD_FRAMES, SHARD_DRAW_W, SHARD_DRAW_H, shardFlightMsFor, strikeStartsAt, shardTintFilterId, shardTintRamp, SHARD_TINT_ELEMENTS, shardFrameViewBox } from "./matterShard";
 import { flightMsForPace, sizeScaleForLevel, arcPoint, shotGrowthScale } from "./flightLaw";
+import { brickFrame } from "./brickArt";
 import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
@@ -540,6 +541,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // drifts each marching group between hexes and traces its
   // road to its flag from these.
   const [islandMarches, setIslandMarches] = useState<IslandMarchView[]>([]);
+  // BRICK (Nigel, 2026-10-27 / 2026-11-10): the field's brick
+  // stands, served with every snapshot — how many bricks
+  // hover over each qualifying Awoken, its capacity, and
+  // whether another is rising. The map draws the hovering
+  // bricks from these, the ability tab speaks them, and the
+  // enemy tap reads them to know a loose can answer.
+  const [brickStands, setBrickStands] = useState<BrickStandView[]>([]);
+  const brickStandsRef = useRef<BrickStandView[]>([]);
+  brickStandsRef.current = brickStands;
   // The First Seed (Nigel via Wake, 2026-10-17): a fresh Tender holds
   // no ground — the empty state is where the Last Bastion begins, not
   // a dead end. The world is sown on mount (ensureFirstSeed), and the
@@ -762,7 +772,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // every live flight of the ruled density — it once held
   // 25, and the eldest live flight fell unseen.
   const STRIKE_FLIGHT_KEEP = 240;
-  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; startsAt: number; flightMs: number; dark: boolean; level: number }[]>([]);
+  const [strikeFlights, setStrikeFlights] = useState<{ id: string; fx: number; fy: number; tx: number; ty: number; hit: boolean; element: string; startsAt: number; flightMs: number; dark: boolean; level: number; brick?: boolean; variant?: number }[]>([]);
   const strikeIdSeenRef = useRef(0);
   const strikeWitnessInitRef = useRef(false);
   const notePlacementStrikes = (strikes: import("./api").HomelandStrike[] | null | undefined, tilesList: TerritoryTile[]) => {
@@ -811,7 +821,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const startsAt = strikeStartsAt(s.at, firstAt, lastAt, now);
       const wait = Math.max(0, startsAt - now);
       const id = `strike-${s.id}`;
-      setStrikeFlights(prev => [...prev.slice(-(STRIKE_FLIGHT_KEEP - 1)), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", startsAt, flightMs, dark, level }]);
+      setStrikeFlights(prev => [...prev.slice(-(STRIKE_FLIGHT_KEEP - 1)), { id, fx: from.x, fy: from.y, tx: to.x, ty: to.y, hit: s.hit, element: s.element ?? "neutral", startsAt, flightMs, dark, level, brick: !!s.brick, variant: Math.abs(s.id) % 3 }]);
       // THE MARK, READ AT THE LAUNCH (the launched-shot
       // fix, 2026-11-10): the endpoint above is the mark's
       // stand as the delivering read reckoned it — but a
@@ -1754,6 +1764,46 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   /** Whether a written Blade stands armed on the land —
    *  the router's first question on any enemy tap. */
   const bladeStandsArmed = () => workings.some((x) => x.engine === "blade" && x.kind === "rune" && (x.charges ?? 0) > 0);
+  /** BRICK's reach (Nigel, 2026-10-27 / 2026-11-10):
+   *  whether any raised brick can answer this dark — a
+   *  fielded Awoken holding bricks aloft within four tiles
+   *  of where the dark stands (its free point, never its
+   *  hex: no hex-lock, range is the gate). The server judges
+   *  the same reach at its own door; this only keeps the
+   *  click from being spent on a loose that cannot fly. */
+  const brickCanAnswer = (w: { id: number; tileId: number; posQ: number; posR: number }): boolean => {
+    const stands = brickStandsRef.current;
+    if (!stands.length) return false;
+    return stands.some(s => {
+      if (s.hovering <= 0) return false;
+      const p = placements.find(x => x.awakenedId === s.awakenedId);
+      if (!p) return false;
+      const t = tiles.find(x => x.id === p.tileId);
+      const q = p.posQ != null ? p.posQ : (t?.q ?? 0);
+      const r = p.posR != null ? p.posR : (t?.r ?? 0);
+      const d = (Math.abs(q - w.posQ) + Math.abs(q + r - w.posQ - w.posR) + Math.abs(r - w.posR)) / 2;
+      return d <= 4;
+    });
+  };
+  /** The order to the raised bricks on one of the wandering
+   *  dark, refereed by the server (api.looseBricks): every
+   *  raised brick in range flies at the dark's whole area.
+   *  A loose that lands speaks for itself here; a refusal is
+   *  RETURNED, not shown — the click router decides whose
+   *  words answer the click, as the Blade's loose above. */
+  const attemptLooseBricks = async (w: { id: number; tileId: number; posQ: number; posR: number }): Promise<{ loosed: boolean; refusal?: string }> => {
+    try {
+      const res = await api.looseBricks({ wandererId: w.id });
+      const n = res.throws.reduce((sum, t) => sum + t.bricks, 0);
+      showHexNotice(res.felled.length
+        ? `The bricks fly — ${n} ${n === 1 ? "brick" : "bricks"} rain on the dark's ground, and ${res.felled.length === 1 ? "it falls" : `${res.felled.length} of the dark fall`} (${res.harm} harm in all).`
+        : `The bricks fly — ${n} ${n === 1 ? "brick" : "bricks"} rain on the dark's ground (${res.harm} harm in all).`);
+      void refreshTerritory();
+      return { loosed: true };
+    } catch (e) {
+      return { loosed: false, refusal: refusalText(e, "The bricks could not answer.") };
+    }
+  };
   /** The router's naming refusal (target profiles, Nigel
    *  2026-10-24): a click the readied working cannot take
    *  is answered naming THE READIED WORKING and what IT
@@ -1828,7 +1878,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       if (t) handleHexTap(t);
       return;
     }
+    // BRICK (Nigel, 2026-10-27 / 2026-11-10): raised bricks
+    // answer the click here, after the strike order — every
+    // brick within four tiles of the dark looses at the
+    // ground around it, over a held blade refusal exactly as
+    // a readied working casts over one. Bricks aloft but out
+    // of reach do not spend the click: the router falls
+    // through, and the standing road below speaks the
+    // loose's own refusal when no blade took the click.
+    if (brickCanAnswer(w)) {
+      const r = await attemptLooseBricks(w);
+      if (r.loosed) return;
+      if (r.refusal) { showHexNotice(r.refusal); return; }
+    }
     if (heldRefusal) { showHexNotice(heldRefusal); return; }
+    if (brickStandsRef.current.some(s => s.hovering > 0)) {
+      const r = await attemptLooseBricks(w);
+      if (!r.loosed && r.refusal) showHexNotice(r.refusal);
+      return;
+    }
     void looseBladeAtWanderer(w);
   };
   const [legends, setLegends] = useState<{ champion: Awakened | null; legends: { id: number; awakenedId: number; deed: string; count: number; awokenName: string }[] }>({ champion: null, legends: [] });
@@ -2259,6 +2327,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const refreshed = snap.t;
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setIslandMarches(refreshed.islandMarches ?? []);
+    setBrickStands(refreshed.bricks ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setWorkings(refreshed.workings ?? []);
     // In a room, a guest's figure stands at their SEAT's stand —
@@ -3117,6 +3186,27 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setBuildGhost(null);
       setBuildMode(true);
       setBuildNote(`Building — ${lead.name} leads the cast, and every fielded Awoken with 2 Rock or more builds beside them. Choose a piece, then tap the land: the piece RISES from the ground — it does not appear. Walls and doors rise on a floor's edge.`);
+    }
+    if (key === "brick") {
+      // BRICK (Nigel, 2026-10-27 / 2026-11-10 / 2026-11-13):
+      // begun, the raise starts at the server's door — the
+      // bricks then rise one by one above the Awoken on the
+      // settle's clock, and the ability's bar below speaks
+      // the stand as it fills. The loose is not armed here:
+      // a tap on an enemy looses raised bricks whenever any
+      // stand in range holds them, ability begun or not —
+      // the bricks are the Awoken's default answer, in the
+      // hand and in the battle alike.
+      setAbilityActiveKey("brick");
+      setAbilityLeadId(leadId);
+      void (async () => {
+        try {
+          const r = await api.raiseBricks({ awakenedId: leadId });
+          setBrickStands(prev => [...prev.filter(s => s.awakenedId !== leadId), r.brick]);
+        } catch (err) {
+          showHexNotice(err instanceof Error ? err.message : "The bricks would not rise.");
+        }
+      })();
     }
   };
 
@@ -5216,6 +5306,39 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                         {placement.stance === "attack" ? "⚔" : "✦"}
                       </text>
                     )}
+                    {/* THE RAISED BRICKS, HOVERING (Brick, Nigel
+                        2026-10-27 / 2026-11-10): the bricks an
+                        Awoken has raised hang above its head —
+                        Nigel's paintings, worn in turn by their
+                        index, five to a row, each row above the
+                        last — drawn from the served stand, so
+                        every screen counts the same bricks. A
+                        brick still rising stands lower and
+                        fainter, on its way up. */}
+                    {(() => {
+                      const stand = brickStands.find(s => s.awakenedId === a.id);
+                      if (!stand || (stand.hovering <= 0 && !stand.raising)) return null;
+                      const topY = ky + baseAhs / 2 - ahs;
+                      const bw = 14 * lvlScale / zoom;
+                      const out: React.ReactNode[] = [];
+                      const perRow = 5;
+                      for (let i = 0; i < stand.hovering; i++) {
+                        const bf = brickFrame(i);
+                        const bh = bw * (bf.h / bf.w);
+                        const row = Math.floor(i / perRow);
+                        const col = i - row * perRow;
+                        const inRow = Math.min(perRow, stand.hovering - row * perRow);
+                        const fx = kx + (col - (inRow - 1) / 2) * bw * 0.95;
+                        const fy = topY - 8 / zoom - row * bh * 0.92 - bh / 2;
+                        out.push(<image key={i} data-hover-brick={a.id} href={bf.src} x={fx - bw / 2} y={fy - bh / 2} width={bw} height={bh} />);
+                      }
+                      if (stand.raising) {
+                        const bf = brickFrame(stand.hovering);
+                        const bh = bw * (bf.h / bf.w);
+                        out.push(<image key="rising" data-rising-brick={a.id} href={bf.src} x={kx - bw / 2} y={topY - 3 / zoom - bh} width={bw} height={bh} opacity={0.45} />);
+                      }
+                      return <g pointerEvents="none">{out}</g>;
+                    })()}
                     {/* THE CLICKED AWOKEN'S HEALTH AND LEVEL (Nigel,
                         2026-10-24, from his first play: "i cant
                         actually see their health anywhere… just add
@@ -9307,15 +9430,31 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     its element. His files are untouched; a
                     neutral shot and a dark blow wear no wake,
                     as they wear no tint. */}
-                {!f.dark && tint && (
+                {!f.dark && tint && !f.brick && (
                   <ellipse cx={-drawW * 0.30} cy={0} rx={drawW * 0.36} ry={drawH * 0.48}
                     fill={elementPalette[f.element as keyof typeof elementPalette]} fillOpacity={0.5}
                     filter="url(#shard-tail-soft)" />
                 )}
+                {f.brick ? (() => {
+                  // BRICK IN FLIGHT (Nigel, 2026-10-27 /
+                  // 2026-11-10): a witnessed brick blow flies
+                  // Nigel's brick painting on the same road —
+                  // the stone pace the flight law gives it,
+                  // the arc, the growth to the zenith — worn
+                  // as painted: no tint, no tail, its own pale
+                  // wash in place of both. Its variant is the
+                  // strike's own, steady per blow.
+                  const bf = brickFrame(f.variant ?? 0);
+                  const bw = drawW * 0.6, bh = bw * (bf.h / bf.w);
+                  return (
+                    <image data-brick-flight="" href={bf.src} x={-bw / 2} y={-bh / 2} width={bw} height={bh} opacity={fade} />
+                  );
+                })() : (
                 <svg data-shard-frame="" x={-drawW / 2} y={-drawH / 2} width={drawW} height={drawH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
                   <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
                     filter={tint ? `url(#${tint})` : undefined} />
                 </svg>
+                )}
               </g>
             );
           })}
@@ -9998,6 +10137,30 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               </div>
             )}
             </>)}
+            {abilityActiveKey === "brick" && (() => {
+              // BRICK's bar (Nigel, 2026-10-27 / 2026-11-10):
+              // the lead's stand, spoken plain — how many
+              // bricks hang above it, how many its Rock holds,
+              // and whether another is rising now. The raise
+              // runs on the server's settle; this bar only
+              // reads the served stand and can ask for more.
+              const stand = brickStands.find(s => s.awakenedId === lead.awakenedId);
+              const hovering = stand?.hovering ?? 0;
+              const capacity = stand?.capacity ?? elementSumsOfPlacement(lead).stone;
+              const raising = !!stand?.raising;
+              return (<>
+                <p className="ability-crew" data-brick-stand={lead.awakenedId}>
+                  {hovering} of {capacity} bricks hang above {lead.name}
+                  {raising ? " — another is rising (three seconds, one energy)" : hovering >= capacity ? " — its stand is full" : ""}.<br />
+                  Tap an enemy within four tiles and every raised brick flies at the ground around it. In battle, a raised brick is {lead.name}'s first answer.
+                </p>
+                <button type="button" className="abtn small" data-raise-bricks={lead.awakenedId}
+                  disabled={raising || hovering >= capacity}
+                  onClick={() => beginAbility("brick", lead.awakenedId)}>
+                  {hovering >= capacity ? "🧱 The stand is full" : raising ? "🧱 A brick is rising…" : hovering > 0 ? "🧱 Raise more bricks" : "🧱 Raise bricks"}
+                </button>
+              </>);
+            })()}
           </div>
         );
       })()}

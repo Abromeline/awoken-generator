@@ -66,6 +66,19 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     name: "Island March",
     requires: { sky: 1 },
   },
+  {
+    // BRICK (Nigel, ruled 2026-10-27, amended 2026-11-10;
+    // restated 2026-11-13: "any awoken that can build should
+    // be able to cast brick"). The same ground as Building —
+    // two Rock in the sum of the parts. Its working — the
+    // raise, the loose, the wall's pull and the default
+    // attack — lives in actions.ts (the raised_bricks settle,
+    // looseBricks, and the battle settle's answer); this row
+    // only names the gate, as every ability's row does.
+    key: "brick",
+    name: "Brick",
+    requires: { stone: 2 },
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {
