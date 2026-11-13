@@ -5604,21 +5604,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <image href={fireAspectImg} x={cx - 40 / zoom} y={cy - 50 / zoom} width={80 / zoom} height={80 / zoom}
               preserveAspectRatio="xMidYMid meet" opacity="0.7" pointerEvents="none" />
           )}
-          {/* Spark: fire aspect waiting to be claimed */}
-          {t.spark === 1 && (
-            <g onClick={(e) => { e.stopPropagation(); if (bandJustClosed()) return; handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
-              {fireAspectImg ? (
-                <image href={fireAspectImg} x={cx - 30 / zoom} y={cy - 40 / zoom} width={60 / zoom} height={60 / zoom}
-                  preserveAspectRatio="xMidYMid meet" opacity="0.95" />
-              ) : (
-                <text x={cx} y={cy - 10 / zoom} textAnchor="middle" fontSize={24 / zoom} fill="#ff6600" opacity="0.95">🔥</text>
-              )}
-              <text x={cx} y={cy + 25 / zoom} textAnchor="middle" fontSize={8 / zoom}
-                fill="#ffaa00" opacity="0.9" fontWeight="bold">
-                SPARK — tap to claim
-              </text>
-            </g>
-          )}
+          {/* The spark claim marker (t.spark === 1) is NOT
+              painted here — it stands in the sparkClaimLayer
+              overlay at the very top of the map (Nigel,
+              2026-11-12: painted inside its own tile it sat
+              behind everything painted after it — the tile's
+              later dressing, the southern tiles, the hit
+              layer, figures, the light — and could not be
+              clicked). The burning tile's art above stays:
+              it is dressing, and takes no clicks. */}
           {t.element && t.element !== "neutral" && (
             <polygon points={pts} fill={
               t.element === "tide" ? "rgba(74,144,217,0.15)" :
@@ -7837,6 +7831,49 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const standingsBack = standingItems.filter(it => it.baseY <= tenderBaseY);
     const standingsFront = standingItems.filter(it => it.baseY > tenderBaseY);
 
+    // THE SPARK CLAIM MARKER RIDES ON TOP (Nigel, 2026-11-12:
+    // "ive found my first fire aspect but the button to claim
+    // it is behind so many things i cant click it"). The marker
+    // (t.spark === 1) used to be painted inside its own tile's
+    // group, mid tile-pass — in SVG the topmost shape at a
+    // point takes the click, so everything painted after it
+    // (the rest of that tile's dressing, every later tile, the
+    // hit layer, buildings, figures, effects, the light layer)
+    // buried it, and the tap landed anywhere but on it. It now
+    // stands in its own overlay in the LAST camera group of
+    // the map, above every layer: same face, same words, same
+    // claim — only the seat moved. Each marker anchors at its
+    // tile's drawn place (tilePos — tray lift and float rise
+    // ride inside it — with the terrain layer's own hover lift
+    // beside it, exactly as the tile group carried it), and
+    // only the marker's own image and words take clicks: no
+    // hit area is laid over the map, so taps elsewhere are
+    // untouched.
+    const sparkClaimLayer = (
+      <g key="spark-claims">
+        {sortedTiles.filter((t: any) => t.spark === 1).map((t: any) => {
+          const { cx, cy } = tilePos(t);
+          const lift = t.cursed ? 0 : -5; // match the terrain layer's lift
+          return (
+            <g key={`spark-claim-${t.id}`} transform={`translate(0,${lift / zoom})`}>
+              <g className="spark-claim-marker" data-tile-id={t.id} onClick={(e) => { e.stopPropagation(); if (bandJustClosed()) return; handleSparkClick(t.id); }} style={{ cursor: "pointer" }}>
+                {fireAspectImg ? (
+                  <image href={fireAspectImg} x={cx - 30 / zoom} y={cy - 40 / zoom} width={60 / zoom} height={60 / zoom}
+                    preserveAspectRatio="xMidYMid meet" opacity="0.95" />
+                ) : (
+                  <text x={cx} y={cy - 10 / zoom} textAnchor="middle" fontSize={24 / zoom} fill="#ff6600" opacity="0.95">🔥</text>
+                )}
+                <text x={cx} y={cy + 25 / zoom} textAnchor="middle" fontSize={8 / zoom}
+                  fill="#ffaa00" opacity="0.9" fontWeight="bold">
+                  SPARK — tap to claim
+                </text>
+              </g>
+            </g>
+          );
+        })}
+      </g>
+    );
+
     // The land rides the camera: tile art in the back group, the
     // screen-space hit layer at its old stacking place, every
     // other land layer in the front groups — both carrying the
@@ -7847,7 +7884,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     // the Tender himself in screen space, then the standings
     // before his line, then the overlays that have always
     // ridden on top (targeting, columns, the drop flights,
-    // the guides and markers and ghosts).
+    // the guides and markers and ghosts) — and last of all,
+    // in its own camera group, the spark claim markers, which
+    // nothing on the map may cover (Nigel, 2026-11-12).
     return (
       <>
         <g key="land-back" className="land-cam" transform={camTransform}>
@@ -7879,6 +7918,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {targetMarker}
           {ghostLayer}
           {buildModeGhostLayer}
+        </g>
+        <g key="land-spark-top" className="land-cam" transform={camTransform}>
+          {sparkClaimLayer}
         </g>
       </>
     );
