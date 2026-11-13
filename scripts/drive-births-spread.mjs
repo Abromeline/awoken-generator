@@ -83,10 +83,25 @@
 // reads accumulate — the drive judges births, not
 // walks). Every assertion reads the DB ledgers
 // after a real getTerritory read — the settle itself is
-// the server's own, unmodified. A newborn's tile is read
-// from homeland_wanderers at the read that birthed it
-// (the battle window between reads is real milliseconds;
-// a birth tile cannot drift a cell in it).
+// the server's own, unmodified. A newborn's tile is
+// taken from the BIRTH LOG (below): a drive-side trigger
+// on the scratch ledger records every wanderer INSERT —
+// its tile, its point, its spawn stamp — at the instant
+// the cradle deals it. The standing rows cannot judge a
+// birth: the realtime battle marches a foe from the
+// very read that birthed it (its first window is the
+// wall-clock since the priming read) and on every war
+// tick after, re-seating its tile as it walks — a Fray
+// covers ~0.23 hexes a second, so under load every
+// newborn stands a ring inward of its birth tile before
+// any read-back, and how far it stands is sandbox load,
+// not law. The log is the only record that stands at
+// the birth instant; the trigger only observes the
+// server's own writes, in the drive's own scratch
+// ledger, and is dropped with it. PLACEMENT is what is
+// on trial — the cradle's beat, chance, cap, filters
+// and shuffle all run for real on every serving; the
+// march is the battle's own system, judged elsewhere.
 // Run after `npm run build` (server + client) so the
 // drive boots this source's server.
 import { readFileSync } from "node:fs";
@@ -118,18 +133,44 @@ await import("../server/dist/index.js");
 await sleep(2500);
 
 async function call(action, args, token) {
-  const res = await fetch(`${BASE}/api/${action}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
-    body: JSON.stringify(args ?? {}),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${action} -> ${res.status}: ${JSON.stringify(data)}`);
-  return data;
+  // TRANSPORT ONLY: the sandbox's loopback resets fetches
+  // under load (the known environment fault — it kills
+  // whole runs in the wide sections, where a single read
+  // runs seconds). A reset request is re-issued, bounded;
+  // no assertion in this drive reads anything a retry
+  // could shade: the reads are the server's own settles,
+  // and a birth read whose response was reset has either
+  // dealt its serving whole (the cradle stamps its beats
+  // settled, so the re-issued read deals no second one)
+  // or not at all (the re-issued read deals it). Retries
+  // are announced in the drive's output.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/api/${action}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
+        body: JSON.stringify(args ?? {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`${action} -> ${res.status}: ${JSON.stringify(data)}`);
+      return data;
+    } catch (e) {
+      const reset = e?.name === "TypeError" && /fetch failed/.test(String(e?.message ?? e));
+      if (!reset || attempt >= 5) throw e;
+      console.log(`  (transport: ${action} reset by the sandbox loopback — re-issuing, attempt ${attempt + 1})`);
+      await sleep(1500);
+    }
+  }
 }
 
 const db = new Database(join(process.env.DATA_DIR, "app.db"));
 try { db.exec("ALTER TABLE awakened ADD COLUMN greeter INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
+// THE BIRTH LOG: every wanderer the server inserts, recorded
+// at the insert itself (see the header): the dealt tile is
+// judged from here, never from the marched standing rows.
+db.exec(`CREATE TABLE drive_birth_log (wanderer_id INTEGER, tile_id INTEGER, pos_q REAL, pos_r REAL, spawned_at INTEGER);
+CREATE TRIGGER drive_log_birth AFTER INSERT ON homeland_wanderers
+BEGIN INSERT INTO drive_birth_log VALUES (NEW.id, NEW.tile_id, NEW.pos_q, NEW.pos_r, NEW.spawned_at); END;`);
 
 const ringOf = (q, r) => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
 const hexDist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
@@ -196,8 +237,11 @@ async function makeTender(name, seedFn) {
   return { token: claim.token, ownerKey, tiles };
 }
 
-const darkRows = (ownerKey) => db.prepare(
-  `SELECT w.id, w.tile_id AS tileId, t.q AS q, t.r AS r FROM homeland_wanderers w JOIN territory_tiles t ON t.id = w.tile_id WHERE w.owner_key = ? ORDER BY w.id`
+/** The births one serving dealt, from the birth log:
+ *  the INSERT record of each newborn — its dealt tile
+ *  and the tile's own coordinates. */
+const birthRows = (ownerKey) => db.prepare(
+  `SELECT l.wanderer_id AS id, l.tile_id AS tileId, t.q AS q, t.r AS r FROM drive_birth_log l JOIN territory_tiles t ON t.id = l.tile_id WHERE t.owner_key = ? ORDER BY l.wanderer_id`
 ).all(ownerKey);
 const ringsOf = (rows) => rows.map(w => ringOf(w.q, w.r));
 
@@ -208,12 +252,15 @@ function wind(T) {
 /** Prime (the first standing read arms the cradle's
  *  anchor, birthing nothing), then wind the cradle's
  *  clock forward and read again: the births that read
- *  makes are the subject. */
+ *  makes are the subject. The birth log is cleared
+ *  between the wind and the birth read, so the serving
+ *  is judged on exactly the births that read dealt. */
 async function spawnRead(T) {
   await call("getTerritory", {}, T.token);
   wind(T);
+  db.prepare("DELETE FROM drive_birth_log").run();
   await call("getTerritory", {}, T.token);
-  return darkRows(T.ownerKey);
+  return birthRows(T.ownerKey);
 }
 
 /** The land's furthest cursed ring AS IT STANDS in
@@ -228,11 +275,12 @@ function edgeRingNow(ownerKey) {
 
 /** Run `servings` independent birth servings on a
  *  sparse land (the field cleared between servings)
- *  and return every serving's newborn rows, read at
- *  the read that birthed them. Births are judged at
- *  their birth read on purpose: a standing foe walks
- *  and is re-seated to its new tile by the battle as
- *  reads accumulate, so a long train of reads would
+ *  and return every serving's newborn rows from the
+ *  birth log — the INSERT record of the read that
+ *  birthed them. Births are judged at their insert on
+ *  purpose: a standing foe walks and is re-seated to
+ *  its new tile by the battle as reads accumulate, so
+ *  the standing rows of a long train of reads would
  *  judge walks, not births. */
 async function birthServings(T, servings) {
   await call("getTerritory", {}, T.token);
