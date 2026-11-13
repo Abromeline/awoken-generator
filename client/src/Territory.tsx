@@ -6628,6 +6628,30 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
         floorEdgeUsers.set(key, (floorEdgeUsers.get(key) ?? 0) + 1);
       }
     }
+    // THE FLOORS' PAINTING ORDER (Nigel, 2026-11-13): the
+    // floors paint BACK TO FRONT, in the ground's own dressing
+    // order — the very reckoning the land sorts itself by:
+    // groundKeyY of the ground a piece stands on (the tray
+    // steps counted, the float rise not), the lower plane
+    // first on one hex — and, last, the piece's own heart
+    // within its hex, so the wedges of one hex also dress
+    // north to south. NEVER placement order: a floor laid
+    // first no longer paints first, so a southern floor's
+    // rim, band and skirt can never be drawn under a northern
+    // neighbour's corner, nor a northern one's over a southern
+    // floor it should stand behind.
+    const floorPaintKey = (p: BuildPiece): [number, number, number, number] => {
+      const t = pieceTileOf(p);
+      const cq = p.footprint.reduce((s, v) => s + v[0], 0) / (p.footprint.length || 1);
+      const cr = p.footprint.reduce((s, v) => s + v[1], 0) / (p.footprint.length || 1);
+      const c = landPt(cq, cr);
+      return [t ? groundKeyY(t) : c.y, p.z ?? 0, c.y, p.id];
+    };
+    const floorPiecesOrdered = [...floorPiecesAll].sort((a, b) => {
+      const ka = floorPaintKey(a), kb = floorPaintKey(b);
+      for (let i = 0; i < ka.length; i++) { const d = ka[i] - kb[i]; if (d !== 0) return d; }
+      return 0;
+    });
     const buildFloorsLayer = (
       <g key="build-floors" className="build-floors" pointerEvents="none">
         <defs>
@@ -6638,7 +6662,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
             <stop offset="1" stopColor="rgba(0,0,0,0.30)" />
           </linearGradient>
         </defs>
-        {buildPieces.filter(p => p.kind === "triangle" || p.kind === "square").map(p => {
+        {floorPiecesOrdered.map(p => {
           // HIS FACE: a triangle wears the wedge drawn for its
           // orientation, seated by the exact affine of its three
           // corners (frame triangle onto footprint), so the six
@@ -6646,8 +6670,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           // can never drift from the tiling. A square wears his
           // slab panel (Build 1.psd L19) by the same law — three
           // of its corners carried onto the footprint's, the
-          // fourth following. The polygon remains as the rim
-          // over the face.
+          // fourth following. The polygon remains beneath as
+          // the fill alone; the rim stands over the face as
+          // exterior-edge segments (the ONE RIM reckoning,
+          // below).
           const face = p.kind === "triangle" ? triangleFaceFor(p.verts) : squareFaceFor(p.verts);
           const matrix = face ? affineFor(face.frame, face.order.map(idx => {
             const s = landPt(p.footprint[idx][0], p.footprint[idx][1]);
@@ -6726,6 +6752,29 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               bandPaths.push(`M${top} L${bot} Z`);
             }
           }
+          // THE ONE RIM (Nigel, 2026-11-13 — "edges that
+          // shouldn't be showing"): joined floors wear ONE
+          // rim between them. The rim strokes only the edges
+          // the shared-edge reckoning above (floorEdgeUsers)
+          // calls EXTERIOR — an edge a second floor also
+          // stands on is INTERIOR: the two floors are one
+          // floor there, and no line is drawn down their join.
+          // The footprint polygon below now carries the fill
+          // alone; the rim is these segments, standing in the
+          // polygon's own place (the same sunk group, the same
+          // landPt seating), and the protected/unprotected
+          // colour law is unchanged for the edges that remain.
+          const rimSegs: { ax: number; ay: number; bx: number; by: number }[] = [];
+          {
+            const nF = p.footprint.length;
+            for (let i = 0; i < nF; i++) {
+              const a = p.footprint[i], b = p.footprint[(i + 1) % nF];
+              const key = [a, b].map(v => `${Math.round(v[0] * 1000)},${Math.round(v[1] * 1000)}`).sort().join("|");
+              if ((floorEdgeUsers.get(key) ?? 0) > 1) continue;
+              const A = landPt(a[0], a[1]), B = landPt(b[0], b[1]);
+              rimSegs.push({ ax: A.x, ay: A.y, bx: B.x, by: B.y });
+            }
+          }
           return (
             <g key={p.id} data-piece={p.id} data-state={p.state ?? "standing"} data-frac={frac}
               data-clip={frac < 1 ? "seat" : undefined} data-sink={frac < 1 ? ((1 - frac) * BUILD_WALL_H).toFixed(1) : "0"}>
@@ -6748,9 +6797,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 )}
                 <polygon points={polyPts(p.footprint)}
                   fill={face && matrix ? "none" : p.kind === "square" ? "rgba(216,202,170,0.34)" : "rgba(178,142,88,0.30)"}
-                  stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
-                  strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
-                  strokeLinejoin="round" />
+                  stroke="none" />
+                {rimSegs.map((s, si) => (
+                  <line key={`rim-${si}`} className="floor-rim" data-rim={p.id}
+                    x1={s.ax} y1={s.ay} x2={s.bx} y2={s.by}
+                    stroke={p.protected ? "#e8c766" : "#97753f"} strokeWidth={1.1 / zoom}
+                    strokeDasharray={p.protected ? undefined : `${5 / zoom} ${4 / zoom}`}
+                    strokeLinecap="round" />
+                ))}
               </g>
               <RiseChurn pieceKey={`f${p.id}`} seed={p.id}
                 ax={south[0].x} ay={south[0].y} bx={south[1].x} by={south[1].y}
