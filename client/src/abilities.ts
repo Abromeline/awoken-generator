@@ -133,6 +133,21 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     requires: { root: 4 },
     blurb: "raise a Rune — Shadow Matter falls richer where one stands complete",
   },
+  {
+    // THE SHRUB (Nigel, 2026-11-10): a CHANNELED ability —
+    // an Awoken holding at least 3 Root in the sum of its
+    // parts, standing within two tiles of the ground, raises
+    // a shrub there at 3 energy a second; three minutes of
+    // channeling grows it full. The shrub stands a third of
+    // a Tender tall with 15 health, bars the dark's advance,
+    // wilts in cursed ground, and drinks a Tide hand's
+    // watering into bramble nodes of its own.
+    key: "the-shrub",
+    name: "The Shrub",
+    mark: "🌿",
+    requires: { root: 3 },
+    blurb: "channel a shrub up out of the ground",
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

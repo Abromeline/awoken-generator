@@ -25,6 +25,7 @@ import moonShroomArt1 from "./assets/moon-shrooms/moon-shroom-1.png";
 import moonShroomArt2 from "./assets/moon-shrooms/moon-shroom-2.png";
 import moonShroomArt3 from "./assets/moon-shrooms/moon-shroom-3.png";
 import runeStoneArt from "./assets/runes/rune-stone.png";
+import shrubArt from "./assets/shrubs/shrub.png";
 
 import FieldAwoken from "./FieldAwoken";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
@@ -45,7 +46,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, RuneStanding, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, RuneStanding, Shrub, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
   axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
@@ -727,6 +728,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [dropFx, setDropFx] = useState<{ id: number; fromQ: number; fromR: number; drops: DropLike[]; born: number }[]>([]);
   const dropFxSeq = useRef(0);
   const [defenceWorks, setDefenceWorks] = useState<{ id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]>([]);
+  // THE SHRUB (Nigel, 2026-11-10): the land's shrubs as the
+  // refresh serves them, and the Awoken whose Shrub order
+  // is armed (its tap names the ground the shrub rises on).
+  const [shrubs, setShrubs] = useState<Shrub[]>([]);
+  const [shrubFor, setShrubFor] = useState<number | null>(null);
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
   // strike arrives, the weapon lunges at that foe's hex on the
@@ -2352,6 +2358,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     battleLiveRef.current = (refreshed.wanderers ?? []).length > 0;
     noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
+    setShrubs(refreshed.shrubs ?? []);
     noteWeaponStrikes(refreshed.weaponStrikes, refreshed.weaponStrike);
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
     noteRainFalls(refreshed.rainFalls);
@@ -3186,6 +3193,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const beginAbility = (key: string, leadId: number) => {
     const lead = placements.find(p => p.awakenedId === leadId);
     if (!lead) return;
+    if (key === "the-shrub") {
+      // THE SHRUB (Nigel, 2026-11-10): the order arms like
+      // the island's — the next tap on the land is the
+      // ground the Shrub should rise on, and the server
+      // judges the gate and the two-tile reach at its door.
+      setAbilityLeadId(null);
+      setShrubFor(leadId);
+      setSelectedAwoken(leadId);
+      showHexNotice(`The Shrub — tap the ground ${lead.name} should raise it on, within two tiles of where it stands.`);
+      return;
+    }
     if (key === "island-march") {
       // MARCHING ISLANDS (Nigel, 2026-11-09): begun, the
       // order arms like a march — the next tap on the land
@@ -3195,6 +3213,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setIslandQuote(null);
       setMoonShroomFor(null);
       setRuneFor(null);
+      setShrubFor(null);
       setIslandMarchFor(leadId);
       setSelectedAwoken(leadId);
       showHexNotice(`Island March — tap the land ${lead.name} should drift to. Its road will be traced, and its pace and price spoken, before you confirm.`);
@@ -3292,6 +3311,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const myRuneChannel = runes.find(r => r.channelers.includes(id));
     if (myRuneChannel) {
       entries.push({ key: "ord-end-rune-channel", emoji: "✋", label: "End channel", act: () => { void (async () => { try { await api.stopRuneChannel({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name}'s channel ends — the Rune keeps the rising it bought.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
+    // THE SHRUB: an Awoken with a live channel carries its
+    // ending here, where the march's Halt stands.
+    if (shrubs.some(s => s.channelers.includes(id))) {
+      entries.push({ key: "ord-shrub-end", emoji: "🌿", label: "End channel", act: () => { void (async () => { try { await api.stopShrubChannel({ awakenedId: id }); await refreshTerritory(); showHexNotice(`${p.name} ends its channel. The Shrub keeps every inch it has grown.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
     }
     entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
@@ -4496,6 +4519,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       })();
       return;
     }
+    // THE SHRUB (Nigel, 2026-11-10): the armed Shrub order
+    // takes this tap as the shrub's ground — one call opens
+    // the channel, and the shrub begins its emergence under
+    // the channeler's hands. A refusal speaks in plain
+    // words and the order stays armed.
+    if (shrubFor !== null) {
+      const awId = shrubFor;
+      void (async () => {
+        try {
+          await api.startShrubChannel({ awakenedId: awId, tileId: tile.id });
+          setShrubFor(null);
+          await refreshTerritory();
+          showHexNotice("The channel opens — the Shrub begins to rise. Three minutes of channeling grows it full.");
+        } catch (err) {
+          showHexNotice(err instanceof Error ? err.message : "The channel was refused.");
+        }
+      })();
+      return;
+    }
     if (pendingMarch) {
       // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
       // the march; this tap IS the order — fired at once, no
@@ -5357,7 +5399,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       }
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                  if (attackTargeting || moveTargeting) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null || moonShroomFor !== null || runeFor !== null || shrubFor !== null) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -8144,6 +8186,46 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
       standingItems.push({ key: `standing-rune-${rn.id}`, baseY: base, node: <g key={`standing-rune-${rn.id}`} pointerEvents="none">{node}</g> });
     });
+    // THE SHRUB, standing on the land (Nigel, 2026-11-10):
+    // at full growth it stands A THIRD OF A TENDER'S HEIGHT
+    // — the Tender figure on this face stands 62 land units
+    // tall (the measure the Sapling itself was set by), and
+    // the Shrub is reckoned from her. Its growth obeys the
+    // EMERGENCE LAW: the whole painting is drawn at its true
+    // size, sunk (1 − growth) of its ink's height BELOW its
+    // standing place, and clipped at the tile's ground line
+    // (the base line the seeds use), so only what has broken
+    // through the ground shows — nothing scales, nothing
+    // pops. The painting's ink occupies x 744–1178, y 417–
+    // 728 of its 1920×1280 canvas (fractions of the whole:
+    // ink height 311/1280, ink bottom 728/1280, ink centre
+    // 961/1920). Wounds pale it, in the works' own language
+    // (the opacity the defence nodes wear), and a watered
+    // shrub drinks on — the card over the orb speaks its
+    // numbers, not the surface.
+    shrubs.forEach((s) => {
+      const t = tiles.find(tt => tt.id === s.tileId);
+      if (!t || s.growth <= 0) return;
+      const { cx, cy } = tilePos(t);
+      const base = cy + size * 0.3;
+      const drawH = (62 / 3) * (1280 / 311);
+      const drawW = drawH * (1920 / 1280);
+      const sink = (1 - s.growth) * (62 / 3);
+      const top = base + sink - drawH * (728 / 1280);
+      const left = cx - drawW * (961 / 1920);
+      const clipId = `shrub-clip-${s.id}`;
+      const node = (
+        <g key={`standing-shrub-${s.id}`} pointerEvents="none">
+          <ellipse cx={cx} cy={base + size * 0.05} rx={size * 0.3} ry={size * 0.09} fill="rgba(0,0,0,0.3)" />
+          <clipPath id={clipId}><rect x={cx - size} y={base - size * 4} width={size * 2} height={size * 4} /></clipPath>
+          <g clipPath={`url(#${clipId})`}>
+            <image href={shrubArt} x={left} y={top} width={drawW} height={drawH}
+              opacity={0.35 + 0.65 * Math.max(0, Math.min(1, s.hp / s.maxHp))} preserveAspectRatio="none" />
+          </g>
+        </g>
+      );
+      standingItems.push({ key: `standing-shrub-${s.id}`, baseY: base, node });
+    });
     wanderers.forEach((w, i) => {
       const node = wandererNodes[i];
       if (!node) return;
@@ -10115,6 +10197,22 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     {rn.complete && (
                       <div className="orb-info-row"><span>Its blessing</span><span>Shadow Matter falls richer here</span></div>
                     )}
+                  </div>
+                );
+              })()}
+              {(() => {
+                // THE SHRUB on this tile (Nigel, 2026-11-10):
+                // its facts live here, on the click card, as
+                // every number on this face does.
+                const sh = shrubs.find(x => x.tileId === t.id);
+                if (!sh) return null;
+                return (
+                  <div className="orb-info-more">
+                    <div className="orb-info-row"><span>The Shrub</span><span>{sh.fullGrown ? "full-grown" : `${Math.round(sh.growth * 100)}% grown`}</span></div>
+                    <div className="orb-info-row"><span>Health</span><span>{Math.ceil(sh.hp)} of {Math.ceil(sh.maxHp)}</span></div>
+                    {sh.nodes > 0 && <div className="orb-info-row"><span>Bramble nodes</span><span>{sh.nodes}</span></div>}
+                    {sh.watered && <div className="orb-info-row"><span>Watered</span><span>drinking</span></div>}
+                    {sh.channelers.length > 0 && <div className="orb-info-row"><span>Channelling</span><span>{sh.channelers.map(id => placements.find(p => p.awakenedId === id)?.name ?? "an Awoken").join(", ")}</span></div>}
                   </div>
                 );
               })()}
