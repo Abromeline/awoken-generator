@@ -13,15 +13,23 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { api, type TerrainArtMap } from "./api";
-import tideImg from "./assets/terrain-iso/tide-v3.png";
-import skyImg from "./assets/terrain-iso/sky-v3.png";
-import stoneImg from "./assets/terrain-iso/stone-v3.png";
-import rootImg from "./assets/terrain-iso/root-v3.png";
-import neutralImg from "./assets/terrain-iso/neutral-v3.png";
-import airLayerImg from "./assets/terrain-layer-air.png";
-import rockLayerImg from "./assets/terrain-layer-rock.png";
-import waterLayerImg from "./assets/terrain-layer-water.png";
-import rootLayerImg from "./assets/terrain-layer-root.png";
+/* The terrain LOAD copies (Nigel, 2026-11-13 — the slow tile art):
+ * the faces and layer textures the client loads are the 800px-wide
+ * PNG copies (-light), the same art resized once, still PNG. The
+ * full-size originals stay beside them in the repo, untouched;
+ * nothing in the client imports them. The terrain load set fell
+ * from 19,242,070 bytes to 4,669,949 (75.7% less). Every import of
+ * this set — here, Territory, Table, UIWorkspace — names the
+ * -light copy, so the bundle ships only the light set. */
+import tideImg from "./assets/terrain-iso/tide-v3-light.png";
+import skyImg from "./assets/terrain-iso/sky-v3-light.png";
+import stoneImg from "./assets/terrain-iso/stone-v3-light.png";
+import rootImg from "./assets/terrain-iso/root-v3-light.png";
+import neutralImg from "./assets/terrain-iso/neutral-v3-light.png";
+import airLayerImg from "./assets/terrain-layer-air-light.png";
+import rockLayerImg from "./assets/terrain-layer-rock-light.png";
+import waterLayerImg from "./assets/terrain-layer-water-light.png";
+import rootLayerImg from "./assets/terrain-layer-root-light.png";
 
 /** The five elements that carry stage art. (Fire has no tiles of its own;
  *  cursed land keeps its bundled face — neither is uploadable here.) */

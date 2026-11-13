@@ -84,12 +84,12 @@ import { useEnemyArt } from "./enemyArt";
 import { EnemyFaceSvgImage } from "./EnemyFace";
 import HomelandWhisper, { useHomelandLessons } from "./HomelandWhisper";
 import { pingRoadNav, useRoadWhispers } from "./EntranceRoad";
-import tideImg from "./assets/terrain-iso/tide-v3.png";
-import skyImg from "./assets/terrain-iso/sky-v3.png";
-import stoneImg from "./assets/terrain-iso/stone-v3.png";
-import rootImg from "./assets/terrain-iso/root-v3.png";
-import neutralImg from "./assets/terrain-iso/neutral-v3.png";
-import cursedImg from "./assets/terrain-iso/cursed-v3.png";
+import tideImg from "./assets/terrain-iso/tide-v3-light.png";
+import skyImg from "./assets/terrain-iso/sky-v3-light.png";
+import stoneImg from "./assets/terrain-iso/stone-v3-light.png";
+import rootImg from "./assets/terrain-iso/root-v3-light.png";
+import neutralImg from "./assets/terrain-iso/neutral-v3-light.png";
+import cursedImg from "./assets/terrain-iso/cursed-v3-light.png";
 
 const TERRAIN: Record<string, string> = {
   tide: tideImg, sky: skyImg, stone: stoneImg, root: rootImg,
