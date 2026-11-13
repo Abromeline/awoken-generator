@@ -3311,6 +3311,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const myRuneChannel = runes.find(r => r.channelers.includes(id));
     if (myRuneChannel) {
       entries.push({ key: "ord-end-rune-channel", emoji: "✋", label: "End channel", act: () => { void (async () => { try { await api.stopRuneChannel({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name}'s channel ends — the Rune keeps the rising it bought.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
+    }
     // THE SHRUB: an Awoken with a live channel carries its
     // ending here, where the march's Halt stands.
     if (shrubs.some(s => s.channelers.includes(id))) {
