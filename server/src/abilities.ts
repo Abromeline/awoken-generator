@@ -66,6 +66,16 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     name: "Island March",
     requires: { sky: 1 },
   },
+  {
+    // THE SHRUB (Nigel, 2026-11-10): a CHANNELED ability —
+    // at least 3 Root in the sum of the parts. The channel,
+    // the growth, the wilt and the watering live in
+    // actions.ts (the shrub settle); the registry carries
+    // only the gate, as it does for every ability.
+    key: "the-shrub",
+    name: "The Shrub",
+    requires: { root: 3 },
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

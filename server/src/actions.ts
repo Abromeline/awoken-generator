@@ -1159,6 +1159,290 @@ function fellBuildPiece(ownerKey: string, targetId: number): { removed: number[]
   return { removed, settling };
 }
 
+/* ── THE SHRUB (Nigel, 2026-11-10) ──────────────────────────
+ * The fifth of the six commissioned works: a CHANNELED
+ * ability (the Abilities registry's "the-shrub" — an Awoken
+ * qualifies with at least 3 Root in the sum of its parts).
+ * The channeler stands WITHIN TWO TILES of the shrub's
+ * ground and channels it up out of the earth: three minutes
+ * of channeling grows it full, and at full growth it stands
+ * A THIRD OF A TENDER'S HEIGHT with 15 HEALTH. It EMERGES on
+ * the masonry rise's own terms (the client clips it at the
+ * ground line; only what has broken through shows), growth
+ * advances ONLY while a channel runs on it, and the growth
+ * is CUMULATIVE — across channelers and across sessions.
+ *
+ * THE CHANNEL'S PRICE is the standing channel law: 3 energy
+ * per second, drawn from the CHANNELLING Tender's purse (at
+ * home, the land's own). Channeling works only while that
+ * Tender is ONLINE — presence is read the house's one way
+ * (tenderLastSeenAt, the protection settle's gap): away time
+ * grows nothing and charges nothing, and a channeler who has
+ * stepped beyond the two-tile reach likewise HOLDS — no
+ * growth, no charge — and resumes on return (the Moon
+ * Shroom settle's shape, read for the reach).
+ *
+ * THE SHRUB ON THE LAND: it may grow in CURSED tiles, where
+ * the curse WILTS it at 0.3 health a minute (a lazy reckoning
+ * on the shrub's own clock, at the read and on the clock's
+ * slow gear, like the other lazy settles). It is COLLISION
+ * to advancing enemies: in the homeland battle a living
+ * shrub bars the dark's step as a rock of the walls does,
+ * and a dark held at its face spends its strikes hacking it
+ * at the walls' own measure (WALL_HACK_DMG) — its health is
+ * spent by the hacking and the wilt alike, and at 0 it dies
+ * and is gone, channels and all.
+ *
+ * WATERING is the Tide Wet's other face, as it lands on
+ * bramble (Nigel, 2026-10-24): a Tide hand with no dark in
+ * her reach and no mote to tend lands her strike on a shrub
+ * in her reach instead, and the Wet FEEDS it — see
+ * waterShrub in the battle settle. A watered shrub regens
+ * at 0.6 health a minute while the watering lasts, and its
+ * banked watering sprouts BRAMBLE NODES of its own at the
+ * motes' every-10 measure: nodes that stand in the shrub's
+ * own list, wear the thicket's whole standing behaviour in
+ * the battle (they hinder the dark's pace, answer with the
+ * thorn tick, and are hacked down as motes are), through a
+ * pseudo-work the battle settle carries beside the true
+ * defence works.
+ *
+ * READINGS TAKEN where the record does not rule (each is
+ * flagged again in the build report for Nigel's judgement):
+ *   · "CHANNELED WITHIN RANGE 2 TILES" is read as the
+ *     CHANNEL'S REACH: the channeler stands within two
+ *     tiles of the shrub's ground — judged at the door
+ *     (a farther beginning is refused in plain words) and
+ *     held in the settle (a channeler who steps away
+ *     pauses the growth, as an absent Tender does).
+ *   · (a) WATERED = THE TIDE WET ACT, riding the strike
+ *     that already waters the grove (her ordinary strike,
+ *     no new door; a mote in reach is tended first, the
+ *     grove's standing order kept). One watering keeps the
+ *     shrub watered for A MINUTE from the strike (a fresh
+ *     strike refreshes it) — the per-minute regen's own
+ *     unit, taken as the pencil; the strike's rolled harm
+ *     pours into the shrub's bank exactly as it pours into
+ *     a mote's.
+ *   · (b) CLEAN-GROUND WILT: NONE. Wilting is the curse's
+ *     work alone; on pure ground an unwounded shrub stands
+ *     as it grew, neither wilting nor mending.
+ *   · (c) THE BRAMBLE NODES' NATURE: the shrub's own young
+ *     growth, mote-flagged in its node list — they wear the
+ *     standing bramble behaviour whole (half pace and the
+ *     thorn tick underfoot, WALL_HACK_DMG a strike in the
+ *     dark's face, a Tide strike may water them and chain
+ *     the creep), capped at the works' own living-mote cap
+ *     (12), each carrying the shrub's own measure for its
+ *     body (its 15 health). No new damage system stands
+ *     here.
+ *   · (d) THE SHRUB STANDS ALONE — a plant, needing no
+ *     support, no wall, no anchor but its own ground.
+ *   · (e) ENEMIES CAN STRIKE IT: the advancing dark hacks
+ *     it as it hacks the walls (above). The company's own
+ *     strikes never land on it — she tends her own side's
+ *     growth, as with the motes.
+ *   · ONE SHRUB TO A TILE (a second channel on the same
+ *     tile joins the standing shrub), and ONE CHANNEL TO
+ *     AN AWOKEN (an Awoken channels one work at a time,
+ *     as the Moon Shroom's channels are held). */
+export const SHRUB_COST_PER_SECOND = 3;
+/** RULED (Nigel, 2026-11-10): paid channel-seconds to full
+ *  growth — three minutes of channeling. */
+export const SHRUB_FULL_CHANNEL_SECONDS = 180;
+/** RULED: the shrub's health at its full measure. */
+export const SHRUB_MAX_HP = 15;
+/** The reading above: the channel's reach, in tiles. */
+export const SHRUB_CHANNEL_RANGE = 2;
+/** RULED: the curse's wilt on a shrub standing in it. */
+export const SHRUB_WILT_PER_MIN = 0.3;
+/** RULED: a watered shrub's regen. */
+export const SHRUB_WATERED_REGEN_PER_MIN = 0.6;
+/** The reading above: one watering's length — a minute. */
+export const SHRUB_WATERED_MS = 60000;
+/** The reading above: a node carries the shrub's own
+ *  measure for its body. */
+export const SHRUB_NODE_HP = 15;
+/** The works' own living-mote cap, read for the shrub's
+ *  nodes (the reading above). */
+export const SHRUB_NODE_CAP = 12;
+/** WATERING's meter, the motes' own figure: the banked
+ *  harm at which a new node sprouts (BRAMBLE_MOTE_SPREAD_
+ *  COST's number, named here because the meter is one). */
+export const SHRUB_NODE_SPREAD_COST = 10;
+
+interface ShrubNode {
+  q: number; r: number; hp: number; maxHp: number;
+  mote?: number; pq?: number; pr?: number; born?: number; bank?: number;
+}
+interface ShrubRow {
+  id: number; tileId: number; growth: number; hp: number;
+  waterBank: number; wateredUntil: number; nodes: ShrubNode[];
+  createdAt: number; updatedAt: number; settledAt: number;
+}
+function loadShrubs(ownerKey: string): ShrubRow[] {
+  const rows = sqlite.prepare("SELECT id, tile_id AS tileId, growth, hp, water_bank AS waterBank, watered_until AS wateredUntil, nodes, created_at AS createdAt, updated_at AS updatedAt, settled_at AS settledAt FROM shrubs WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => {
+    let nodes: ShrubNode[] = [];
+    try { nodes = JSON.parse(r.nodes ?? "[]"); } catch { nodes = []; }
+    return {
+      id: Number(r.id), tileId: Number(r.tileId), growth: Number(r.growth ?? 0),
+      hp: Number(r.hp ?? SHRUB_MAX_HP), waterBank: Number(r.waterBank ?? 0),
+      wateredUntil: Number(r.wateredUntil ?? 0), nodes,
+      createdAt: Number(r.createdAt ?? 0), updatedAt: Number(r.updatedAt ?? 0),
+      settledAt: Number(r.settledAt ?? 0),
+    };
+  });
+}
+
+interface ShrubChannelRow {
+  id: number; shrubId: number; awakenedId: number; purseKey: string;
+  startedAt: number; settledAt: number; bank: number;
+}
+function loadShrubChannels(ownerKey: string): ShrubChannelRow[] {
+  const rows = sqlite.prepare("SELECT id, shrub_id AS shrubId, awakened_id AS awakenedId, purse_key AS purseKey, started_at AS startedAt, settled_at AS settledAt, bank FROM shrub_channels WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => ({
+    id: Number(r.id), shrubId: Number(r.shrubId), awakenedId: Number(r.awakenedId),
+    purseKey: String(r.purseKey), startedAt: Number(r.startedAt ?? 0),
+    settledAt: Number(r.settledAt ?? 0), bank: Number(r.bank ?? 0),
+  }));
+}
+
+/** A Shrub as getTerritory serves it: its ground, how far
+ *  out of the earth it stands, the health it stands at, the
+ *  bramble nodes it bears alive, whether a watering still
+ *  runs on it, and the Awoken presently channeling it. */
+function shrubView(s: ShrubRow, channels: ShrubChannelRow[], nowMs: number) {
+  return {
+    id: s.id, tileId: s.tileId,
+    growth: Math.round(s.growth * 1e6) / 1e6,
+    hp: Math.round(s.hp * 100) / 100,
+    maxHp: SHRUB_MAX_HP,
+    fullGrown: s.growth >= 1,
+    watered: s.wateredUntil > nowMs,
+    nodes: s.nodes.filter(n => n.hp > 0).length,
+    channelers: channels.filter(c => c.shrubId === s.id).map(c => c.awakenedId),
+  };
+}
+
+/** Settle the land's shrubs against the clock — the lazy
+ *  reckoning, run at read and on the clock's slow gear like
+ *  the rises' and the Moon Shroom channels'. First the
+ *  shrubs' own span: on cursed ground the curse wilts at
+ *  its ruled rate for the whole span (the curse works
+ *  whether anyone watches or not, as it chews tiles in the
+ *  battle settle); while a watering still runs, the shrub
+ *  drinks at its ruled rate for the watered share of the
+ *  span. A shrub spent to nothing — by the wilt here, as
+ *  by hacking in the battle — dies and is gone, its
+ *  channels ended with it. Then every channel is judged
+ *  on its own clock, its own purse and its own reach, in
+ *  the Moon Shroom settle's shape: away time and out-of-
+ *  reach time grow nothing and charge nothing; present,
+ *  in-reach time banks toward whole seconds; a second is
+ *  bought only when the purse pays it, and only paid
+ *  seconds grow the shrub. */
+async function settleShrubs(ownerKey: string, nowMs: number = Date.now()): Promise<void> {
+  const shrubs = loadShrubs(ownerKey);
+  if (!shrubs.length) return;
+  const tiles = await db.select().from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const tileById = new Map<number, any>(tiles.map((t: any) => [Number(t.id), t]));
+  const delShrub = sqlite.prepare("DELETE FROM shrubs WHERE owner_key = ? AND id = ?");
+  const delChOf = sqlite.prepare("DELETE FROM shrub_channels WHERE owner_key = ? AND shrub_id = ?");
+  const updSpan = sqlite.prepare("UPDATE shrubs SET hp = ?, settled_at = ?, updated_at = ? WHERE owner_key = ? AND id = ?");
+  const dead = new Set<number>();
+  for (const s of shrubs) {
+    const last = s.settledAt > 0 ? s.settledAt : s.createdAt;
+    const elapsedMin = Math.max(0, (nowMs - last) / 60000);
+    if (elapsedMin > 0) {
+      const tile = tileById.get(s.tileId);
+      if (tile?.cursed) s.hp -= SHRUB_WILT_PER_MIN * elapsedMin;
+      if (s.wateredUntil > last) {
+        const wateredMin = (Math.min(nowMs, s.wateredUntil) - last) / 60000;
+        if (wateredMin > 0) s.hp += SHRUB_WATERED_REGEN_PER_MIN * wateredMin;
+      }
+      s.hp = Math.min(SHRUB_MAX_HP, s.hp);
+    }
+    s.settledAt = nowMs;
+    if (s.hp <= 0) {
+      delChOf.run(ownerKey, s.id);
+      delShrub.run(ownerKey, s.id);
+      dead.add(s.id);
+      continue;
+    }
+    updSpan.run(s.hp, s.settledAt, nowMs, ownerKey, s.id);
+  }
+  const standing = shrubs.filter(s => !dead.has(s.id));
+  if (!standing.length) return;
+  const channels = loadShrubChannels(ownerKey);
+  if (!channels.length) return;
+  const byId = new Map(standing.map(s => [s.id, s]));
+  const placements = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const placeByAwakened = new Map<number, any>(placements.map((p: any) => [Number(p.awakenedId), p]));
+  const delCh = sqlite.prepare("DELETE FROM shrub_channels WHERE id = ?");
+  const updCh = sqlite.prepare("UPDATE shrub_channels SET settled_at = ?, bank = ? WHERE id = ?");
+  const updSh = sqlite.prepare("UPDATE shrubs SET growth = ?, updated_at = ? WHERE owner_key = ? AND id = ?");
+  const touched = new Set<number>();
+  for (const ch of channels) {
+    const sh = byId.get(ch.shrubId);
+    const place = placeByAwakened.get(ch.awakenedId);
+    if (!sh || !place || sh.growth >= 1) { delCh.run(ch.id); continue; }
+    const gapMs = nowMs - ch.settledAt;
+    if (gapMs <= 0) continue;
+    const seen = tenderLastSeenAt(ch.purseKey);
+    const present = gapMs <= PROTECTION_ONLINE_GAP_MS && seen > 0 && nowMs - seen <= PROTECTION_ONLINE_GAP_MS;
+    if (!present) {
+      // Away, or gone longer than presence reaches: the
+      // interval grows nothing and charges nothing.
+      ch.settledAt = nowMs; ch.bank = 0;
+      updCh.run(ch.settledAt, ch.bank, ch.id);
+      continue;
+    }
+    // THE REACH (the reading at the head): the channeler
+    // stands within two tiles of the shrub's ground, or
+    // the channel holds where it stands — no growth, no
+    // charge — and resumes when they step back in reach.
+    const chanTile = tileById.get(Number(place.tileId));
+    const shrubTile = tileById.get(sh.tileId);
+    if (!chanTile || !shrubTile || axialDist(chanTile, shrubTile) > SHRUB_CHANNEL_RANGE) {
+      ch.settledAt = nowMs; ch.bank = 0;
+      updCh.run(ch.settledAt, ch.bank, ch.id);
+      continue;
+    }
+    ch.bank += (gapMs / 1000) * SHRUB_COST_PER_SECOND;
+    const wantSeconds = Math.floor(ch.bank / SHRUB_COST_PER_SECOND + 1e-9);
+    if (wantSeconds > 0 && sh.growth < 1) {
+      const purse = await getEnergyFor(ch.purseKey);
+      // Never buy more seconds than the shrub can still
+      // take — the rise's own law, chunked to its top.
+      const roomSeconds = Math.max(1, Math.ceil((1 - sh.growth) * SHRUB_FULL_CHANNEL_SECONDS));
+      const paySeconds = Math.min(wantSeconds, Math.floor(purse / SHRUB_COST_PER_SECOND), roomSeconds);
+      if (paySeconds > 0 && await spendEnergy(ch.purseKey, paySeconds * SHRUB_COST_PER_SECOND)) {
+        ch.bank -= paySeconds * SHRUB_COST_PER_SECOND;
+        sh.growth = Math.min(1, sh.growth + paySeconds / SHRUB_FULL_CHANNEL_SECONDS);
+        touched.add(sh.id);
+      }
+      if (paySeconds < wantSeconds) {
+        // STARVED: the purse cannot pay the second — the
+        // channel holds, as a starved rise holds: the unpaid
+        // time is spent standing still, never banked as debt.
+        ch.bank = 0;
+      }
+    }
+    ch.settledAt = nowMs;
+    if (sh.growth >= 1) { delCh.run(ch.id); }
+    else updCh.run(ch.settledAt, ch.bank, ch.id);
+  }
+  for (const id of touched) {
+    const sh = byId.get(id)!;
+    updSh.run(sh.growth, nowMs, ownerKey, sh.id);
+  }
+}
+
 // --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
 // The staged boss battle mode — its server ladder (boss_state), its
 // eligibility cycle, and its pending aspect-grant rail — no longer
@@ -7510,7 +7794,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // — WATERING's bookkeeping; every other work's nodes
   // carry none of these fields.
   type WorkNode = { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number };
-  type DWork = { id: number; placementId: number; kind: string; nodes: WorkNode[]; dirty: boolean; gone: boolean };
+  type DWork = { id: number; placementId: number; kind: string; nodes: WorkNode[]; dirty: boolean; gone: boolean; shrubId?: number };
   const works: DWork[] = (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => {
     let nodes: WorkNode[] = [];
     try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; }
@@ -7529,6 +7813,37 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       if (typeof n.born !== "number") { n.born = now; w.dirty = true; }
       if (typeof n.bank !== "number") { n.bank = 0; w.dirty = true; }
     }
+  }
+  // THE SHRUB IN THE BATTLE (Nigel, 2026-11-10): the land's
+  // shrubs are carried through this settle in memory beside
+  // the darks — their bodies bar the walk and take the
+  // dark's hacking (the strike pass below), and their
+  // bramble nodes ride the works list as a PSEUDO-WORK
+  // (kind "bramble", the shrub's own node array by
+  // reference), so the thicket's standing behaviour — the
+  // hindered pace, the thorn tick, the hack in the face,
+  // the watering's tending — reads them exactly as it
+  // reads a defender's motes, with no second copy of any
+  // of it. The pseudo-work is never written to the works
+  // table: the shrub write-back at the settle's foot
+  // carries its nodes home. A shrub's span (wilt, drink,
+  // growth) is NOT reckoned here — that is settleShrubs'
+  // lazy reckoning, at the read and on the slow gear.
+  type ShrubFight = {
+    id: number; tileId: number; q: number; r: number; hp: number;
+    waterBank: number; wateredUntil: number; nodes: WorkNode[];
+    dead: boolean; dirty: boolean;
+  };
+  const shrubFights: ShrubFight[] = loadShrubs(ownerKey).map(s => {
+    const t = byId.get(s.tileId);
+    return {
+      id: s.id, tileId: s.tileId, q: t?.q ?? 0, r: t?.r ?? 0, hp: s.hp,
+      waterBank: s.waterBank, wateredUntil: s.wateredUntil, nodes: s.nodes,
+      dead: s.hp <= 0, dirty: false,
+    };
+  }).filter(s => !s.dead);
+  for (const s of shrubFights) {
+    works.push({ id: 0, placementId: 0, kind: "bramble", nodes: s.nodes, dirty: false, gone: false, shrubId: s.id });
   }
   const raiseWork = (f: Fighter): void => {
     // The nearest dark sets her facing; the work stands a
@@ -7591,6 +7906,10 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // its HP alone.
   for (const w of works) {
     if (w.kind === "bulwark" || w.kind === "blackgate") continue;
+    // A SHRUB's pseudo-work stands apart the same way: no
+    // figure raises or sustains it — it stands while the
+    // shrub stands, by the shrub's own life.
+    if (w.shrubId != null) continue;
     const f = fighters.find(x => x.id === w.placementId);
     if (!f || f.dead || f.stance !== "defense") w.gone = true;
   }
@@ -7757,7 +8076,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
    *  nearest living mote in her reach is the one she
    *  tends; a newborn is born at the strike's own
    *  moment, its bank empty, and grows on its own. */
-  const waterMote = async (f: Fighter, reach: number, at: number): Promise<void> => {
+  const waterMote = async (f: Fighter, reach: number, at: number): Promise<boolean> => {
     let bestW: DWork | null = null; let bestMote: WorkNode | null = null; let bestD = Infinity;
     for (const w of works) {
       if (w.gone || w.kind !== "bramble") continue;
@@ -7767,7 +8086,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (dd <= reach && dd < bestD) { bestD = dd; bestW = w; bestMote = n; }
       }
     }
-    if (!bestW || !bestMote) return;
+    if (!bestW || !bestMote) return false;
     const payload = await awakenedPayloadById(f.awakenedId);
     const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
     let raw = 0;
@@ -7777,6 +8096,16 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     if (f.towerGuard) raw += towerPowerBonus;
     bestMote.bank = (bestMote.bank ?? 0) + raw;
     bestW.dirty = true;
+    // A SHRUB's own mote, tended: the Wet has landed on the
+    // shrub's growth, and the shrub itself drinks — its
+    // watering is refreshed by the strike, exactly as a
+    // strike landing on its body refreshes it in
+    // waterShrub. Without this the drink would lapse while
+    // she stands there watering its nodes.
+    if (bestW.shrubId != null) {
+      const sh = shrubFights.find(s => s.id === bestW.shrubId);
+      if (sh && !sh.dead && sh.hp > 0) { sh.wateredUntil = at + SHRUB_WATERED_MS; sh.dirty = true; }
+    }
     // One spread step beyond a mote, on its parent ray.
     // The newborn stands on the land or not at all.
     const spreadFrom = (base: WorkNode): WorkNode | null => {
@@ -7804,6 +8133,64 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       if (!grown) break; // off the land: nothing grows, nothing is spent
       bestMote.bank = (bestMote.bank ?? 0) - BRAMBLE_MOTE_SPREAD_COST;
       base = grown;
+    }
+    return true;
+  };
+  /** WATERING THE SHRUB (Nigel, 2026-11-10; the Wet's
+   *  other face read for the shrub in the section at the
+   *  head of this file): where no mote stands in her reach
+   *  to tend, a Tide hand's strike lands on a SHRUB in her
+   *  reach as Watering — the same rolled figure waterMote
+   *  banks (her parts' dice and powers, the banners'
+   *  lendings, the tower's +2; no d20, no crit, the whole
+   *  figure, for a plant has no AC) pours into the shrub's
+   *  own bank; the strike sets the shrub WATERED for a
+   *  minute from the blow (a fresh strike refreshes it),
+   *  and settleShrubs drinks that minute at the ruled
+   *  regen; and at every SHRUB_NODE_SPREAD_COST banked the
+   *  shrub sprouts one BRAMBLE NODE of its own at its
+   *  fringe — mote-flagged in its own list, born at the
+   *  strike's moment with an empty bank, carrying the
+   *  shrub's own measure — up to the works' living-mote
+   *  cap. At the cap the harm still banks and sprouts
+   *  nothing; a sprout that would land off the ground
+   *  grows nothing and spends nothing. The nearest living
+   *  shrub in her reach is the one she tends. */
+  const waterShrub = async (f: Fighter, reach: number, at: number): Promise<void> => {
+    let best: ShrubFight | null = null; let bestD = Infinity;
+    for (const s of shrubFights) {
+      if (s.dead || s.hp <= 0) continue;
+      const dd = axialDist(f, s);
+      if (dd <= reach && dd < bestD) { bestD = dd; best = s; }
+    }
+    if (!best) return;
+    const payload = await awakenedPayloadById(f.awakenedId);
+    const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
+    let raw = 0;
+    for (const l of layers) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6) + (l.power ?? 0);
+    const banner = homelandBannerBonus(ownerKey, axialRound(f.q, f.r), axialRound(best.q, best.r));
+    raw += banner.std + banner.bcn;
+    if (f.towerGuard) raw += towerPowerBonus;
+    best.waterBank += raw;
+    best.wateredUntil = at + SHRUB_WATERED_MS;
+    best.dirty = true;
+    // A node at the shrub's fringe: the golden angle walks
+    // the sprouts around its crown, so no two stand on the
+    // same point; the first step that lands on the ground
+    // is the one that grows.
+    while (best.waterBank >= SHRUB_NODE_SPREAD_COST
+      && best.nodes.filter(n => n.mote && n.hp > 0).length < SHRUB_NODE_CAP) {
+      let born: WorkNode | null = null;
+      for (let k = 0; k < 6 && !born; k++) {
+        const ang = (best.nodes.length + k) * 2.399963;
+        const nq = best.q + Math.cos(ang) * BRAMBLE_MOTE_FRINGE, nr = best.r + Math.sin(ang) * BRAMBLE_MOTE_FRINGE;
+        const cell = axialRound(nq, nr);
+        if (!byKey.has(`${cell.q},${cell.r}`)) continue;
+        born = { q: nq, r: nr, hp: SHRUB_NODE_HP, maxHp: SHRUB_NODE_HP, mote: 1, pq: best.q, pr: best.r, born: at, bank: 0 };
+      }
+      if (!born) break; // off the land: nothing grows, nothing is spent
+      best.nodes.push(born);
+      best.waterBank -= SHRUB_NODE_SPREAD_COST;
     }
   };
 
@@ -7897,6 +8284,18 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       for (const w of works) {
         if (w.gone || (w.kind !== "rockwall" && w.kind !== "bulwark" && w.kind !== "blackgate")) continue;
         if (w.nodes.some(n => n.hp > 0 && axialDist({ q: nq, r: nr }, n) <= 0.55)) { blocked = true; break; }
+      }
+      // A living SHRUB bars the step the same way (Nigel,
+      // 2026-11-10: it is collision to advancing enemies) —
+      // its body stands on its tile's heart, and a step
+      // whose end would land on it is not taken; the dark
+      // halts at its face and hacks instead (the strike
+      // pass below).
+      if (!blocked) {
+        for (const s of shrubFights) {
+          if (s.dead || s.hp <= 0) continue;
+          if (axialDist({ q: nq, r: nr }, s) <= 0.55) { blocked = true; break; }
+        }
       }
       if (blocked) continue;
       // A build wall bars the step the same way (the Hex
@@ -8064,6 +8463,28 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         if (node) { node.hp -= WALL_HACK_DMG; w.dirty = true; hacked = true; break; }
       }
       if (hacked) continue;
+      // A SHRUB in its face is hacked the same way (Nigel,
+      // 2026-11-10): the plant that bars its advance takes
+      // the blow at the walls' own measure — no roll, no AC
+      // invented for a plant, as none is invented for the
+      // rocks — and at 0 health it dies where it stands:
+      // its bramble goes with it (the pseudo-work is gone
+      // from this moment) and the write-back below takes
+      // the record, and its channels, off the land.
+      let shrubHacked = false;
+      for (const s of shrubFights) {
+        if (s.dead || s.hp <= 0) continue;
+        if (axialDist(d, s) <= 0.75) {
+          s.hp -= WALL_HACK_DMG; s.dirty = true; shrubHacked = true;
+          if (s.hp <= 0) {
+            s.dead = true;
+            const pw = works.find(w => w.shrubId === s.id);
+            if (pw) pw.gone = true;
+          }
+          break;
+        }
+      }
+      if (shrubHacked) continue;
       // A bramble MOTE in its face is hacked down like a
       // node of the walls (WATERING, Nigel 2026-10-24):
       // the same hack measure at the same reach. The
@@ -8318,7 +8739,14 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         // creep at its every-10 measure (the meter,
         // above). Defence first, as ever: a dark in
         // reach is fought, never watered past.
-        if (f.dominant === "tide") await waterMote(f, reach, tNow);
+        if (f.dominant === "tide") {
+          // A mote in reach is tended first — the grove's
+          // standing order; where no mote stands to tend,
+          // the same Wet lands on a Shrub in her reach and
+          // feeds it (waterShrub, beside waterMote).
+          const tended = await waterMote(f, reach, tNow);
+          if (!tended) await waterShrub(f, reach, tNow);
+        }
         continue;
       }
       const roll = homelandDN(20);
@@ -8454,8 +8882,27 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     if (f.row.battleNextAt != null) sqlite.prepare("UPDATE field_placements SET battle_next_at = ? WHERE id = ?").run(f.row.battleNextAt, f.id);
   }
   for (const w of works) {
+    // A SHRUB's pseudo-work is never written to the works
+    // table — it lives in the shrubs table, and the
+    // write-back below is its road home.
+    if (w.shrubId != null) continue;
     if (w.gone || w.nodes.every(n => n.hp <= 0)) { sqlite.prepare("DELETE FROM defence_works WHERE id = ?").run(w.id); continue; }
     if (w.dirty) sqlite.prepare("UPDATE defence_works SET nodes = ? WHERE id = ?").run(JSON.stringify(w.nodes), w.id);
+  }
+  // PERSIST SHRUBS: a shrub the battle touched — hacked at
+  // its face, its nodes thorned or hacked, or watered — is
+  // written back with its body, its bank, its watering and
+  // its nodes as they now stand; a shrub hacked to nothing
+  // is taken off the land whole, channels and all.
+  const delShrubRow = sqlite.prepare("DELETE FROM shrubs WHERE owner_key = ? AND id = ?");
+  const delShrubChannels = sqlite.prepare("DELETE FROM shrub_channels WHERE owner_key = ? AND shrub_id = ?");
+  const updShrubRow = sqlite.prepare("UPDATE shrubs SET hp = ?, water_bank = ?, watered_until = ?, nodes = ?, updated_at = ? WHERE owner_key = ? AND id = ?");
+  for (const s of shrubFights) {
+    if (s.hp <= 0) { delShrubChannels.run(ownerKey, s.id); delShrubRow.run(ownerKey, s.id); continue; }
+    const pseudo = works.find(w => w.shrubId === s.id);
+    if (s.dirty || pseudo?.dirty) {
+      updShrubRow.run(s.hp, s.waterBank, s.wateredUntil, JSON.stringify(s.nodes), now, ownerKey, s.id);
+    }
   }
   // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2 + §3): a
   // battle FOUGHT — this land's own Awoken dealt harm in this
@@ -12595,6 +13042,19 @@ export const handlers = {
     // served as they stand.
     await settleBuildRises(ownerKey);
     const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey, tiles as any[]));
+    // THE SHRUB: its span (the wilt and the drink) and its
+    // channels reckon lazily at this read, like the rises' —
+    // then the shrubs are served as they stand, each with
+    // its present channelers, and a shrub's living bramble
+    // nodes ride the defence works' own serving below, so
+    // the face draws them with the thicket's own flipbook.
+    await settleShrubs(ownerKey);
+    const shrubChannels = loadShrubChannels(ownerKey);
+    const shrubRows = loadShrubs(ownerKey);
+    const shrubs = shrubRows.map(s => shrubView(s, shrubChannels, Date.now()));
+    const shrubWorks = shrubRows
+      .filter(s => s.nodes.some(n => n.hp > 0))
+      .map(s => ({ id: -1000 - s.id, placementId: 0, kind: "bramble", nodes: s.nodes }));
     // THE LIGHTING SYSTEM (2026-10-26): every tile carries
     // its light — the one reckoning, stamped here at serve
     // time from the records as they stand, exactly as
@@ -12622,7 +13082,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, shrubs, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -13480,6 +13940,84 @@ export const handlers = {
     }
     const { removed, settling } = fellBuildPiece(ownerKey, piece.id);
     return { ok: true as const, repaired: false, pieceId: piece.id, hp: 0, power, fell: true, removed, settling };
+  },
+
+  /** THE SHRUB — BEGIN THE CHANNEL (Nigel, 2026-11-10).
+   *  A fielded Awoken the registry qualifies (3 Root in the
+   *  sum of its parts), standing within two tiles of the
+   *  ground, begins channeling a tile of the land: if no
+   *  shrub stands there, one sprouts — at no growth and its
+   *  full 15 health — and the channel joins it; if one
+   *  stands, the channel joins the standing shrub (one
+   *  shrub to a tile, any number of channelers). Cursed
+   *  ground is welcome — the shrub is ruled to grow there,
+   *  and to wilt for it. The growth itself is the settle's
+   *  work (settleShrubs): this door only opens the channel. */
+  async startShrubChannel(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The channel names the Awoken and the ground the Shrub should rise on.");
+    await settleShrubs(ownerKey);
+    const def = abilityByKey("the-shrub");
+    if (!def) badRequest("The Shrub is not written in the registry.");
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    const place = placements.find(p => p.awakenedId === parsed.data.awakenedId);
+    if (!place) {
+      badRequest("Only a fielded Awoken can channel — that one does not stand on the land.");
+    }
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (!awRows.length) badRequest("That Awoken is gone.");
+    const sums = await elementSumsOf(awRows[0]);
+    if (!abilityQualifies(def!.requires, sums)) {
+      badRequest("The Shrub answers only to an Awoken holding at least 3 Root in the sum of its parts.");
+    }
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const tile = tiles.find(t => t.id === parsed.data.tileId);
+    if (!tile) badRequest("That ground is not on your land.");
+    const chanTile = tiles.find(t => t.id === place!.tileId);
+    if (!chanTile || axialDist(chanTile as any, tile as any) > SHRUB_CHANNEL_RANGE) {
+      badRequest("The Shrub is channeled from close by — the channeler must stand within two tiles of its ground.");
+    }
+    if (loadShrubChannels(ownerKey).some(c => c.awakenedId === parsed.data.awakenedId)) {
+      badRequest("That Awoken is already channelling — end its channel before beginning another.");
+    }
+    let shrub = loadShrubs(ownerKey).find(s => s.tileId === parsed.data.tileId);
+    if (shrub && shrub.growth >= 1) {
+      badRequest("A full-grown Shrub stands there — no channel can raise it further.");
+    }
+    const now = Date.now();
+    if (!shrub) {
+      const info = sqlite.prepare("INSERT INTO shrubs (owner_key, tile_id, growth, hp, water_bank, watered_until, nodes, created_at, updated_at, settled_at) VALUES (?, ?, 0, ?, 0, 0, '[]', ?, ?, ?)")
+        .run(ownerKey, parsed.data.tileId, SHRUB_MAX_HP, now, now, now);
+      shrub = {
+        id: Number(info.lastInsertRowid), tileId: parsed.data.tileId, growth: 0,
+        hp: SHRUB_MAX_HP, waterBank: 0, wateredUntil: 0, nodes: [],
+        createdAt: now, updatedAt: now, settledAt: now,
+      };
+    }
+    sqlite.prepare("INSERT INTO shrub_channels (owner_key, shrub_id, awakened_id, purse_key, started_at, settled_at, bank) VALUES (?, ?, ?, ?, ?, ?, 0)")
+      .run(ownerKey, shrub.id, parsed.data.awakenedId, actorKeyFor(ctx), now, now);
+    return { ok: true as const, shrub: shrubView(shrub, loadShrubChannels(ownerKey), now) };
+  },
+
+  /** THE SHRUB — END THE CHANNEL. The growth the channel
+   *  already bought stands (the settle runs first, so
+   *  nothing paid is lost); the shrub keeps every inch of
+   *  it for the next channel, whenever it comes. */
+  async stopShrubChannel(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The ending names the channelling Awoken.");
+    await settleShrubs(ownerKey);
+    const ch = loadShrubChannels(ownerKey).find(c => c.awakenedId === parsed.data.awakenedId);
+    if (!ch) badRequest("That Awoken is not channelling.");
+    sqlite.prepare("DELETE FROM shrub_channels WHERE id = ?").run(ch.id);
+    const shrub = loadShrubs(ownerKey).find(s => s.id === ch.shrubId);
+    return { ok: true as const, shrub: shrub ? shrubView(shrub, loadShrubChannels(ownerKey), Date.now()) : null };
   },
 
   // ── The Written Light on the land (the Grimoire, Nigel
@@ -19462,6 +20000,14 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // at its crew's pace and its purse's price, as the read
   // would reckon it.
   await clockStep(ownerKey, "rises", () => settleBuildRises(ownerKey));
+
+  // (9) SHRUBS — every land: their span (the curse's wilt,
+  // the watering's drink) and their channels settle on the
+  // slow gear as they do at the read, so a shrub keeps
+  // wilting, drinking and growing between reads — the
+  // growth only while its channeller is present and in
+  // reach (the settle reads both itself).
+  await clockStep(ownerKey, "shrubs", () => settleShrubs(ownerKey));
 }
 
 /** Settle ONE land's WAR by the realtime gear, in the

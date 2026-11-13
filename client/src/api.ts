@@ -103,6 +103,19 @@ export interface BuildPiece {
   z?: number;
 }
 
+/** THE SHRUB as the land serves it (Nigel, 2026-11-10):
+ *  the tile it stands on, how far out of the ground it
+ *  stands (0..1; 1 full-grown, a third of a Tender tall),
+ *  the health it stands at (15 at its full measure),
+ *  whether a watering still runs on it, its count of
+ *  living bramble nodes (the nodes themselves ride the
+ *  defence-works serving, drawn by the face's thicket
+ *  flipbook), and the Awoken presently channeling it. */
+export interface Shrub {
+  id: number; tileId: number; growth: number; hp: number; maxHp: number;
+  fullGrown: boolean; watered: boolean; nodes: number; channelers: number[];
+}
+
 /** A Written Light working standing on the land (the Grimoire):
  *  a ward on an edge (edgeKey/q/r/dir) or a rune on a floor
  *  (tileId). Its numbers were snapshotted from the book at the
@@ -959,7 +972,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[]; shrubs?: Shrub[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
@@ -1118,6 +1131,14 @@ export const api = {
    *  damages it, and at 0 HP the piece falls. */
   strikeBuildPiece: (args: { awakenedId: number; pieceId: number }) =>
     post<{ ok: true; repaired: boolean; pieceId: number; hp: number; power: number; fell: boolean; removed: number[]; settling: number[] }>("strikeBuildPiece", args),
+  /** THE SHRUB (Nigel, 2026-11-10): begin/end the channel
+   *  that raises a shrub on a tile of the land — the growth
+   *  itself is the server's lazy settle; the face only
+   *  opens and closes the channel. */
+  startShrubChannel: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; shrub: Shrub }>("startShrubChannel", args),
+  stopShrubChannel: (args: { awakenedId: number }) =>
+    post<{ ok: true; shrub: Shrub | null }>("stopShrubChannel", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   setMarch: (args: { awakenedId: number; tileId: number; posQ?: number; posR?: number }) =>
