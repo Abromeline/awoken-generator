@@ -8144,7 +8144,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
       standingItems.push({ key: `standing-rune-${rn.id}`, baseY: base, node: <g key={`standing-rune-${rn.id}`} pointerEvents="none">{node}</g> });
     });
-    });
     wanderers.forEach((w, i) => {
       const node = wandererNodes[i];
       if (!node) return;
@@ -10116,9 +10115,6 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     {rn.complete && (
                       <div className="orb-info-row"><span>Its blessing</span><span>Shadow Matter falls richer here</span></div>
                     )}
-                  </div>
-                );
-              })()}
                   </div>
                 );
               })()}

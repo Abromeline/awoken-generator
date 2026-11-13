@@ -1545,9 +1545,6 @@ async function settleRunes(ownerKey: string, nowMs: number = Date.now()): Promis
   }
 }
 
-  }
-}
-
 // --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
 // The staged boss battle mode — its server ladder (boss_state), its
 // eligibility cycle, and its pending aspect-grant rail — no longer
@@ -14056,8 +14053,6 @@ export const handlers = {
     sqlite.prepare("DELETE FROM rune_channels WHERE id = ?").run(ch.id);
     const rune = loadRunes(ownerKey).find(r => r.id === ch.runeId);
     return { ok: true as const, rune: rune ? runeView(rune, loadRuneChannels(ownerKey)) : null };
-  },
-
   },
 
   // ── The Written Light on the land (the Grimoire, Nigel
