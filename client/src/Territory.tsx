@@ -24,6 +24,7 @@ import seedBeaconArt from "./assets/starseed/beacon.png";
 import moonShroomArt1 from "./assets/moon-shrooms/moon-shroom-1.png";
 import moonShroomArt2 from "./assets/moon-shrooms/moon-shroom-2.png";
 import moonShroomArt3 from "./assets/moon-shrooms/moon-shroom-3.png";
+import runeStoneArt from "./assets/runes/rune-stone.png";
 
 import FieldAwoken from "./FieldAwoken";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
@@ -44,7 +45,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, RuneStanding, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
   axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
@@ -1373,6 +1374,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // the shroom's ground).
   const [moonShrooms, setMoonShrooms] = useState<MoonShroom[]>([]);
   const [moonShroomFor, setMoonShroomFor] = useState<number | null>(null);
+  // THE RUNE (Nigel, 2026-11-10): the land's standing Runes,
+  // as the server serves them, and the Awoken whose channel
+  // order is armed (its next tap on the land names the
+  // Rune's ground).
+  const [runes, setRunes] = useState<RuneStanding[]>([]);
+  const [runeFor, setRuneFor] = useState<number | null>(null);
   const buildPiecesRef = useRef<BuildPiece[]>([]);
   useEffect(() => { buildPiecesRef.current = buildPieces; }, [buildPieces]);
   // THE PILLARS the stride must reckon with (2026-10-26): the
@@ -2328,6 +2335,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setIslandMarches(refreshed.islandMarches ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setMoonShrooms(refreshed.moonShrooms ?? []);
+    setRunes(refreshed.runes ?? []);
     setWorkings(refreshed.workings ?? []);
     // In a room, a guest's figure stands at their SEAT's stand —
     // the payload's Tender stand is the land Tender's, and
@@ -3186,6 +3194,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setAbilityLeadId(null);
       setIslandQuote(null);
       setMoonShroomFor(null);
+      setRuneFor(null);
       setIslandMarchFor(leadId);
       setSelectedAwoken(leadId);
       showHexNotice(`Island March — tap the land ${lead.name} should drift to. Its road will be traced, and its pace and price spoken, before you confirm.`);
@@ -3204,6 +3213,22 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setMoonShroomFor(leadId);
       setSelectedAwoken(leadId);
       showHexNotice(`Moon Shroom — tap the ground where ${lead.name} should raise one. The channel runs at ✦3 a second while you are here; the growth stands, and adds up, channel after channel.`);
+      return;
+    }
+    if (key === "the-rune") {
+      // THE RUNE (Nigel, 2026-11-10): begun, the order arms
+      // like the island's — the next tap on the land names
+      // the Rune's ground, and the channel begins at once
+      // (no quote, no confirm: the channel is the cast, and
+      // ending it is the wheel's own "End channel"). The
+      // price is spoken here, before the tap: a raising
+      // costs 400 Shadow Matter, paid as it begins.
+      setAbilityLeadId(null);
+      setIslandQuote(null);
+      setIslandMarchFor(null);
+      setRuneFor(leadId);
+      setSelectedAwoken(leadId);
+      showHexNotice(`The Rune — tap the ground where ${lead.name} should raise one. A raising costs 400 Shadow Matter, paid as it begins; then the channel runs at ✦3 a second while you are here — four hours of channel in all — and the rising stands, and adds up, channel after channel. Tap a Rune already rising to join its channel instead; joining costs nothing more.`);
       return;
     }
     if (key === "building") {
@@ -3260,6 +3285,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     const myChannel = moonShrooms.find(s => s.channelers.includes(id));
     if (myChannel) {
       entries.push({ key: "ord-end-channel", emoji: "✋", label: "End channel", act: () => { void (async () => { try { await api.stopMoonShroomChannel({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name}'s channel ends — the Moon Shroom keeps the growth it bought.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
+    }
+    // THE RUNE: an Awoken holding a channel carries its
+    // ending where the march's Halt stands — the rising the
+    // channel bought stays with the Rune either way.
+    const myRuneChannel = runes.find(r => r.channelers.includes(id));
+    if (myRuneChannel) {
+      entries.push({ key: "ord-end-rune-channel", emoji: "✋", label: "End channel", act: () => { void (async () => { try { await api.stopRuneChannel({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name}'s channel ends — the Rune keeps the rising it bought.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
     }
     entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
@@ -4441,6 +4473,29 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       })();
       return;
     }
+    // THE RUNE (Nigel, 2026-11-10): the armed channel order
+    // takes this tap as the Rune's ground — a raising begins
+    // there if none stands (its 400 Shadow Matter paid as it
+    // begins), and the channel joins it either way. A
+    // refusal speaks in plain words and the order stays
+    // armed, as the island's does.
+    if (runeFor !== null) {
+      const awId = runeFor;
+      void (async () => {
+        try {
+          const r = await api.startRuneChannel({ awakenedId: awId, tileId: tile.id });
+          setRuneFor(null);
+          await refreshMarching();
+          const lead = placements.find(p => p.awakenedId === awId);
+          showHexNotice(r.beganRaising
+            ? `The raising begins — 400 Shadow Matter leaves the hoard, and ${lead?.name ?? "the Awoken"} channels the Rune upward.`
+            : `${lead?.name ?? "The Awoken"} joins the Rune's channel — its rising quickens.`);
+        } catch (err) {
+          showHexNotice(err instanceof Error ? err.message : "The channel was refused.");
+        }
+      })();
+      return;
+    }
     if (pendingMarch) {
       // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
       // the march; this tap IS the order — fired at once, no
@@ -5302,7 +5357,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       }
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null || moonShroomFor !== null) { handleHexTap(t); return; }
+                  if (attackTargeting || moveTargeting) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -8051,6 +8106,45 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
       standingItems.push({ key: `standing-shroom-${ms.id}`, baseY: base, node: <g key={`standing-shroom-${ms.id}`} pointerEvents="none">{node}</g> });
     });
+    // THE RUNE (Nigel, 2026-11-10): a standing thing of the
+    // depth pass, seated where the grown seeds seat — its
+    // base on the hex's heart line. FULL HEIGHT = 2/3 a
+    // bastion's: the bastion-stage face fills its hex (as
+    // wide as the face at the base line, its height the
+    // art's own 992/512), and the Rune at full raising
+    // stands 2/3 of that, wearing its artwork's own
+    // proportions (1200×1800). THE RISE, DRAWN on the
+    // masonry law (the wall's own drawing, 2026-10-29): the
+    // face stands at its FULL size and EMERGES — sunk by
+    // the un-risen share of its height and clipped at the
+    // ground line, so what is still underground is never
+    // drawn, and no axis of the art is ever scaled by the
+    // rising.
+    runes.forEach((rn) => {
+      const t = tiles.find(tt => tt.id === rn.tileId);
+      if (!t) return;
+      const { cx, cy } = tilePos(t);
+      const base = cy + size * 0.3;
+      const bastionH = hexWidthAtY(cx, cy, size, base) * (992 / 512);
+      const fullH = bastionH * (2 / 3);
+      const fullW = fullH * (1200 / 1800);
+      const sink = (1 - Math.max(0, Math.min(1, rn.progress))) * fullH;
+      const clipId = `rune-clip-${rn.id}`;
+      const node = (
+        <g key={`rune-${rn.id}`} className="the-rune" data-rune={rn.id} data-progress={rn.progress} data-complete={rn.complete ? "1" : undefined}>
+          <defs>
+            <clipPath id={clipId}>
+              <rect x={cx - fullW} y={base - fullH - size} width={fullW * 2} height={fullH + size} />
+            </clipPath>
+          </defs>
+          <g clipPath={`url(#${clipId})`}>
+            <image href={runeStoneArt} x={cx - fullW / 2} y={base - fullH + sink} width={fullW} height={fullH} />
+          </g>
+        </g>
+      );
+      standingItems.push({ key: `standing-rune-${rn.id}`, baseY: base, node: <g key={`standing-rune-${rn.id}`} pointerEvents="none">{node}</g> });
+    });
+    });
     wanderers.forEach((w, i) => {
       const node = wandererNodes[i];
       if (!node) return;
@@ -10002,6 +10096,29 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                         showHexNotice(r.yield > 0 ? `The Moon Shroom is cut — ✦${r.yield} returns to your purse.` : "The Moon Shroom is cut — too young to give anything back.");
                       } catch (err) { showHexNotice(err instanceof Error ? err.message : "The cutting was refused."); }
                     })(); }}>Cut for energy · ✦{ms.harvestYield}</button>
+                  </div>
+                );
+              })()}
+              {/* THE RUNE (Nigel, 2026-11-10): its numbers live
+                  here, on the tile's card, as Push 85's law
+                  keeps them — how far its rising stands, the
+                  channels running on it, and its blessing
+                  once it stands complete. */}
+              {(() => {
+                const rn = runes.find(r => r.tileId === t.id);
+                if (!rn) return null;
+                return (
+                  <div className="orb-info-more">
+                    <div className="orb-info-row"><span>The Rune</span><span>{rn.complete ? "standing complete" : `risen ${Math.floor(rn.progress * 100)}%`}</span></div>
+                    {rn.channelers.length > 0 && (
+                      <div className="orb-info-row"><span>Channelling</span><span>{rn.channelers.length === 1 ? "1 Awoken" : `${rn.channelers.length} Awoken`}</span></div>
+                    )}
+                    {rn.complete && (
+                      <div className="orb-info-row"><span>Its blessing</span><span>Shadow Matter falls richer here</span></div>
+                    )}
+                  </div>
+                );
+              })()}
                   </div>
                 );
               })()}

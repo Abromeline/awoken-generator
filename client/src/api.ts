@@ -121,6 +121,22 @@ export interface MoonShroom {
   channelers: number[];
 }
 
+/** A RUNE standing on the land (Nigel, 2026-11-10), as
+ *  getTerritory serves it: the tile it rises on, how far its
+ *  rising stands (progress 0..1; 1 is its full height, 2/3 a
+ *  bastion's), the energy its channels have paid into it,
+ *  whether it stands complete (its blessing awake — Shadow
+ *  Matter falls richer on this land), and the Awoken
+ *  presently channelling it. */
+export interface RuneStanding {
+  id: number;
+  tileId: number;
+  progress: number;
+  invested: number;
+  complete: boolean;
+  channelers: number[];
+}
+
 /** A Written Light working standing on the land (the Grimoire):
  *  a ward on an edge (edgeKey/q/r/dir) or a rune on a floor
  *  (tileId). Its numbers were snapshotted from the book at the
@@ -977,7 +993,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[]; moonShrooms?: MoonShroom[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[]; moonShrooms?: MoonShroom[]; runes?: RuneStanding[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
@@ -1150,6 +1166,17 @@ export const api = {
    *  the cutter's purse. One act, no confirmation. */
   harvestMoonShroom: (args: { shroomId: number }) =>
     post<{ ok: true; shroomId: number; yield: number }>("harvestMoonShroom", args),
+  /** THE RUNE (Nigel, 2026-11-10): begin a qualified
+   *  Awoken's channel on a tile — a raising begins there if
+   *  no Rune stands (the beginner pays the 400 Shadow
+   *  Matter, up-front), and the channel joins it either
+   *  way. `beganRaising` says which the tap did. */
+  startRuneChannel: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; beganRaising: boolean; rune: RuneStanding }>("startRuneChannel", args),
+  /** End an Awoken's Rune channel; the rising it bought
+   *  stands, cumulative, for the next channel. */
+  stopRuneChannel: (args: { awakenedId: number }) =>
+    post<{ ok: true; rune: RuneStanding | null }>("stopRuneChannel", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   setMarch: (args: { awakenedId: number; tileId: number; posQ?: number; posR?: number }) =>

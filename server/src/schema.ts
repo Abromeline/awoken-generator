@@ -941,6 +941,26 @@ export const moonShrooms = sqliteTable("moon_shrooms", {
   updatedAt: integer("updated_at").notNull().default(0),
 });
 
+// THE RUNE (Nigel, 2026-11-10): a channelled raising on the
+// land — one Rune to a tile. ownerKey is the LAND's key (the
+// ground it stands on, as the build pieces are kept).
+// raiserKey — the Tender who began the raising and paid its
+// 400 Shadow Matter. progress — how far out of the ground
+// the monolith stands (0..1; 1 is its full height, 2/3 a
+// bastion's, and the point its blessing wakes). invested —
+// the energy the channels have truly paid into it, whole
+// points.
+export const runes = sqliteTable("runes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  tileId: integer("tile_id").notNull(),
+  raiserKey: text("raiser_key").notNull(),
+  progress: real("progress").notNull().default(0),
+  invested: real("invested").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull().default(0),
+});
+
 // ONE AWOKEN'S CHANNEL on a Moon Shroom. awakenedId — the
 // channelling Awoken (fielded on the land); purseKey — the
 // Tender whose purse the channel draws from (the channeller's
@@ -951,6 +971,23 @@ export const moonShroomChannels = sqliteTable("moon_shroom_channels", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerKey: text("owner_key").notNull(),
   shroomId: integer("shroom_id").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  purseKey: text("purse_key").notNull(),
+  startedAt: integer("started_at").notNull(),
+  settledAt: integer("settled_at").notNull().default(0),
+  bank: real("bank").notNull().default(0),
+});
+// ONE AWOKEN'S CHANNEL on a Rune. awakenedId — the
+// channelling Awoken (fielded on the land); purseKey — the
+// Tender whose purse the channel draws from (the
+// channeller's own Tender; at home, the land's). settledAt —
+// the channel's own lazy-settle clock (ms). bank —
+// fractional energy accrued toward the next whole second
+// the purse must pay.
+export const runeChannels = sqliteTable("rune_channels", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  runeId: integer("rune_id").notNull(),
   awakenedId: integer("awakened_id").notNull(),
   purseKey: text("purse_key").notNull(),
   startedAt: integer("started_at").notNull(),

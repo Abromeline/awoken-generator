@@ -1339,6 +1339,215 @@ async function settleMoonShrooms(ownerKey: string, nowMs: number = Date.now()): 
   }
 }
 
+/* ── THE RUNE (Nigel, 2026-11-10) ───────────────────────────
+ * The fourth of the six commissioned works: a BUILDING
+ * ability (the Abilities registry's "the-rune" — an Awoken
+ * qualifies with at least 4 Root in the sum of its parts).
+ * On a chosen tile of the land a RUNE is raised — a standing
+ * monolith of Nigel's rune stone, 2/3 a bastion's size at its
+ * full height — and it rises on the masonry rise's own
+ * terms: it EMERGES (the client clips it at the ground line;
+ * only what has broken through shows), its rising advances
+ * ONLY while a channel runs on it, and the rising is
+ * CUMULATIVE — across channelers (each adds their own
+ * channelled seconds) and across sessions (the Rune's
+ * record keeps every paid second).
+ *
+ * RAISING ONE COSTS 400 SHADOW MATTER, and the raising
+ * takes FOUR HOURS OF CHANNELING (14,400 channel-seconds).
+ * THE CHANNEL'S PRICE is the standing channel law: 3 energy
+ * per second, drawn from the CHANNELLING Tender's purse (at
+ * home, the land's own). Channeling works only while that
+ * Tender is ONLINE — presence is read the house's one way
+ * (tenderLastSeenAt, the protection settle's gap): a settle
+ * gap longer than the presence gap is the Tender away, and
+ * away time raises nothing and charges nothing.
+ *
+ * AT FULL RAISING the channel is RELEASED by itself — the
+ * general law of the six works: what has reached max growth
+ * no longer requires channeling — and THE BLESSING wakes:
+ * the Shadow roll on a fell (the hoard's 20%) reads a
+ * quarter again richer on this land — +30% relative, 26% —
+ * for as long as the Rune stands complete. A PART-RAISED
+ * Rune gives NO blessing: the record speaks the effect at
+ * full build, and none is built before it.
+ *
+ * READINGS TAKEN where the record does not rule (each is
+ * flagged again in the build report for Nigel's judgement):
+ *   · THE COST'S TIMING: the 400 Shadow Matter is paid
+ *     UP-FRONT, by the Tender who begins the raising, as a
+ *     building cost is paid when the work is begun. Joining
+ *     a standing raising costs nothing more.
+ *   · THE BLESSING'S REACH: the Rune stands ON a land and
+ *     blesses THAT land — the Shadow rolls paid for the
+ *     land (creditBattleKill's owner) read 26% while a
+ *     complete Rune stands on it. On the Table's road,
+ *     whose fell pays the killer's own hoard (fellDark,
+ *     "the homeland's road, verbatim"), the killer's own
+ *     land is the one read: a Tender whose land holds a
+ *     complete Rune carries the blessing on both roads.
+ *   · STACKING: the blessing does not stack with itself —
+ *     two complete Runes on a land still read 26%, never
+ *     more. (Two raisings may stand on one land, each on
+ *     its own tile.)
+ *   · ONE RUNE TO A TILE (a second channel on the same
+ *     tile joins the standing raising), and ONE CHANNEL TO
+ *     AN AWOKEN (an Awoken channels one Rune at a time).
+ *   · INTERRUPTS, unruled: a channel ENDS when its Awoken
+ *     leaves the field or when the Rune tops out; a channel
+ *     whose purse cannot pay a second HOLDS (no rising, no
+ *     charge, the unpaid time spent standing still — the
+ *     starved rise's own law), and resumes when the purse
+ *     can pay again. */
+export const RUNE_COST_SHADOW_MATTER = 400;
+export const RUNE_COST_PER_SECOND = 3;
+/** The raising's full measure: FOUR HOURS of channeling,
+ *  in paid channel-seconds (Nigel, 2026-11-10). */
+export const RUNE_FULL_CHANNEL_SECONDS = 4 * 60 * 60;
+/** THE BLESSING: the Shadow roll's standing share, and the
+ *  share a complete Rune raises it to — "+0.3" read as +30%
+ *  relative on the base 20% (the record's reading). */
+export const SHADOW_DROP_BASE_CHANCE = 0.2;
+export const RUNE_SHADOW_DROP_CHANCE = 0.26;
+
+interface RuneRow {
+  id: number; tileId: number; raiserKey: string;
+  progress: number; invested: number;
+  createdAt: number; updatedAt: number;
+}
+function loadRunes(ownerKey: string): RuneRow[] {
+  const rows = sqlite.prepare("SELECT id, tile_id AS tileId, raiser_key AS raiserKey, progress, invested, created_at AS createdAt, updated_at AS updatedAt FROM runes WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => ({
+    id: Number(r.id), tileId: Number(r.tileId), raiserKey: String(r.raiserKey ?? ""),
+    progress: Number(r.progress ?? 0), invested: Number(r.invested ?? 0),
+    createdAt: Number(r.createdAt ?? 0), updatedAt: Number(r.updatedAt ?? 0),
+  }));
+}
+
+interface RuneChannelRow {
+  id: number; runeId: number; awakenedId: number; purseKey: string;
+  startedAt: number; settledAt: number; bank: number;
+}
+function loadRuneChannels(ownerKey: string): RuneChannelRow[] {
+  const rows = sqlite.prepare("SELECT id, rune_id AS runeId, awakened_id AS awakenedId, purse_key AS purseKey, started_at AS startedAt, settled_at AS settledAt, bank FROM rune_channels WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => ({
+    id: Number(r.id), runeId: Number(r.runeId), awakenedId: Number(r.awakenedId),
+    purseKey: String(r.purseKey), startedAt: Number(r.startedAt ?? 0),
+    settledAt: Number(r.settledAt ?? 0), bank: Number(r.bank ?? 0),
+  }));
+}
+
+/** A Rune as getTerritory serves it: its record, how far its
+ *  rising stands, whether it stands complete (its blessing
+ *  awake), and the Awoken presently channeling it. */
+function runeView(r: RuneRow, channels: RuneChannelRow[]) {
+  return {
+    id: r.id, tileId: r.tileId,
+    progress: Math.round(r.progress * 1e6) / 1e6,
+    invested: Math.floor(r.invested),
+    complete: r.progress >= 1,
+    channelers: channels.filter(c => c.runeId === r.id).map(c => c.awakenedId),
+  };
+}
+
+/** THE SHADOW ROLL'S SHARE for a Tender's land, as the
+ *  server reads it: the standing 20%, or 26% while a
+ *  COMPLETE Rune stands on the land — the blessing, which
+ *  does not stack with itself and wakes only at full
+ *  raising. Every road that pays the roll reads its share
+ *  here, so the measure can never fork (creditBattleKill
+ *  on the homeland and in the rooms; fellDark on the
+ *  Table's road, which pays the killer's own hoard and so
+ *  reads the killer's land). Guarded: a fault in the
+ *  Rune's ledger reads the base share, never breaks a
+ *  kill. */
+export function shadowDropChanceFor(ownerKey: string): number {
+  try {
+    const row = sqlite.prepare("SELECT COUNT(*) AS n FROM runes WHERE owner_key = ? AND progress >= 1").get(ownerKey) as any;
+    return Number(row?.n ?? 0) > 0 ? RUNE_SHADOW_DROP_CHANCE : SHADOW_DROP_BASE_CHANCE;
+  } catch { return SHADOW_DROP_BASE_CHANCE; }
+}
+
+/** The hoard a Tender stands on, read off tender_progress
+ *  (the battle ledgers' own row; none standing reads 0). */
+function shadowMatterHeld(ownerKey: string): number {
+  const row = sqlite.prepare("SELECT shadow_matter AS shadow FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  return row ? Math.max(0, Number(row.shadow) || 0) : 0;
+}
+
+/** Settle every channel on the land against the clock —
+ *  the lazy reckoning, run at read like the rises'. Each
+ *  channel is judged on its own clock and its own purse:
+ *  away time (a gap past the presence gap, or a channeller
+ *  not seen within it) raises nothing; present time banks
+ *  toward whole seconds; a second is bought only when the
+ *  purse pays it, and only paid seconds raise the Rune.
+ *  Channels whose Awoken has left the field, whose Rune is
+ *  gone, or whose Rune has topped out are ended where they
+ *  stand. */
+async function settleRunes(ownerKey: string, nowMs: number = Date.now()): Promise<void> {
+  const runes = loadRunes(ownerKey);
+  if (!runes.length) return;
+  const channels = loadRuneChannels(ownerKey);
+  if (!channels.length) return;
+  const byId = new Map(runes.map(r => [r.id, r]));
+  const placements = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const fielded = new Set(placements.map(p => p.awakenedId));
+  const delCh = sqlite.prepare("DELETE FROM rune_channels WHERE id = ?");
+  const updCh = sqlite.prepare("UPDATE rune_channels SET settled_at = ?, bank = ? WHERE id = ?");
+  const updRune = sqlite.prepare("UPDATE runes SET progress = ?, invested = ?, updated_at = ? WHERE owner_key = ? AND id = ?");
+  const touched = new Set<number>();
+  for (const ch of channels) {
+    const rn = byId.get(ch.runeId);
+    if (!rn || !fielded.has(ch.awakenedId) || rn.progress >= 1) { delCh.run(ch.id); continue; }
+    const gapMs = nowMs - ch.settledAt;
+    if (gapMs <= 0) continue;
+    const seen = tenderLastSeenAt(ch.purseKey);
+    const present = gapMs <= PROTECTION_ONLINE_GAP_MS && seen > 0 && nowMs - seen <= PROTECTION_ONLINE_GAP_MS;
+    if (!present) {
+      // Away, or gone longer than presence reaches: the
+      // interval raises nothing and charges nothing.
+      ch.settledAt = nowMs; ch.bank = 0;
+      updCh.run(ch.settledAt, ch.bank, ch.id);
+      continue;
+    }
+    ch.bank += (gapMs / 1000) * RUNE_COST_PER_SECOND;
+    const wantSeconds = Math.floor(ch.bank / RUNE_COST_PER_SECOND + 1e-9);
+    if (wantSeconds > 0 && rn.progress < 1) {
+      const purse = await getEnergyFor(ch.purseKey);
+      // Never buy more seconds than the Rune can still
+      // take — the rise's own law, chunked to its top.
+      const roomSeconds = Math.max(1, Math.ceil((1 - rn.progress) * RUNE_FULL_CHANNEL_SECONDS));
+      const paySeconds = Math.min(wantSeconds, Math.floor(purse / RUNE_COST_PER_SECOND), roomSeconds);
+      if (paySeconds > 0 && await spendEnergy(ch.purseKey, paySeconds * RUNE_COST_PER_SECOND)) {
+        ch.bank -= paySeconds * RUNE_COST_PER_SECOND;
+        rn.progress = Math.min(1, rn.progress + paySeconds / RUNE_FULL_CHANNEL_SECONDS);
+        rn.invested += paySeconds * RUNE_COST_PER_SECOND;
+        touched.add(rn.id);
+      }
+      if (paySeconds < wantSeconds) {
+        // STARVED: the purse cannot pay the second — the
+        // channel holds, as a starved rise holds: the unpaid
+        // time is spent standing still, never banked as debt.
+        ch.bank = 0;
+      }
+    }
+    ch.settledAt = nowMs;
+    if (rn.progress >= 1) { delCh.run(ch.id); }
+    else updCh.run(ch.settledAt, ch.bank, ch.id);
+  }
+  for (const id of touched) {
+    const rn = byId.get(id)!;
+    updRune.run(rn.progress, rn.invested, nowMs, ownerKey, rn.id);
+  }
+}
+
+  }
+}
+
 // --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
 // The staged boss battle mode — its server ladder (boss_state), its
 // eligibility cycle, and its pending aspect-grant rail — no longer
@@ -7153,7 +7362,10 @@ async function battleStateView(ownerKey: string): Promise<BattleStateView> {
 /** A kill on the Tender's land pays its bounty, whoever's
  *  hand struck it (Nigel, 2026-10-23): PROTECTION minutes
  *  equal to the kind's AC bonus above 10 bank at once; the
- *  SHADOW roll (20%) pays the same number into the hoard.
+ *  SHADOW roll pays the same number into the hoard — its
+ *  share the standing 20%, or 26% while a complete RUNE
+ *  stands on the land (shadowDropChanceFor, the Rune's
+ *  blessing, Nigel 2026-11-10).
  *  THE TAKE (the loot table fix, 2026-10-25): the fell's
  *  yield — energy by kind (paid on this road for the
  *  first time), the drizzle when its roll falls, and the
@@ -7177,7 +7389,7 @@ async function creditBattleKill(ownerKey: string, kind: string, groundElement: s
   if (bonus > 0) {
     sqlite.prepare("UPDATE tender_progress SET protection_bank_ms = protection_bank_ms + ? WHERE owner_key = ?")
       .run(Math.round(bonus * 60000), ownerKey);
-    if (Math.random() < 0.2) {
+    if (Math.random() < shadowDropChanceFor(ownerKey)) {
       sqlite.prepare("UPDATE tender_progress SET shadow_matter = shadow_matter + ? WHERE owner_key = ?")
         .run(bonus, ownerKey);
     }
@@ -12781,6 +12993,12 @@ export const handlers = {
     await settleMoonShrooms(ownerKey);
     const moonChannels = loadMoonShroomChannels(ownerKey);
     const moonShrooms = loadMoonShrooms(ownerKey).map(s => moonShroomView(s, moonChannels));
+    // THE RUNE: its channels reckon lazily at this read,
+    // like the rises' — then the Runes are served as they
+    // stand, each with its present channelers.
+    await settleRunes(ownerKey);
+    const runeChannels = loadRuneChannels(ownerKey);
+    const runes = loadRunes(ownerKey).map(r => runeView(r, runeChannels));
     // THE LIGHTING SYSTEM (2026-10-26): every tile carries
     // its light — the one reckoning, stamped here at serve
     // time from the records as they stand, exactly as
@@ -12808,7 +13026,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -13758,6 +13976,88 @@ export const handlers = {
       await gainEnergy(actor, yields, await calculateMaxEnergy(actor));
     }
     return { ok: true as const, shroomId: shroom.id, yield: yields };
+  },
+
+  /** THE RUNE — BEGIN (Nigel, 2026-11-10). A fielded Awoken
+   *  the registry qualifies (4 Root in the sum of its parts)
+   *  turns its channel to a tile of the land: if no Rune
+   *  stands there, a RAISING begins — the Tender who begins
+   *  it pays the 400 Shadow Matter up-front, as a building
+   *  cost is paid (READING, flagged in the section head) —
+   *  and the channel joins it; if a raising already stands
+   *  there, the channel joins it and costs nothing more (one
+   *  Rune to a tile, any number of channelers). The rising
+   *  itself is the settle's work (settleRunes): this door
+   *  only opens the channel. */
+  async startRuneChannel(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The channel names the Awoken and the ground the Rune should rise on.");
+    await settleRunes(ownerKey);
+    const def = abilityByKey("the-rune");
+    if (!def) badRequest("The Rune is not written in the registry.");
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    if (!placements.some(p => p.awakenedId === parsed.data.awakenedId)) {
+      badRequest("Only a fielded Awoken can channel — that one does not stand on the land.");
+    }
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (!awRows.length) badRequest("That Awoken is gone.");
+    const sums = await elementSumsOf(awRows[0]);
+    if (!abilityQualifies(def!.requires, sums)) {
+      badRequest("The Rune answers only to an Awoken holding at least 4 Root in the sum of its parts.");
+    }
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    if (!tiles.some(t => t.id === parsed.data.tileId)) badRequest("That ground is not on your land.");
+    if (loadRuneChannels(ownerKey).some(c => c.awakenedId === parsed.data.awakenedId)) {
+      badRequest("That Awoken is already channelling — end its channel before beginning another.");
+    }
+    let rune = loadRunes(ownerKey).find(r => r.tileId === parsed.data.tileId);
+    if (rune && rune.progress >= 1) {
+      badRequest("A Rune stands complete on that ground — its blessing already works this land. Raise another on other ground if you would have two standing.");
+    }
+    const now = Date.now();
+    const actor = actorKeyFor(ctx);
+    let beganRaising = false;
+    if (!rune) {
+      // THE COST, PAID AS THE RAISING BEGINS (READING): the
+      // beginner's hoard pays the 400 whole, or the raising
+      // does not begin — no part-payment, no debt.
+      const held = shadowMatterHeld(actor);
+      if (held < RUNE_COST_SHADOW_MATTER) {
+        badRequest(`Raising a Rune costs ${RUNE_COST_SHADOW_MATTER} Shadow Matter, paid as the raising begins — your hoard holds ${Math.floor(held)}.`);
+      }
+      sqlite.prepare("UPDATE tender_progress SET shadow_matter = shadow_matter - ? WHERE owner_key = ?")
+        .run(RUNE_COST_SHADOW_MATTER, actor);
+      const info = sqlite.prepare("INSERT INTO runes (owner_key, tile_id, raiser_key, progress, invested, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)")
+        .run(ownerKey, parsed.data.tileId, actor, now, now);
+      rune = { id: Number(info.lastInsertRowid), tileId: parsed.data.tileId, raiserKey: actor, progress: 0, invested: 0, createdAt: now, updatedAt: now };
+      beganRaising = true;
+    }
+    sqlite.prepare("INSERT INTO rune_channels (owner_key, rune_id, awakened_id, purse_key, started_at, settled_at, bank) VALUES (?, ?, ?, ?, ?, ?, 0)")
+      .run(ownerKey, rune.id, parsed.data.awakenedId, actor, now, now);
+    return { ok: true as const, beganRaising, rune: runeView(rune, loadRuneChannels(ownerKey)) };
+  },
+
+  /** THE RUNE — END THE CHANNEL. The rising the channel
+   *  already bought stands (the settle runs first, so
+   *  nothing paid is lost); the Rune keeps every inch of it
+   *  for the next channel, whenever it comes. */
+  async stopRuneChannel(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The ending names the channelling Awoken.");
+    await settleRunes(ownerKey);
+    const ch = loadRuneChannels(ownerKey).find(c => c.awakenedId === parsed.data.awakenedId);
+    if (!ch) badRequest("That Awoken is not channelling.");
+    sqlite.prepare("DELETE FROM rune_channels WHERE id = ?").run(ch.id);
+    const rune = loadRunes(ownerKey).find(r => r.id === ch.runeId);
+    return { ok: true as const, rune: rune ? runeView(rune, loadRuneChannels(ownerKey)) : null };
+  },
+
   },
 
   // ── The Written Light on the land (the Grimoire, Nigel
@@ -19758,6 +20058,11 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // growing between reads while its channeller is present —
   // and only then (the settle reads presence itself).
   await clockStep(ownerKey, "moon-shrooms", () => settleMoonShrooms(ownerKey));
+  // (10) RUNES — every land: their channels settle on the
+  // slow gear as they do at the read, so a Rune keeps rising
+  // between reads while its channeller is present — and
+  // only then (the settle reads presence itself).
+  await clockStep(ownerKey, "runes", () => settleRunes(ownerKey));
 }
 
 /** Settle ONE land's WAR by the realtime gear, in the
