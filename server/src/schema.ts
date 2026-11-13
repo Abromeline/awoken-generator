@@ -922,6 +922,42 @@ export const buildPieces = sqliteTable("build_pieces", {
   energyBank: real("energy_bank").notNull().default(0),
 });
 
+// THE MOON SHROOM (Nigel, 2026-11-10): a channelled growth on
+// the land — one shroom to a tile. ownerKey is the LAND's key
+// (the ground it stands on, as the build pieces are kept).
+// variant — which of Nigel's three artworks sprouted (1..3),
+// rolled once at the sprouting and never re-rolled. growth —
+// how far out of the ground the shroom stands (0..1; 1 is its
+// full height, twice a bastion's). invested — the energy the
+// channels have truly paid into it, whole points.
+export const moonShrooms = sqliteTable("moon_shrooms", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  tileId: integer("tile_id").notNull(),
+  variant: integer("variant").notNull().default(1),
+  growth: real("growth").notNull().default(0),
+  invested: real("invested").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull().default(0),
+});
+
+// ONE AWOKEN'S CHANNEL on a Moon Shroom. awakenedId — the
+// channelling Awoken (fielded on the land); purseKey — the
+// Tender whose purse the channel draws from (the channeller's
+// own Tender; at home, the land's). settledAt — the channel's
+// own lazy-settle clock (ms). bank — fractional energy accrued
+// toward the next whole second the purse must pay.
+export const moonShroomChannels = sqliteTable("moon_shroom_channels", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  shroomId: integer("shroom_id").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  purseKey: text("purse_key").notNull(),
+  startedAt: integer("started_at").notNull(),
+  settledAt: integer("settled_at").notNull().default(0),
+  bank: real("bank").notNull().default(0),
+});
+
 // Hall of Champions residents: one Awoken per room, freely swappable.
 export const hallResidents = sqliteTable("hall_residents", {
   id: integer("id").primaryKey({ autoIncrement: true }),

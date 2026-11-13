@@ -1159,6 +1159,186 @@ function fellBuildPiece(ownerKey: string, targetId: number): { removed: number[]
   return { removed, settling };
 }
 
+/* ── THE MOON SHROOM (Nigel, 2026-11-10) ─────────────────────
+ * The third of the six commissioned works: a CHANNELED
+ * ability (the Abilities registry's "moon-shroom" — an
+ * Awoken qualifies with at least 1 Root, 1 Tide and 1 Air in
+ * the sum of its parts). On a chosen tile of the land a Moon
+ * Shroom sprouts — one of Nigel's three artworks, rolled at
+ * the sprouting — and grows out of the ground on the masonry
+ * rise's own terms: it EMERGES (the client clips it at the
+ * ground line; only what has broken through shows), growth
+ * advances ONLY while a channel runs on it, and the growth
+ * is CUMULATIVE — across channelers (each adds their own
+ * channelled seconds) and across sessions (the shroom's
+ * record keeps every paid second).
+ *
+ * THE CHANNEL'S PRICE is the standing channel law: 3 energy
+ * per second, drawn from the CHANNELLING Tender's purse (at
+ * home, the land's own). Channeling works only while that
+ * Tender is ONLINE — presence is read the house's one way
+ * (tenderLastSeenAt, the protection settle's gap): a settle
+ * gap longer than the presence gap is the Tender away, and
+ * away time grows nothing and charges nothing.
+ *
+ * MAX HEIGHT = twice a bastion's, reached at growth 1. At
+ * full growth the channel is RELEASED by itself — the
+ * general law of the six works: what has reached max growth
+ * no longer requires channeling.
+ *
+ * READINGS TAKEN where the record does not rule (each is
+ * flagged again in the build report for Nigel's judgement):
+ *   · THE RATE is a PROPOSAL PENCIL: a shroom tops out after
+ *     MOON_SHROOM_FULL_CHANNEL_SECONDS of paid channel time
+ *     (48 channel-hours: with two Awoken channeling, a day of
+ *     channeling; spread over a Tender's daily purses, weeks
+ *     of play). Nigel's play tunes it; it is not hardened law.
+ *   · THE HARVEST: any Tender standing on the land may cut a
+ *     shroom (the act is the tile card's one button — no
+ *     confirmation, as the core-flow law demands); a
+ *     half-grown shroom MAY be cut, and the yield scales with
+ *     the growth: floor(growth × MOON_SHROOM_HARVEST_FULL_
+ *     ENERGY) into the cutter's purse, capped by their max.
+ *     The 240 at full growth is likewise a proposal pencil.
+ *   · ONE SHROOM TO A TILE (a second channel on the same
+ *     tile joins the standing shroom), and ONE CHANNEL TO AN
+ *     AWOKEN (an Awoken channels one shroom at a time).
+ *   · INTERRUPTS, unruled: a channel ENDS when its Awoken
+ *     leaves the field, when the shroom is cut, or at full
+ *     growth; a channel whose purse cannot pay a second
+ *     HOLDS (no growth, no charge, the unpaid time spent
+ *     standing still — the starved rise's own law), and
+ *     resumes when the purse can pay again.
+ *   · THE REGEN GIFT: while a Moon Shroom STANDS (growth
+ *     above zero) on a Tender's land, that Tender's passive
+ *     energy regen quickens — each standing shroom takes one
+ *     minute off the online regen interval, to a floor of
+ *     one minute (see getEnergy). */
+export const MOON_SHROOM_COST_PER_SECOND = 3;
+/** PROPOSAL (Nigel's play judges): paid channel-seconds to
+ *  full growth — 48 channel-hours. */
+export const MOON_SHROOM_FULL_CHANNEL_SECONDS = 172800;
+/** PROPOSAL (Nigel's play judges): the harvest's yield at
+ *  full growth, in energy; a lesser growth yields its share. */
+export const MOON_SHROOM_HARVEST_FULL_ENERGY = 240;
+
+interface MoonShroomRow {
+  id: number; tileId: number; variant: number;
+  growth: number; invested: number;
+  createdAt: number; updatedAt: number;
+}
+function loadMoonShrooms(ownerKey: string): MoonShroomRow[] {
+  const rows = sqlite.prepare("SELECT id, tile_id AS tileId, variant, growth, invested, created_at AS createdAt, updated_at AS updatedAt FROM moon_shrooms WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => ({
+    id: Number(r.id), tileId: Number(r.tileId), variant: Number(r.variant ?? 1),
+    growth: Number(r.growth ?? 0), invested: Number(r.invested ?? 0),
+    createdAt: Number(r.createdAt ?? 0), updatedAt: Number(r.updatedAt ?? 0),
+  }));
+}
+
+interface MoonShroomChannelRow {
+  id: number; shroomId: number; awakenedId: number; purseKey: string;
+  startedAt: number; settledAt: number; bank: number;
+}
+function loadMoonShroomChannels(ownerKey: string): MoonShroomChannelRow[] {
+  const rows = sqlite.prepare("SELECT id, shroom_id AS shroomId, awakened_id AS awakenedId, purse_key AS purseKey, started_at AS startedAt, settled_at AS settledAt, bank FROM moon_shroom_channels WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => ({
+    id: Number(r.id), shroomId: Number(r.shroomId), awakenedId: Number(r.awakenedId),
+    purseKey: String(r.purseKey), startedAt: Number(r.startedAt ?? 0),
+    settledAt: Number(r.settledAt ?? 0), bank: Number(r.bank ?? 0),
+  }));
+}
+
+/** The harvest's yield at a growth: the full-growth pencil,
+ *  shared by the growth standing — a half-grown shroom cut
+ *  early yields its half share. */
+export function moonShroomHarvestYield(growth: number): number {
+  return Math.floor(Math.max(0, Math.min(1, growth)) * MOON_SHROOM_HARVEST_FULL_ENERGY);
+}
+
+/** A Moon Shroom as getTerritory serves it: its record, its
+ *  artwork's number, its growth, what its cutting would yield
+ *  right now, and the Awoken presently channeling it. */
+function moonShroomView(s: MoonShroomRow, channels: MoonShroomChannelRow[]) {
+  return {
+    id: s.id, tileId: s.tileId, variant: s.variant,
+    growth: Math.round(s.growth * 1e6) / 1e6,
+    invested: Math.floor(s.invested),
+    harvestYield: moonShroomHarvestYield(s.growth),
+    fullGrown: s.growth >= 1,
+    channelers: channels.filter(c => c.shroomId === s.id).map(c => c.awakenedId),
+  };
+}
+
+/** Settle every channel on the land against the clock — the
+ *  lazy reckoning, run at read like the rises'. Each channel
+ *  is judged on its own clock and its own purse: away time
+ *  (a gap past the presence gap, or a channeller not seen
+ *  within it) grows nothing; present time banks toward whole
+ *  seconds; a second is bought only when the purse pays it,
+ *  and only paid seconds grow the shroom. Channels whose
+ *  Awoken has left the field, whose shroom is gone, or whose
+ *  shroom has topped out are ended where they stand. */
+async function settleMoonShrooms(ownerKey: string, nowMs: number = Date.now()): Promise<void> {
+  const shrooms = loadMoonShrooms(ownerKey);
+  if (!shrooms.length) return;
+  const channels = loadMoonShroomChannels(ownerKey);
+  if (!channels.length) return;
+  const byId = new Map(shrooms.map(s => [s.id, s]));
+  const placements = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const fielded = new Set(placements.map(p => p.awakenedId));
+  const delCh = sqlite.prepare("DELETE FROM moon_shroom_channels WHERE id = ?");
+  const updCh = sqlite.prepare("UPDATE moon_shroom_channels SET settled_at = ?, bank = ? WHERE id = ?");
+  const updSh = sqlite.prepare("UPDATE moon_shrooms SET growth = ?, invested = ?, updated_at = ? WHERE owner_key = ? AND id = ?");
+  const touched = new Set<number>();
+  for (const ch of channels) {
+    const sh = byId.get(ch.shroomId);
+    if (!sh || !fielded.has(ch.awakenedId) || sh.growth >= 1) { delCh.run(ch.id); continue; }
+    const gapMs = nowMs - ch.settledAt;
+    if (gapMs <= 0) continue;
+    const seen = tenderLastSeenAt(ch.purseKey);
+    const present = gapMs <= PROTECTION_ONLINE_GAP_MS && seen > 0 && nowMs - seen <= PROTECTION_ONLINE_GAP_MS;
+    if (!present) {
+      // Away, or gone longer than presence reaches: the
+      // interval grows nothing and charges nothing.
+      ch.settledAt = nowMs; ch.bank = 0;
+      updCh.run(ch.settledAt, ch.bank, ch.id);
+      continue;
+    }
+    ch.bank += (gapMs / 1000) * MOON_SHROOM_COST_PER_SECOND;
+    const wantSeconds = Math.floor(ch.bank / MOON_SHROOM_COST_PER_SECOND + 1e-9);
+    if (wantSeconds > 0 && sh.growth < 1) {
+      const purse = await getEnergyFor(ch.purseKey);
+      // Never buy more seconds than the shroom can still
+      // take — the rise's own law, chunked to its top.
+      const roomSeconds = Math.max(1, Math.ceil((1 - sh.growth) * MOON_SHROOM_FULL_CHANNEL_SECONDS));
+      const paySeconds = Math.min(wantSeconds, Math.floor(purse / MOON_SHROOM_COST_PER_SECOND), roomSeconds);
+      if (paySeconds > 0 && await spendEnergy(ch.purseKey, paySeconds * MOON_SHROOM_COST_PER_SECOND)) {
+        ch.bank -= paySeconds * MOON_SHROOM_COST_PER_SECOND;
+        sh.growth = Math.min(1, sh.growth + paySeconds / MOON_SHROOM_FULL_CHANNEL_SECONDS);
+        sh.invested += paySeconds * MOON_SHROOM_COST_PER_SECOND;
+        touched.add(sh.id);
+      }
+      if (paySeconds < wantSeconds) {
+        // STARVED: the purse cannot pay the second — the
+        // channel holds, as a starved rise holds: the unpaid
+        // time is spent standing still, never banked as debt.
+        ch.bank = 0;
+      }
+    }
+    ch.settledAt = nowMs;
+    if (sh.growth >= 1) { delCh.run(ch.id); }
+    else updCh.run(ch.settledAt, ch.bank, ch.id);
+  }
+  for (const id of touched) {
+    const sh = byId.get(id)!;
+    updSh.run(sh.growth, sh.invested, nowMs, ownerKey, sh.id);
+  }
+}
+
 // --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
 // The staged boss battle mode — its server ladder (boss_state), its
 // eligibility cycle, and its pending aspect-grant rail — no longer
@@ -12595,6 +12775,12 @@ export const handlers = {
     // served as they stand.
     await settleBuildRises(ownerKey);
     const buildPieces = loadBuildPieces(ownerKey).map(p => buildPieceView(p, buildTilesByKey, tiles as any[]));
+    // THE MOON SHROOM: its channels reckon lazily at this
+    // read, like the rises' — then the shrooms are served as
+    // they stand, each with its present channelers.
+    await settleMoonShrooms(ownerKey);
+    const moonChannels = loadMoonShroomChannels(ownerKey);
+    const moonShrooms = loadMoonShrooms(ownerKey).map(s => moonShroomView(s, moonChannels));
     // THE LIGHTING SYSTEM (2026-10-26): every tile carries
     // its light — the one reckoning, stamped here at serve
     // time from the records as they stand, exactly as
@@ -12622,7 +12808,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, defenceWorks: (sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }) };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -13480,6 +13666,98 @@ export const handlers = {
     }
     const { removed, settling } = fellBuildPiece(ownerKey, piece.id);
     return { ok: true as const, repaired: false, pieceId: piece.id, hp: 0, power, fell: true, removed, settling };
+  },
+
+  /** THE MOON SHROOM — BEGIN THE CHANNEL (Nigel, 2026-11-10).
+   *  A fielded Awoken the registry qualifies (1 Root, 1 Tide,
+   *  1 Air in the sum of its parts) begins channeling a tile
+   *  of the land: if no shroom stands there, one sprouts —
+   *  its artwork rolled once from Nigel's three — and the
+   *  channel joins it; if one stands, the channel joins the
+   *  standing shroom (one shroom to a tile, any number of
+   *  channelers). The growth itself is the settle's work
+   *  (settleMoonShrooms): this door only opens the channel. */
+  async startMoonShroomChannel(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({
+      awakenedId: z.number().int().positive(),
+      tileId: z.number().int().positive(),
+    }).safeParse(args);
+    if (!parsed.success) badRequest("The channel names the Awoken and the ground the Moon Shroom should rise on.");
+    await settleMoonShrooms(ownerKey);
+    const def = abilityByKey("moon-shroom");
+    if (!def) badRequest("The Moon Shroom is not written in the registry.");
+    const placements = await db.select().from(schema.fieldPlacements)
+      .where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+    if (!placements.some(p => p.awakenedId === parsed.data.awakenedId)) {
+      badRequest("Only a fielded Awoken can channel — that one does not stand on the land.");
+    }
+    const awRows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, parsed.data.awakenedId)).limit(1);
+    if (!awRows.length) badRequest("That Awoken is gone.");
+    const sums = await elementSumsOf(awRows[0]);
+    if (!abilityQualifies(def!.requires, sums)) {
+      badRequest("The Moon Shroom answers only to an Awoken holding at least 1 Root, 1 Tide and 1 Air in the sum of its parts.");
+    }
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    if (!tiles.some(t => t.id === parsed.data.tileId)) badRequest("That ground is not on your land.");
+    if (loadMoonShroomChannels(ownerKey).some(c => c.awakenedId === parsed.data.awakenedId)) {
+      badRequest("That Awoken is already channelling — end its channel before beginning another.");
+    }
+    let shroom = loadMoonShrooms(ownerKey).find(s => s.tileId === parsed.data.tileId);
+    if (shroom && shroom.growth >= 1) {
+      badRequest("A full-grown Moon Shroom stands there — no channel can raise it further. Cut it for its energy, or let it stand.");
+    }
+    const now = Date.now();
+    if (!shroom) {
+      const variant = 1 + Math.floor(Math.random() * 3);
+      const info = sqlite.prepare("INSERT INTO moon_shrooms (owner_key, tile_id, variant, growth, invested, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)")
+        .run(ownerKey, parsed.data.tileId, variant, now, now);
+      shroom = { id: Number(info.lastInsertRowid), tileId: parsed.data.tileId, variant, growth: 0, invested: 0, createdAt: now, updatedAt: now };
+    }
+    sqlite.prepare("INSERT INTO moon_shroom_channels (owner_key, shroom_id, awakened_id, purse_key, started_at, settled_at, bank) VALUES (?, ?, ?, ?, ?, ?, 0)")
+      .run(ownerKey, shroom.id, parsed.data.awakenedId, actorKeyFor(ctx), now, now);
+    return { ok: true as const, shroom: moonShroomView(shroom, loadMoonShroomChannels(ownerKey)) };
+  },
+
+  /** THE MOON SHROOM — END THE CHANNEL. The growth the
+   *  channel already bought stands (the settle runs first,
+   *  so nothing paid is lost); the shroom keeps every inch of
+   *  it for the next channel, whenever it comes. */
+  async stopMoonShroomChannel(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The ending names the channelling Awoken.");
+    await settleMoonShrooms(ownerKey);
+    const ch = loadMoonShroomChannels(ownerKey).find(c => c.awakenedId === parsed.data.awakenedId);
+    if (!ch) badRequest("That Awoken is not channelling.");
+    sqlite.prepare("DELETE FROM moon_shroom_channels WHERE id = ?").run(ch.id);
+    const shroom = loadMoonShrooms(ownerKey).find(s => s.id === ch.shroomId);
+    return { ok: true as const, shroom: shroom ? moonShroomView(shroom, loadMoonShroomChannels(ownerKey)) : null };
+  },
+
+  /** THE MOON SHROOM — CUT IT FOR ITS ENERGY (Nigel,
+   *  2026-11-10: "a grown shroom can be cut/harvested for
+   *  energy"). The cutting is one act, at the tile card, with
+   *  no confirmation standing in the core flow; the yield is
+   *  the growth's share of the full-growth pencil, paid into
+   *  the cutter's purse up to their max. Its channels end
+   *  with it. (READING: any Tender standing on the land may
+   *  cut it, grown or half-grown — flagged in the report.) */
+  async harvestMoonShroom(args: unknown, ctx?: ActionContext) {
+    const ownerKey = landKeyFor(ctx);
+    const parsed = z.object({ shroomId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The cutting names the Moon Shroom.");
+    await settleMoonShrooms(ownerKey);
+    const shroom = loadMoonShrooms(ownerKey).find(s => s.id === parsed.data.shroomId);
+    if (!shroom) badRequest("That Moon Shroom no longer stands.");
+    const yields = moonShroomHarvestYield(shroom.growth);
+    sqlite.prepare("DELETE FROM moon_shroom_channels WHERE owner_key = ? AND shroom_id = ?").run(ownerKey, shroom.id);
+    sqlite.prepare("DELETE FROM moon_shrooms WHERE owner_key = ? AND id = ?").run(ownerKey, shroom.id);
+    if (yields > 0) {
+      const actor = actorKeyFor(ctx);
+      await gainEnergy(actor, yields, await calculateMaxEnergy(actor));
+    }
+    return { ok: true as const, shroomId: shroom.id, yield: yields };
   },
 
   // ── The Written Light on the land (the Grimoire, Nigel
@@ -16222,7 +16500,19 @@ export const handlers = {
     const isOnline = (now - lastSeen) < 5 * 60 * 1000;
     const regenCfg = await loadGameConfig();
     const onlineRegenMinutes = regenCfg.timers.energyRegenMinutes ?? 4;
-    const regenMinutes = isOnline ? onlineRegenMinutes : onlineRegenMinutes * 3;
+    // THE MOON SHROOM'S GIFT (Nigel, 2026-11-10): a standing
+    // Moon Shroom raises the Tender's passive energy regen —
+    // READ as: each shroom standing (growth above zero) on
+    // the Tender's own land takes one minute off the online
+    // interval, to a floor of one minute; the offline rate
+    // stays three times the online, as it has always been.
+    let standingShrooms = 0;
+    try {
+      const srow = sqlite.prepare("SELECT COUNT(*) AS n FROM moon_shrooms WHERE owner_key = ? AND growth > 0").get(ownerKey) as any;
+      standingShrooms = Number(srow?.n ?? 0);
+    } catch { standingShrooms = 0; }
+    const shroomOnlineMinutes = Math.max(1, onlineRegenMinutes - standingShrooms);
+    const regenMinutes = isOnline ? shroomOnlineMinutes : shroomOnlineMinutes * 3;
     const elapsedMin = (now - updatedAt) / (1000 * 60);
     const regen = Math.floor(elapsedMin / regenMinutes);
     if (regen > 0 && energy < maxEnergy) {
@@ -19462,6 +19752,12 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // at its crew's pace and its purse's price, as the read
   // would reckon it.
   await clockStep(ownerKey, "rises", () => settleBuildRises(ownerKey));
+
+  // (9) MOON SHROOMS — every land: their channels settle on
+  // the slow gear as they do at the read, so a shroom keeps
+  // growing between reads while its channeller is present —
+  // and only then (the settle reads presence itself).
+  await clockStep(ownerKey, "moon-shrooms", () => settleMoonShrooms(ownerKey));
 }
 
 /** Settle ONE land's WAR by the realtime gear, in the

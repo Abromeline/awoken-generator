@@ -103,6 +103,24 @@ export interface BuildPiece {
   z?: number;
 }
 
+/** A MOON SHROOM standing on the land (Nigel, 2026-11-10),
+ *  as getTerritory serves it: the tile it grows on, which of
+ *  Nigel's three artworks sprouted (1..3), how far out of the
+ *  ground it stands (growth 0..1; 1 is twice a bastion's
+ *  height), the energy its channels have paid into it, what
+ *  cutting it would yield right now, and the Awoken presently
+ *  channelling it. */
+export interface MoonShroom {
+  id: number;
+  tileId: number;
+  variant: number;
+  growth: number;
+  invested: number;
+  harvestYield: number;
+  fullGrown: boolean;
+  channelers: number[];
+}
+
 /** A Written Light working standing on the land (the Grimoire):
  *  a ward on an edge (edgeKey/q/r/dir) or a rune on a floor
  *  (tileId). Its numbers were snapshotted from the book at the
@@ -959,7 +977,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[]; moonShrooms?: MoonShroom[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
@@ -1118,6 +1136,20 @@ export const api = {
    *  damages it, and at 0 HP the piece falls. */
   strikeBuildPiece: (args: { awakenedId: number; pieceId: number }) =>
     post<{ ok: true; repaired: boolean; pieceId: number; hp: number; power: number; fell: boolean; removed: number[]; settling: number[] }>("strikeBuildPiece", args),
+  /** THE MOON SHROOM (Nigel, 2026-11-10): begin a qualified
+   *  Awoken's channel on a tile — the shroom sprouts there if
+   *  none stands, and the channel joins it either way. */
+  startMoonShroomChannel: (args: { awakenedId: number; tileId: number }) =>
+    post<{ ok: true; shroom: MoonShroom }>("startMoonShroomChannel", args),
+  /** End an Awoken's Moon Shroom channel; the growth it
+   *  bought stands, cumulative, for the next channel. */
+  stopMoonShroomChannel: (args: { awakenedId: number }) =>
+    post<{ ok: true; shroom: MoonShroom | null }>("stopMoonShroomChannel", args),
+  /** Cut a Moon Shroom for its energy: the yield is the
+   *  growth's share of the full-growth measure, paid into
+   *  the cutter's purse. One act, no confirmation. */
+  harvestMoonShroom: (args: { shroomId: number }) =>
+    post<{ ok: true; shroomId: number; yield: number }>("harvestMoonShroom", args),
   setPatrol: (args: { awakenedId: number; tileIds: number[] }) =>
     post<{ ok: true; awakenedId: number; patrolling: boolean; waypoints?: number }>("setPatrol", args),
   setMarch: (args: { awakenedId: number; tileId: number; posQ?: number; posR?: number }) =>

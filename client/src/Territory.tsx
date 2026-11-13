@@ -21,6 +21,9 @@ import meteorGif from "./assets/meteor-rain.gif";
 import glyphTreesImg from "./assets/glyphs/trees.png";
 import seedSaplingArt from "./assets/starseed/sapling.png";
 import seedBeaconArt from "./assets/starseed/beacon.png";
+import moonShroomArt1 from "./assets/moon-shrooms/moon-shroom-1.png";
+import moonShroomArt2 from "./assets/moon-shrooms/moon-shroom-2.png";
+import moonShroomArt3 from "./assets/moon-shrooms/moon-shroom-3.png";
 
 import FieldAwoken from "./FieldAwoken";
 import { playSummonFx, playRecallPoof, playFigureRise, figureArtEls } from "./summonFx";
@@ -41,7 +44,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
   axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
@@ -1364,6 +1367,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // menu's seat is the building ability tab on a Stone Awoken's
   // wheel, and pieces laid from it RISE instead of appearing.)
   const [buildPieces, setBuildPieces] = useState<BuildPiece[]>([]);
+  // THE MOON SHROOM (Nigel, 2026-11-10): the land's standing
+  // shrooms, as the server serves them, and the Awoken whose
+  // channel order is armed (its next tap on the land names
+  // the shroom's ground).
+  const [moonShrooms, setMoonShrooms] = useState<MoonShroom[]>([]);
+  const [moonShroomFor, setMoonShroomFor] = useState<number | null>(null);
   const buildPiecesRef = useRef<BuildPiece[]>([]);
   useEffect(() => { buildPiecesRef.current = buildPieces; }, [buildPieces]);
   // THE PILLARS the stride must reckon with (2026-10-26): the
@@ -2318,6 +2327,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setTiles(refreshed.tiles); setPlacements(refreshed.placements); setElsewhere(refreshed.elsewhere ?? []);
     setIslandMarches(refreshed.islandMarches ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
+    setMoonShrooms(refreshed.moonShrooms ?? []);
     setWorkings(refreshed.workings ?? []);
     // In a room, a guest's figure stands at their SEAT's stand —
     // the payload's Tender stand is the land Tender's, and
@@ -3175,9 +3185,25 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // (road, pace, price) before it is given.
       setAbilityLeadId(null);
       setIslandQuote(null);
+      setMoonShroomFor(null);
       setIslandMarchFor(leadId);
       setSelectedAwoken(leadId);
       showHexNotice(`Island March — tap the land ${lead.name} should drift to. Its road will be traced, and its pace and price spoken, before you confirm.`);
+      return;
+    }
+    if (key === "moon-shroom") {
+      // THE MOON SHROOM (Nigel, 2026-11-10): begun, the
+      // order arms like the island's — the next tap on the
+      // land names the ground the shroom sprouts on, and the
+      // channel begins at once (no quote, no confirm: the
+      // channel is the cast, and ending it is the wheel's
+      // own "End channel").
+      setAbilityLeadId(null);
+      setIslandQuote(null);
+      setIslandMarchFor(null);
+      setMoonShroomFor(leadId);
+      setSelectedAwoken(leadId);
+      showHexNotice(`Moon Shroom — tap the ground where ${lead.name} should raise one. The channel runs at ✦3 a second while you are here; the growth stands, and adds up, channel after channel.`);
       return;
     }
     if (key === "building") {
@@ -3227,6 +3253,13 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       entries.push({ key: "ord-recall", emoji: "✋", label: "Halt march", act: () => { void (async () => { try { await api.recallMarch({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name} halts where it stands.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The halt was refused."); } })(); } } as WheelEntry);
     } else {
       entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [id] }); setSelectedAwoken(id); showHexNotice(`March — tap the ground ${p.name} should march to, or drag a line for it to stand on.`); } } as WheelEntry);
+    }
+    // THE MOON SHROOM: an Awoken holding a channel carries
+    // its ending where the march's Halt stands — the growth
+    // the channel bought stays with the shroom either way.
+    const myChannel = moonShrooms.find(s => s.channelers.includes(id));
+    if (myChannel) {
+      entries.push({ key: "ord-end-channel", emoji: "✋", label: "End channel", act: () => { void (async () => { try { await api.stopMoonShroomChannel({ awakenedId: id }); await refreshMarching(); showHexNotice(`${p.name}'s channel ends — the Moon Shroom keeps the growth it bought.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
     }
     entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
@@ -4388,6 +4421,26 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       })();
       return;
     }
+    // THE MOON SHROOM (Nigel, 2026-11-10): the armed channel
+    // order takes this tap as the shroom's ground — the
+    // channel begins at once, and the shroom sprouts there
+    // if none stands. A refusal speaks in plain words and
+    // the order stays armed, as the island's does.
+    if (moonShroomFor !== null) {
+      const awId = moonShroomFor;
+      void (async () => {
+        try {
+          await api.startMoonShroomChannel({ awakenedId: awId, tileId: tile.id });
+          setMoonShroomFor(null);
+          await refreshMarching();
+          const lead = placements.find(p => p.awakenedId === awId);
+          showHexNotice(`${lead?.name ?? "The Awoken"} channels — a Moon Shroom rises on that ground while the channel runs.`);
+        } catch (err) {
+          showHexNotice(err instanceof Error ? err.message : "The channel was refused.");
+        }
+      })();
+      return;
+    }
     if (pendingMarch) {
       // THE ORDER OBEYS (Nigel, 2026-10-22): the wheel armed
       // the march; this tap IS the order — fired at once, no
@@ -5249,7 +5302,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       }
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null) { handleHexTap(t); return; }
+                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null || moonShroomFor !== null) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -7934,6 +7987,70 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       const grown = sd.stage === "sapling" || sd.stage === "beacon" || sd.stage === "bastion";
       standingItems.push({ key: `standing-seed-${sd.id}`, baseY: grown ? cy + size * 0.3 : cy, node: <g key={`standing-seed-${sd.id}`} pointerEvents="none">{node}</g> });
     });
+    // THE MOON SHROOM (Nigel, 2026-11-10): a standing thing
+    // of the depth pass, seated where the grown seeds seat —
+    // its base on the hex's heart line. MAX HEIGHT = twice a
+    // bastion's: the bastion-stage face fills its hex (as
+    // wide as the face at the base line, its height the art's
+    // own 992/512), and the shroom at full growth stands
+    // twice that tall, wearing its artwork's own proportions
+    // (1200×2900). THE RISE, DRAWN on the masonry law (the
+    // wall's own drawing, 2026-10-29): the face stands at its
+    // FULL size and EMERGES — sunk by the un-grown share of
+    // its height and clipped at the ground line, so what is
+    // still underground is never drawn, and no axis of the
+    // art is ever scaled by the growth. At its base, the
+    // blue/white glowing gravel it sprouted with: a soft
+    // moonlit bed and its scattered stones, seeded per shroom
+    // so a shroom's gravel is its own and never reshuffles.
+    moonShrooms.forEach((ms) => {
+      const t = tiles.find(tt => tt.id === ms.tileId);
+      if (!t) return;
+      const { cx, cy } = tilePos(t);
+      const base = cy + size * 0.3;
+      const bastionH = hexWidthAtY(cx, cy, size, base) * (992 / 512);
+      const fullH = bastionH * 2;
+      const fullW = fullH * (1200 / 2900);
+      const art = ms.variant === 2 ? moonShroomArt2 : ms.variant === 3 ? moonShroomArt3 : moonShroomArt1;
+      const sink = (1 - Math.max(0, Math.min(1, ms.growth))) * fullH;
+      const clipId = `moon-clip-${ms.id}`;
+      const glowId = `moon-glow-${ms.id}`;
+      let seedA = (ms.id * 2654435761) >>> 0 || 1;
+      const rnd = () => {
+        seedA = (seedA + 0x6d2b79f5) | 0;
+        let tt = Math.imul(seedA ^ (seedA >>> 15), 1 | seedA);
+        tt = (tt + Math.imul(tt ^ (tt >>> 7), 61 | tt)) ^ tt;
+        return ((tt ^ (tt >>> 14)) >>> 0) / 4294967296;
+      };
+      const gravelFills = ["#eaf4ff", "#cfe4ff", "#a9c8ff", "#ffffff"];
+      const gravel = Array.from({ length: 16 }, (_, i) => {
+        const ang = rnd() * Math.PI * 2, rad = Math.sqrt(rnd());
+        const gx = cx + Math.cos(ang) * rad * fullW * 0.30;
+        const gy = base + Math.sin(ang) * rad * size * 0.10 + size * 0.02;
+        const gr = (0.9 + rnd() * 1.8) * Math.max(0.6, size / 54);
+        return <circle key={i} cx={gx} cy={gy} r={gr} fill={gravelFills[i % 4]} opacity={0.8} />;
+      });
+      const node = (
+        <g key={`shroom-${ms.id}`} className="moon-shroom" data-shroom={ms.id} data-variant={ms.variant} data-growth={ms.growth} data-full-grown={ms.fullGrown ? "1" : undefined}>
+          <defs>
+            <clipPath id={clipId}>
+              <rect x={cx - fullW} y={base - fullH - size} width={fullW * 2} height={fullH + size} />
+            </clipPath>
+            <radialGradient id={glowId}>
+              <stop offset="0%" stopColor="rgb(190,216,255)" stopOpacity="0.85" />
+              <stop offset="60%" stopColor="rgb(150,180,240)" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="rgb(150,180,240)" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          <g clipPath={`url(#${clipId})`}>
+            <image href={art} x={cx - fullW / 2} y={base - fullH + sink} width={fullW} height={fullH} />
+          </g>
+          <ellipse cx={cx} cy={base + size * 0.02} rx={fullW * 0.34} ry={size * 0.13} fill={`url(#${glowId})`} />
+          {gravel}
+        </g>
+      );
+      standingItems.push({ key: `standing-shroom-${ms.id}`, baseY: base, node: <g key={`standing-shroom-${ms.id}`} pointerEvents="none">{node}</g> });
+    });
     wanderers.forEach((w, i) => {
       const node = wandererNodes[i];
       if (!node) return;
@@ -9863,6 +9980,31 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   <div className="orb-info-row"><span>Thorns</span><span>{curse.thorns}</span></div>
                 </div>
               )}
+              {/* THE MOON SHROOM (Nigel, 2026-11-10): its numbers
+                  live here, on the tile's card, as Push 85's law
+                  keeps them — the growth it stands at, the
+                  channels running on it, and the cutting: one
+                  button, the yield spoken on it, no confirmation
+                  standing in the core flow. */}
+              {(() => {
+                const ms = moonShrooms.find(s => s.tileId === t.id);
+                if (!ms) return null;
+                return (
+                  <div className="orb-info-more">
+                    <div className="orb-info-row"><span>Moon Shroom</span><span>{ms.fullGrown ? "full-grown" : `grown ${Math.floor(ms.growth * 100)}%`}</span></div>
+                    {ms.channelers.length > 0 && (
+                      <div className="orb-info-row"><span>Channelling</span><span>{ms.channelers.length === 1 ? "1 Awoken" : `${ms.channelers.length} Awoken`}</span></div>
+                    )}
+                    <button type="button" className="abtn" onClick={() => { void (async () => {
+                      try {
+                        const r = await api.harvestMoonShroom({ shroomId: ms.id });
+                        await refreshMarching();
+                        showHexNotice(r.yield > 0 ? `The Moon Shroom is cut — ✦${r.yield} returns to your purse.` : "The Moon Shroom is cut — too young to give anything back.");
+                      } catch (err) { showHexNotice(err instanceof Error ? err.message : "The cutting was refused."); }
+                    })(); }}>Cut for energy · ✦{ms.harvestYield}</button>
+                  </div>
+                );
+              })()}
             </div>
           );
         }

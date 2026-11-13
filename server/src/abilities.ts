@@ -66,6 +66,17 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     name: "Island March",
     requires: { sky: 1 },
   },
+  {
+    // MOON SHROOM (Nigel, 2026-11-10): a CHANNELED ability —
+    // a mix met in full: at least 1 Root, 1 Tide and 1 Air in
+    // the sum of the parts. The channel, the growth and the
+    // harvest live in actions.ts (the moon shroom settle);
+    // the registry carries only the gate, as it does for
+    // every ability.
+    key: "moon-shroom",
+    name: "Moon Shroom",
+    requires: { root: 1, tide: 1, sky: 1 },
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {
