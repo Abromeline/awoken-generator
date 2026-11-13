@@ -177,13 +177,24 @@ export const MIX_FACE_H = Math.round(MIX_FACE_W * (1280 / 1920));
 
 const layerImages: Partial<Record<TerrainLayerElement, HTMLImageElement>> = {};
 let layerImagesReady = false;
+let layerImagesStarted = false;
 const layerReadySubs = new Set<() => void>();
 
 /** Load the four layer textures once. Until they stand ready the
  *  blended face is unavailable and the caller falls back to the
- *  four floating layers — the map never waits on art. */
+ *  four floating layers — the map never waits on art. Ready
+ *  means the loads have SETTLED: only the first call starts
+ *  them, and a call that arrives while they are still in flight
+ *  changes nothing. The first build let such a re-entrant call
+ *  fall through its loop — every image already stood in the
+ *  table, so nothing counted as pending — and declare the
+ *  textures ready mid-flight; the blend then composited over
+ *  images that had not arrived and cached the empty face for
+ *  the session (the empty-face defect, Nigel's dark hexes,
+ *  found 2026-11-13). */
 function ensureLayerImages(): void {
-  if (layerImagesReady || typeof document === "undefined") return;
+  if (layerImagesReady || layerImagesStarted || typeof document === "undefined") return;
+  layerImagesStarted = true;
   let pending = 0;
   const settle = () => {
     pending -= 1;
@@ -236,6 +247,18 @@ export function blendedMixFace(mix: TileMix): string | null {
   const sig = mixSignature(mix);
   const hit = mixFaceCache.get(sig);
   if (hit) return hit;
+  // A composite is cached for the whole session, so it may only
+  // be made from textures that have truly arrived: any layer
+  // this mix calls for whose image is still in flight holds the
+  // face back (the fallback stack stands in) rather than letting
+  // a partial composite be cached as the final face. A layer
+  // whose load FAILED (complete, but no pixels) simply paints
+  // nothing — that face is final for that art.
+  for (const el of TERRAIN_LAYER_ORDER) {
+    if (mixLayerOpacity(mix[el]) <= 0) continue;
+    const img = layerImages[el];
+    if (!img || !img.complete) return null;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = MIX_FACE_W;
   canvas.height = MIX_FACE_H;
