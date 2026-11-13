@@ -461,6 +461,21 @@ if (!placementCols.some((col) => col.name === "bind_paid_at")) {
   const clocksStart = Date.now();
   sqlite.exec(`UPDATE field_placements SET bind_paid_at = ${clocksStart}, press_paid_at = ${clocksStart}`);
 }
+// THE GRASS PASSIVE's GARDEN CLOCK (Nigel's passive, 2026-11-10;
+// column laid 2026-11-13): grass_paid_at, the third standing
+// clock, starts at the upgrade moment like its two brothers —
+// no retro grass for time stood before the passive existed.
+if (!placementCols.some((col) => col.name === "grass_paid_at")) {
+  sqlite.exec(`ALTER TABLE field_placements ADD COLUMN grass_paid_at INTEGER`);
+  const grassClocksStart = Date.now();
+  sqlite.exec(`UPDATE field_placements SET grass_paid_at = ${grassClocksStart}`);
+}
+// THE GRASS PASSIVE (Nigel, 2026-11-10): the sprigs standing on
+// each tile — whole sprigs in the integer part, growth banked
+// in the fraction. Every standing tile starts bare.
+if (!tileCols.some((col) => col.name === "sprigs")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN sprigs REAL NOT NULL DEFAULT 0`);
+}
 // Curse HP for territory tiles.
 if (!tileCols.some((col) => col.name === "curse_hp")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_hp INTEGER`);

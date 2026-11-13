@@ -66,6 +66,18 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     name: "Island March",
     requires: { sky: 1 },
   },
+  {
+    // THE GRASS PASSIVE (Nigel, 2026-11-10): at least 2 Root
+    // in the sum of the parts. A passive, not a cast: this
+    // copy is judged by the standing settle (settleGrassForTile
+    // in actions.ts), which grows the grass on the ground a
+    // qualifying Awoken stands on — every ten sprigs grant the
+    // tile +1 HP, held in the tile's own hp pool, and the gift
+    // leaves when damage breaks all the tufts at once.
+    key: "grass",
+    name: "Grass",
+    requires: { root: 2 },
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

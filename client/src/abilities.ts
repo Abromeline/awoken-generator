@@ -103,6 +103,23 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     requires: { sky: 1 },
     blurb: "march the floating land it stands on — very, very slowly",
   },
+  {
+    // THE GRASS PASSIVE (Nigel, 2026-11-10): an Awoken holding
+    // at least 2 Root in the sum of its parts tends the ground
+    // it stands on — grass springs up there over time, and
+    // every ten sprigs grant the tile +1 HP. It is a PASSIVE:
+    // no cast, no channel; the server grows the grass in its
+    // standing settle (settleGrassForTile) for exactly the
+    // Awoken this registry entry names, and the wheel's row
+    // only speaks that standing truth. The tufts stand until
+    // damage breaks them ALL at once; partial damage never
+    // thins them, and the HP they granted leaves with them.
+    key: "grass",
+    name: "Grass",
+    mark: "🌱",
+    requires: { root: 2 },
+    blurb: "grass grows on the ground it stands on — every ten sprigs harden that ground",
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {
