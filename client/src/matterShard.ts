@@ -15,10 +15,20 @@
 // the files, so a re-theme re-hues the shots with everything
 // else. The tint is a luminance ramp, not a hue rotation: the
 // frame is first flattened to its own light (feColorMatrix
-// saturate 0), then each channel is walked through a five-stop
-// ramp — the element's deep shade, the element colour itself at
-// the mid-tones, and white at the top — so the shard reads as
-// matter of that element with its white-hot core still white.
+// saturate 0), then each channel is walked through the
+// five-stop ramp of shardTintRamp below. WHICH PART TAKES THE
+// COLOUR is Nigel's law (2026-11-12): the frame's WHITE — its
+// glow — is what tints, standing in the element colour itself
+// through its mass and lifted toward white only at its
+// brightest heart (his amendment the same day: "give that
+// color more of an elemental glow"); the frame's BLACK matter
+// stays black. (An earlier ramp ran the other way at both
+// ends — black lifted to a deep shade of the element, white
+// kept white under a "white-hot core" gloss that was a Keeper
+// reading, never his law; struck 2026-11-12.) The flight also
+// wears a soft halo of the same colour around the shard (see
+// the flight's drawing in Territory), so the tinted shot
+// glows as it flies.
 // Territory renders one SVG filter per element from the ramps
 // computed here. A striker with no element (neutral) flies the
 // art in its own colours, untinted.
@@ -131,17 +141,29 @@ export function shardTintFilterId(element: string | null | undefined): string | 
 }
 
 /** The five-stop luminance ramp for one element colour, as the
- *  per-channel tableValues strings of an feComponentTransfer:
- *  deep shade (the colour at 15% light) → the colour halved →
- *  the colour itself → the colour walked 55% toward white →
- *  white. Stops sit at luminance 0, 0.3, 0.55, 0.8, 1. */
+ *  per-channel tableValues strings of an feComponentTransfer.
+ *  Stops sit at luminance 0, 0.3, 0.55, 0.8, 1 and run:
+ *  (0,0,0) → the colour × 0.50 → the colour × 0.80 → the
+ *  colour itself → the colour walked 30% toward white.
+ *  THE LAW AT THE ENDS IS NIGEL'S (2026-11-12): at luminance
+ *  0 the shard's black matter stays black — it takes no tint
+ *  at all — and the glow's mass stands in the element's own
+ *  colour (reached by luminance 0.8); only the brightest
+ *  heart, luminance 1 itself, takes the hot lift 30% toward
+ *  white, by his amendment the same day ("give that color
+ *  more of an elemental glow"). The midtone gains (0.50 /
+ *  0.80) are this build's proposal, not his ruling: a quick
+ *  climb from black so the glow reads luminous, not flat. */
 export function shardTintRamp(hex: string): { r: string; g: string; b: string } {
   const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
   const rgb = m ? [0, 1, 2].map(i => parseInt(m[1].slice(i * 2, i * 2 + 2), 16) / 255) : [0.85, 0.7, 0.4];
-  const stops = [0, 0.3, 0.55, 0.8, 1].map(t => {
-    if (t <= 0.55) { const k = t / 0.55; return rgb.map(c => c * (0.15 + 0.85 * k)); }
-    const k = (t - 0.55) / 0.45; return rgb.map(c => c + (1 - c) * k);
-  });
+  const stops = [
+    [0, 0, 0],
+    rgb.map(c => c * 0.5),
+    rgb.map(c => c * 0.8),
+    [...rgb],
+    rgb.map(c => c + (1 - c) * 0.3),
+  ];
   const fmt = (ch: number) => stops.map(s => s[ch].toFixed(3)).join(" ");
   return { r: fmt(0), g: fmt(1), b: fmt(2) };
 }

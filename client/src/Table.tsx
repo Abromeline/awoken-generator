@@ -4923,6 +4923,18 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                           fill={elementPalette[shot.element as keyof typeof elementPalette]} fillOpacity={0.5}
                           filter="url(#shard-tail-soft)" />
                       )}
+                      {/* THE SHARD'S GLOW (Nigel, 2026-11-12),
+                          the homeland halo's twin: a soft halo
+                          of the shot's element colour centred on
+                          the shard itself, wearing the tint's
+                          own condition exactly — at this seat a
+                          dark blow takes no tint (tint is null
+                          for it above), so it wears no halo. */}
+                      {tint && (
+                        <ellipse data-shard-halo="" cx={0} cy={0} rx={shotW * 0.62} ry={shotH * 0.78}
+                          fill={elementPalette[shot.element as keyof typeof elementPalette]} fillOpacity={0.55}
+                          filter="url(#shard-tail-soft)" />
+                      )}
                       <svg data-shard-frame="" x={-shotW / 2} y={-shotH / 2} width={shotW} height={shotH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
                         <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
                           filter={tint ? `url(#${tint})` : undefined} />
