@@ -9934,7 +9934,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
               )}
               {grass && (
                 <div className="orb-info-more">
-                  <div className="orb-info-row"><span>Sprigs of grass</span><span>{grass.sprigs}</span></div>
+                  <div className="orb-info-row"><span>Thickness of grass</span><span>{grass.sprigs}</span></div>
                   <div className="orb-info-row"><span>Tile health</span><span>{grass.hp}</span></div>
                   {grass.gift > 0 && (
                     <div className="orb-info-note">The grass lends this ground +{grass.gift} health — it stands while the grass stands.</div>

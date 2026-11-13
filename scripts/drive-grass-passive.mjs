@@ -372,7 +372,7 @@ let cardText = "";
     return { needDrag: true, centre };
   }, grassSel, tried).catch(() => null);
   const tried = [];
-  for (let attempt = 0; attempt < 8 && !/Sprigs of grass/.test(cardText); attempt++) {
+  for (let attempt = 0; attempt < 8 && !/Thickness of grass/.test(cardText); attempt++) {
     const found = await findClick(tried);
     if (!found) break;
     if (found.needDrag) {
@@ -387,12 +387,12 @@ let cardText = "";
     await page.mouse.click(found.x, found.y);
     await sleep(900);
     cardText = await page.evaluate(() => document.querySelector(".orb-info-tilebox")?.textContent ?? "").catch(() => "");
-    if (!/Sprigs of grass/.test(cardText)) {
+    if (!/Thickness of grass/.test(cardText)) {
       await page.mouse.click(24, 24);
       await sleep(300);
     }
   }
-  if (/Sprigs of grass/.test(cardText)) {
+  if (/Thickness of grass/.test(cardText)) {
     const box = await page.evaluate(() => {
       const p = document.querySelector(".orb-info-tilebox");
       if (!p) return null;
@@ -402,7 +402,7 @@ let cardText = "";
     if (box) await page.screenshot({ path: join(SHOTS, "grass-card.png"), clip: box }).catch(() => null);
   }
 }
-ok("§D the tile's click card speaks its sprigs and its tile health", /Sprigs of grass/.test(cardText) && /Tile health/.test(cardText), cardText.slice(0, 160));
+ok("§D the tile's click card speaks its sprigs and its tile health", /Thickness of grass/.test(cardText) && /Tile health/.test(cardText), cardText.slice(0, 160));
 await browser.close();
 
 /* ══ §E partial damage does not thin them ═══════════════════ */
