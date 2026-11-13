@@ -66,6 +66,19 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     name: "Island March",
     requires: { sky: 1 },
   },
+  {
+    // THE RUNE (Nigel, 2026-11-10): a BUILDING ability — an
+    // Awoken holding at least 4 Root in the sum of its parts
+    // may begin the raising of a Rune, a monolith 2/3 a
+    // bastion's size, for 400 Shadow Matter and four hours
+    // of channeling. The raising, the channels and the
+    // blessing live in actions.ts (the Rune settle); the
+    // registry carries only the gate, as it does for every
+    // ability.
+    key: "the-rune",
+    name: "The Rune",
+    requires: { root: 4 },
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

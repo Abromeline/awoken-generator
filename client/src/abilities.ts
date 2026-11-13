@@ -103,6 +103,22 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     requires: { sky: 1 },
     blurb: "march the floating land it stands on — very, very slowly",
   },
+  {
+    // THE RUNE (Nigel, 2026-11-10): a BUILDING ability — an
+    // Awoken holding at least 4 Root in the sum of its parts
+    // may begin the raising of a Rune: a monolith 2/3 a
+    // bastion's size, raised for 400 Shadow Matter and four
+    // hours of channeling at 3 energy a second. Begun from
+    // its row, the next tap on the land names the Rune's
+    // ground; the raising stands cumulative between channels
+    // and between visits, and at full raising the Rune's
+    // blessing wakes on the land it stands on.
+    key: "the-rune",
+    name: "The Rune",
+    mark: "ᛟ",
+    requires: { root: 4 },
+    blurb: "raise a Rune — Shadow Matter falls richer where one stands complete",
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

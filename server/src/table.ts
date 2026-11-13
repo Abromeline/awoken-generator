@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, sqlite } from "./store.js";
 import { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } from "./config.js";
 import { tenderOwnerKey, hashPassword, verifyPassword, tenderFromToken } from "./tenders.js";
-import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, addAspectPoints, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS, LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS, LIGHT_BURN_DIE, LIGHT_BURN_TICK_S, type AttunementElement } from "./actions.js";
+import { awakenedPayloadById, calculateMaxEnergy, resolveCurrentEnemyArt, handlers, incursionRoster, stagedIdsFor, payFellDrip, addAspectPoints, HOMELAND_CAST_RING, bulwarkShieldCountFor, rockWallHpForLevel, grantDividedXpPot, XP_PER_ATTACK, seedLevelForFed, seedStageForLevel, SEED_FED_FOR_LEVEL_2, SEED_FED_FOR_LEVEL_3, tenderStandingFeedRateFor, LIGHTHOUSE_SHADOW_UPKEEP_PER_MINUTE, PROTECTION_ONLINE_GAP_MS, shadowDropChanceFor, LIGHT_DARK, LIGHT_FAINT, LIGHT_FIGHTING, LIGHT_BEACON_RADIUS, LIGHT_BURN_DIE, LIGHT_BURN_TICK_S, type AttunementElement } from "./actions.js";
 import { enemyACFor, enemyArmorBonus, strikeTargetAcFor, ENEMY_AC_BASE, ENEMY_ARMOR_DEFAULTS } from "./enemyAC.js";
 import { rollFellDrops, drainDropNotices, rollFellTake, describeDrops, dropDisplayName, addToInventory, inventoryCanHold, type FellDrop } from "./drops.js";
 import { getTenderProgress, healTierForLevel, healAmountForLevel, tenderMaxHpForLevel, awardTenderExp } from "./tenderExp.js";
@@ -4305,10 +4305,15 @@ function fellDark(room: Room, enemy: EnemyUnit, killer: Player | null, killerUni
   // homeland's creditBattleKill pays them on every fell.
   if (killer?.expKey) {
     // SHADOW (the homeland's road, verbatim): the kind's
-    // AC bonus over 10, on a 20% roll, into her shadow
-    // matter. A fault here never breaks the kill.
+    // AC bonus over 10, on the Shadow roll, into her shadow
+    // matter — the roll's share read the homeland's one way
+    // (shadowDropChanceFor): the standing 20%, or 26% while
+    // a complete RUNE stands on the killer's own land (the
+    // Rune's blessing, Nigel 2026-11-10 — this road pays the
+    // killer's hoard, so the killer's land is the one read).
+    // A fault here never breaks the kill.
     const shadowBonus = enemyArmorBonus(enemy.kind);
-    if (shadowBonus > 0 && Math.random() < 0.2) {
+    if (shadowBonus > 0 && Math.random() < shadowDropChanceFor(killer.expKey)) {
       try {
         sqlite.prepare("UPDATE tender_progress SET shadow_matter = shadow_matter + ? WHERE owner_key = ?").run(shadowBonus, killer.expKey);
       } catch { /* shadow is a purse, never a gate on the kill */ }

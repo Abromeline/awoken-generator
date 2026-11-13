@@ -1225,6 +1225,34 @@ sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_build_pieces_owner ON build_pieces (
   add("rise_updated_at", "rise_updated_at INTEGER NOT NULL DEFAULT 0");
   add("energy_bank", "energy_bank REAL NOT NULL DEFAULT 0");
 }
+// THE RUNE (Nigel, 2026-11-10): the Rune's record and its
+// channels' records — see schema.ts (runes, runeChannels)
+// for the columns' meanings.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS runes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tile_id INTEGER NOT NULL,
+  raiser_key TEXT NOT NULL,
+  progress REAL NOT NULL DEFAULT 0,
+  invested REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(owner_key, tile_id)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_runes_owner ON runes (owner_key);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS rune_channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  rune_id INTEGER NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  purse_key TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  settled_at INTEGER NOT NULL DEFAULT 0,
+  bank REAL NOT NULL DEFAULT 0,
+  UNIQUE(owner_key, awakened_id)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_rune_channels_owner ON rune_channels (owner_key);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_rune_channels_rune ON rune_channels (rune_id);`);
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
