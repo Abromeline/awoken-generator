@@ -103,6 +103,20 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     requires: { sky: 1 },
     blurb: "march the floating land it stands on — very, very slowly",
   },
+  {
+    // MOON SHROOM (Nigel, 2026-11-10): a CHANNELED ability —
+    // a mix met in full: at least 1 Root, 1 Tide and 1 Air in
+    // the sum of the parts. Begun from its row, the next tap
+    // on the land names the ground the shroom sprouts on;
+    // the Awoken channels it upward at 3 energy a second
+    // while the Tender is present, and the growth stands
+    // cumulative between channels and between visits.
+    key: "moon-shroom",
+    name: "Moon Shroom",
+    mark: "🍄",
+    requires: { root: 1, tide: 1, sky: 1 },
+    blurb: "channel a Moon Shroom up out of the ground",
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {
