@@ -86,6 +86,7 @@ import { flightMsForPace, sizeScaleForLevel, arcPoint, shotGrowthScale } from ".
 import { brickFrame } from "./brickArt";
 import { playElementSound } from "./elementSounds";
 import { BRAMBLE_GROW_MS, BRAMBLE_MOTE_GROW_MS, BRAMBLE_ASPECT, BRAMBLE_DRAW_W, BRAMBLE_CENTRE_OFF, BRAMBLE_BASE_OFF, BRAMBLE_MOTE_SCALE, brambleFrameAt, brambleMoteFrameAt } from "./brambleFx";
+import { GRASS_SEQS, GRASS_DRAW_W, grassFrameAt, grassTuftSeat } from "./grassFx";
 import { targetProfilesFor, targetWordsFor, profileAccepts } from "./workingTargets";
 import { useEnemyArt } from "./enemyArt";
 import { EnemyFaceSvgImage } from "./EnemyFace";
@@ -102,6 +103,42 @@ const TERRAIN: Record<string, string> = {
   tide: tideImg, sky: skyImg, stone: stoneImg, root: rootImg,
   neutral: neutralImg, cursed: cursedImg,
 };
+
+/** THE GRASS PASSIVE's STAND (Nigel, 2026-11-10): one tile's
+ *  grass, drawn as tufts of his three grass Dreams — up to six
+ *  tufts of however many sprigs stand, each playing the tile's
+ *  current sequence out of grassFx's no-repeat dealing (every
+ *  viewer deals the same bag from the tile and the hour). The
+ *  stand keeps its OWN small clock, as the cast pose keeps its
+ *  own brief clock: the map's one clock runs only while
+ *  something moves (flights, marches, patrols), and the grass
+ *  sways on quiet ground too — a passive that only moved
+ *  during battles would not be standing grass at all. The
+ *  timer re-renders this stand alone, never the map. The
+ *  group carries the standing sequence and the sprig count
+ *  so the proving drives can read the cycle off the DOM. */
+function GrassStand({ tileId, sprigs, cx, cy, s }: { tileId: number; sprigs: number; cx: number; cy: number; s: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const iv = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(iv);
+  }, []);
+  const whole = Math.floor(sprigs);
+  if (whole < 1) return null;
+  const tufts = Math.min(6, whole);
+  const { seq } = grassFrameAt(now, tileId, 0);
+  return (
+    <g data-grass-tile={tileId} data-grass-seq={seq} data-grass-sprigs={whole} pointerEvents="none">
+      {Array.from({ length: tufts }, (_, i) => {
+        const f = grassFrameAt(now, tileId, i);
+        const seat = grassTuftSeat(tileId, i);
+        const w = GRASS_DRAW_W * s * GRASS_SEQS[f.seq].wRel * seat.scale;
+        const h = w * GRASS_SEQS[f.seq].hPerW;
+        return <image key={i} href={f.src} x={cx + seat.dx * s - w / 2} y={cy + seat.dy * s - h} width={w} height={h} preserveAspectRatio="none" />;
+      })}
+    </g>
+  );
+}
 
 // Per-key seating offsets for the tile <image>, in units of s (the map
 // tile size), converted from source px at the image's render scale
@@ -3273,6 +3310,15 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       showHexNotice(`The Shrub — tap the ground ${lead.name} should raise it on, within two tiles of where it stands.`);
       return;
     }
+    if (key === "grass") {
+      // THE GRASS PASSIVE (Nigel, 2026-11-10): there is no
+      // cast to begin — the grass grows by standing, reckoned
+      // on the server for exactly the spans stood. The row's
+      // tap only speaks that standing truth in plain words,
+      // so the door is never a dead button.
+      showHexNotice(`Grass — ${lead.name} tends the ground it stands on: grass springs up there as it stands, and every ten sprigs lend that ground +1 health. The tufts stand until damage breaks them all at once.`);
+      return;
+    }
     if (key === "island-march") {
       // MARCHING ISLANDS (Nigel, 2026-11-09): begun, the
       // order arms like a march — the next tap on the land
@@ -5950,6 +5996,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
           {t.spark === 2 && fireAspectImg && (
             <image href={fireAspectImg} x={cx - 40 / zoom} y={cy - 50 / zoom} width={80 / zoom} height={80 / zoom}
               preserveAspectRatio="xMidYMid meet" opacity="0.7" pointerEvents="none" />
+          )}
+          {/* THE GRASS PASSIVE's FACE (Nigel, 2026-11-10): the
+              sprigs the server grows under a Root-strong
+              standing show as tufts of his three grass Dreams
+              (GrassStand, below the imports — it keeps its OWN
+              small clock, as the cast pose keeps its own: the
+              map's one clock runs only while something moves,
+              and the grass sways on quiet ground too). Grass
+              never stands on cursed ground: the count the
+              server serves there is 0 by its own law. */}
+          {!t.cursed && Math.floor((t as any).sprigs ?? 0) >= 1 && (
+            <GrassStand tileId={t.id} sprigs={(t as any).sprigs} cx={cx} cy={cy} s={s} />
           )}
           {/* The spark claim marker (t.spark === 1) is NOT
               painted here — it stands in the sparkClaimLayer
@@ -10281,6 +10339,17 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
             const maxHp = (t as any).curseMaxHp ?? (4 + ring * 6);
             curse = { hp: (t as any).curseHp ?? maxHp, maxHp, thorns: Math.pow(2, Math.max(0, ring - 1)) };
           }
+          // THE GRASS PASSIVE (Nigel, 2026-11-10): where
+          // grass stands, the card speaks it — the sprig
+          // count and the tile's health, which already
+          // carries the grass's gift (the server adds every
+          // ten sprigs' +1 into the tile's own pool). This
+          // card is where tile numbers live (Push 85); the
+          // tile's face carries none.
+          const grassSprigs = Math.floor((t as any).sprigs ?? 0);
+          const grass = !t.cursed && grassSprigs >= 1
+            ? { sprigs: grassSprigs, hp: (t as any).hp ?? 10, gift: Math.floor(grassSprigs / 10) }
+            : null;
           return (
             <div className="orb-info-popup orb-info-tilebox" role="status" aria-label="Tile attunement">
               <div className="orb-info-title">Tile attunement</div>
@@ -10356,6 +10425,15 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   </div>
                 );
               })()}
+              {grass && (
+                <div className="orb-info-more">
+                  <div className="orb-info-row"><span>Thickness of grass</span><span>{grass.sprigs}</span></div>
+                  <div className="orb-info-row"><span>Tile health</span><span>{grass.hp}</span></div>
+                  {grass.gift > 0 && (
+                    <div className="orb-info-note">The grass lends this ground +{grass.gift} health — it stands while the grass stands.</div>
+                  )}
+                </div>
+              )}
             </div>
           );
         }

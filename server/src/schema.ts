@@ -525,6 +525,18 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   cursed: integer("cursed").notNull().default(1),
   spark: integer("spark").notNull().default(0),
   hp: integer("hp").notNull().default(10),
+  /* THE GRASS PASSIVE (Nigel, 2026-11-10): the sprigs of
+     grass standing on this tile — a REAL count for whole
+     sprigs, the fraction banked beneath it (standing grows
+     grass slowly, and partial growth is not lost). Every
+     ten whole sprigs grant the tile +1 HP, added into `hp`
+     itself by the settle as they ripen; the gift is derived
+     from this count (floor(sprigs / 10)), never stored
+     apart. The tufts stand until damage breaks them ALL at
+     once — the count falls to 0 in that one blow and the
+     gift leaves with them; partial damage never thins the
+     count. Cursed ground grows nothing and keeps none. */
+  sprigs: real("sprigs").notNull().default(0),
   building: text("building"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
@@ -666,6 +678,20 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // never lost for want of a read. Null = never settled; the
   // span then runs from placed_at.
   bindPaidAt: integer("bind_paid_at", { mode: "timestamp_ms" }),
+  /* THE GRASS PASSIVE's GARDEN CLOCK (2026-11-13, under the
+     2026-10-28 FIX THE CLOCKS law): the last moment the
+     grass grow reckoned for THIS standing. The settle grows
+     sprigs on the tile beneath only for spans this cursor
+     has not yet paid — >= placed_at, moves to the read's
+     moment FOR EVERY STANDING MEMBER whether or not any
+     grass grows (a member reads TRUE if its cursor has not
+     passed, so a span is never told twice by a second
+     member's read — and a span never tells at all if the
+     standing's own cursor already passed it). NULL on rows
+     sown before the column lands; the store backfills it to
+     the upgrade moment so no one is paid retro grass for
+     time stood before the passive existed. */
+  grassPaidAt: integer("grass_paid_at", { mode: "timestamp_ms" }),
   pressPaidAt: integer("press_paid_at", { mode: "timestamp_ms" }),
   hp: integer("hp"),
   // The marching layer (War-Ground, Nigel 2026-10-16): a patrol road

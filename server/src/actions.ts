@@ -2552,6 +2552,85 @@ export async function settleTilePress(ownerKey: string, tile: any, nowMs: number
   }
 }
 
+/** Sprigs grown per hour of standing, per qualifying Awoken
+ *  (THE GRASS PASSIVE, Nigel, 2026-11-10 — the passive's spec
+ *  names the gate, the ten-sprig measure and the permanence,
+ *  and is silent on the rate; this is the build's measure,
+ *  left for his play to judge: one sprig per ten minutes of
+ *  standing — a lone tender's ground earns its first granted
+ *  HP after about a hundred minutes of tending, and a company
+ *  of qualifiers grows it together, each at this rate). */
+export const SPRIGS_PER_HOUR = 6;
+
+/** THE GRASS PASSIVE (Nigel, 2026-11-10): a passive, not a
+ *  cast — an Awoken holding at least 2 Root in the sum of its
+ *  parts (the registry's "grass" door, judged by the same
+ *  abilityQualifies the wheel reads) tends the ground it
+ *  stands on, and grass grows there for exactly the spans it
+ *  stood. The reckoning follows the press's clock law: each
+ *  standing member's unpaid span runs from the later of its
+ *  placed_at and its grass cursor, and EVERY member's cursor
+ *  advances to the settle moment whether or not it grew
+ *  anything, so stood time is never grown twice and time
+ *  nobody qualified for grows nothing. Growth is per-member
+ *  and additive — two tenders of the ground grow it twice as
+ *  fast — and the fraction banks on the tile, so partial
+ *  growth is never lost.
+ *
+ *  Every TEN whole sprigs grant the tile +1 HP: as the count
+ *  crosses each ten, the gift is added into the tile's own
+ *  `hp` pool — the same pool battle damage spends — so the
+ *  gift is derived from the count (floor(sprigs / 10)) and
+ *  never stored apart. The tufts are PERMANENT until damage
+ *  breaks them ALL at once (the fall doors and the blow that
+ *  spends a tile's HP to zero, at damageTileHp and the chew's
+ *  fall below): there the count falls to 0 and the gift
+ *  leaves with it. Partial damage never touches the count.
+ *  Cursed ground grows nothing and keeps none — this settle
+ *  is called only for uncursed tiles, beside the press. */
+export async function settleGrassForTile(ownerKey: string, tile: any, nowMs: number = Date.now()): Promise<void> {
+  if (!tile || tile.cursed) return;
+  const grass = abilityByKey("grass");
+  if (!grass) return;
+  const rows = await db.select({
+    id: schema.fieldPlacements.id,
+    awakenedId: schema.fieldPlacements.awakenedId,
+    placedAt: schema.fieldPlacements.placedAt,
+    grassPaidAt: schema.fieldPlacements.grassPaidAt,
+  }).from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.tileId, tile.id));
+  if (!rows.length) return;
+  let grown = 0;
+  for (const r of rows) {
+    const placedMs = new Date(r.placedAt).getTime();
+    const cursorMs = Math.max(placedMs, r.grassPaidAt ? new Date(r.grassPaidAt).getTime() : 0);
+    if (nowMs > cursorMs) {
+      const aw = await db.select({ compositionJson: schema.awakened.compositionJson })
+        .from(schema.awakened).where(eq(schema.awakened.id, r.awakenedId)).limit(1);
+      if (aw.length && abilityQualifies(grass.requires, await elementSumsOf(aw[0]))) {
+        grown += ((nowMs - cursorMs) / CLOCK_HOUR_MS) * SPRIGS_PER_HOUR;
+      }
+    }
+    await db.update(schema.fieldPlacements)
+      .set({ grassPaidAt: new Date(nowMs) })
+      .where(eq(schema.fieldPlacements.id, r.id));
+  }
+  if (grown <= 0) return;
+  const before = (tile as any).sprigs ?? 0;
+  const after = before + grown;
+  const giftBefore = Math.floor(before / 10);
+  const giftAfter = Math.floor(after / 10);
+  (tile as any).sprigs = after;
+  const upd: Record<string, unknown> = { sprigs: after };
+  if (giftAfter > giftBefore) {
+    (tile as any).hp = ((tile as any).hp ?? 10) + (giftAfter - giftBefore);
+    upd.hp = (tile as any).hp;
+  }
+  await db.update(schema.territoryTiles)
+    .set(upd as any)
+    .where(eq(schema.territoryTiles.id, tile.id));
+}
+
 /** Settle every clock a placement carries, at its departure
  *  or its move: its binding interval is paid, and its tile's
  *  press is poured for the spans the whole company stood,
@@ -2570,7 +2649,12 @@ export async function settlePlacementClocksById(placementId: number, nowMs: numb
     const tRows = await db.select().from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.id, p.tileId)).limit(1);
     const tile = tRows[0];
-    if (tile && !tile.cursed) await settleTilePress(p.ownerKey, tile, nowMs);
+    if (tile && !tile.cursed) {
+      await settleTilePress(p.ownerKey, tile, nowMs);
+      // THE GRASS PASSIVE: the departing standing's grass is
+      // grown for the spans it stood, beside its press.
+      await settleGrassForTile(p.ownerKey, tile, nowMs);
+    }
   } catch (e) {
     console.error("[SettleClocks] departure settle failed", e);
   }
@@ -3591,6 +3675,11 @@ const ELEMENTS_5 = ["tide", "sky", "stone", "root", "fire"] as const;
 const FALLEN_TILE_FIELDS = {
   attunePoints: 0, attuneElement: null, mixPoints: null,
   sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
+  /* THE GRASS PASSIVE (Nigel, 2026-11-10): a fallen tile's
+     tufts break with it — the sprig count falls to 0 in the
+     same blow (the doors that fall a tile through this set
+     also shed the gift from the tile's dormant hp). */
+  sprigs: 0,
 } as const;
 const PURIFIED_TILE_FIELDS = {
   attunePoints: 0, attuneElement: null, mixPoints: null,
@@ -9287,8 +9376,22 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
           const ring = Math.max(Math.abs(target.q), Math.abs(target.r), Math.abs(target.q + target.r));
           if (d.chewProgress >= curseHpFor(ring, mood)) {
             const maxHp = curseHpFor(ring, mood);
-            await db.update(schema.territoryTiles).set({ cursed: 1, curseHp: maxHp, curseMaxHp: maxHp, spark: 0 }).where(eq(schema.territoryTiles.id, target.id));
+            // THE GRASS PASSIVE's BREAK (Nigel, 2026-11-10):
+            // the tile turns — its tufts break ALL at once in
+            // the turning, the sprig count falls to 0, and
+            // the HP they granted leaves the tile's dormant
+            // pool with them (partial chewing before this
+            // moment never thinned a single sprig — the
+            // progress lives on the dark, not on the grass).
+            // The garden clocks of whoever stands here stop
+            // at the fall, as at the damage door.
+            const grassGift = Math.floor(((target as any).sprigs ?? 0) / 10);
+            const dormantHp = Math.max(0, ((target as any).hp ?? 10) - grassGift);
+            await db.update(schema.territoryTiles).set({ cursed: 1, curseHp: maxHp, curseMaxHp: maxHp, spark: 0, sprigs: 0, hp: dormantHp }).where(eq(schema.territoryTiles.id, target.id));
             target.cursed = 1; target.curseHp = maxHp; target.curseMaxHp = maxHp; target.spark = 0;
+            (target as any).sprigs = 0; (target as any).hp = dormantHp;
+            sqlite.prepare("UPDATE field_placements SET grass_paid_at = ? WHERE tile_id = ?")
+              .run(Date.now(), target.id);
             d.chewTileId = null; d.chewProgress = 0;
           }
         }
@@ -11671,8 +11774,19 @@ export const handlers = {
       )).limit(1);
     if (!tile.length) badRequest("Tile not found.");
     const newHp = Math.max(0, (tile[0].hp ?? 10) - parsed.data.damage);
+    // THE GRASS PASSIVE's BREAK (Nigel, 2026-11-10): the
+    // tufts are permanent until damage breaks them ALL at
+    // once — and the blow that spends a tile's HP to zero is
+    // that blow. The sprig count falls to 0 in this same
+    // write, and the HP the tufts granted leaves with them:
+    // it stood inside this very pool, and the pool is spent.
+    // Partial damage — HP still standing — never thins the
+    // count by a single sprig. Ring ground below survives
+    // the fall, but the blow still breaks its tufts: the
+    // tile stands bare at 0 HP, its grass gone, to be tended
+    // again from nothing.
     await db.update(schema.territoryTiles)
-      .set({ hp: newHp })
+      .set(newHp === 0 && (tile[0].sprigs ?? 0) > 0 ? { hp: newHp, sprigs: 0 } : { hp: newHp })
       .where(eq(schema.territoryTiles.id, parsed.data.tileId));
     // If HP hit 0, curse the tile — unless the ground stands
     // in a beacon's ring (Nigel, 2026-11-10): ring ground can
@@ -11689,6 +11803,12 @@ export const handlers = {
       await db.update(schema.territoryTiles)
         .set({ cursed: 1, ...FALLEN_TILE_FIELDS })
         .where(eq(schema.territoryTiles.id, parsed.data.tileId));
+      // The fallen tile's garden clocks stop at the fall:
+      // whoever stands on the cursed ground grows nothing
+      // there, and the cursed span must never be grown
+      // retroactively if the ground is purified later.
+      sqlite.prepare("UPDATE field_placements SET grass_paid_at = ? WHERE tile_id = ?")
+        .run(Date.now(), parsed.data.tileId);
       cursed = true;
     }
     return { ok: true as const, hp: newHp, cursed };
@@ -13432,6 +13552,9 @@ export const handlers = {
         const tile = tileById.get(tileId);
         if (!tile || tile.cursed) continue;
         await settleTilePress(ownerKey, tile, Date.now());
+        // THE GRASS PASSIVE grows in the same read, beside
+        // the press — the served tile carries its new sprigs.
+        await settleGrassForTile(ownerKey, tile, Date.now());
       }
       // Empty hexes keep no clock: a tile whose company has
       // gone had its spans settled at their departures; all
@@ -19334,9 +19457,17 @@ export const handlers = {
         // The curse is reborn under the live sky (thickening's tooth).
         const fallRing = Math.max(Math.abs(victim.q), Math.abs(victim.r), Math.abs(victim.q + victim.r));
         const fallHp = curseHpFor(fallRing, mood);
+        // THE GRASS PASSIVE's BREAK rides the fall (Nigel,
+        // 2026-11-10): FALLEN_TILE_FIELDS takes the sprig
+        // count to 0, and the HP the tufts granted is shed
+        // from the tile's dormant pool here — the gift leaves
+        // with the grass, as at every fall door.
+        const fallGrassGift = Math.floor(((victim as any).sprigs ?? 0) / 10);
         await db.update(schema.territoryTiles)
-          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp, ...FALLEN_TILE_FIELDS })
+          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp, hp: Math.max(0, ((victim as any).hp ?? 10) - fallGrassGift), ...FALLEN_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, victim.id));
+        sqlite.prepare("UPDATE field_placements SET grass_paid_at = ? WHERE tile_id = ?")
+          .run(Date.now(), victim.id);
       }
       await db.update(schema.waveState)
         .set({ lastWaveAt: new Date() })
@@ -21002,6 +21133,11 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
       const tile = tileById.get(tileId);
       if (!tile || tile.cursed) continue;
       await settleTilePress(ownerKey, tile, now);
+      // THE GRASS PASSIVE grows on the clock's beat too,
+      // beside the press — the same standing-clock law: only
+      // spans actually stood are ever grown, and every
+      // member's cursor keeps the telling honest.
+      await settleGrassForTile(ownerKey, tile, now);
     }
     for (const t of tileRows) {
       if (t.cursed || byTile.has(t.id) || !t.attuneAnchorAt) continue;
