@@ -920,6 +920,24 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS island_marches (
   created_at INTEGER NOT NULL
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_island_marches_owner ON island_marches (owner_key);`);
+// BRICK (Nigel, ruled 2026-10-27, amended 2026-11-10): one
+// row per Awoken that has raised — or is raising — bricks.
+// hovering counts the bricks hanging above it; next_at is
+// when the brick now rising completes (NULL when none is
+// rising: the stand is full, or none was ever asked for).
+// The raising settles lazily at reads, one energy per
+// completed brick (settleBricks in actions.ts) — the same
+// pattern island_marches above keeps.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS raised_bricks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  hovering INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER,
+  created_at INTEGER NOT NULL,
+  UNIQUE(owner_key, awakened_id)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_raised_bricks_owner ON raised_bricks (owner_key);`);
 sqlite.exec(`CREATE TABLE IF NOT EXISTS tender_weapons (
   owner_key TEXT NOT NULL,
   weapon_key TEXT NOT NULL,

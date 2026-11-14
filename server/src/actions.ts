@@ -1828,6 +1828,209 @@ async function settleShrubs(ownerKey: string, nowMs: number = Date.now()): Promi
     updSh.run(sh.growth, nowMs, ownerKey, sh.id);
   }
 }
+// ── BRICK (Nigel, ruled 2026-10-27; amended 2026-11-10;
+// restated 2026-11-13: "any awoken that can build should be
+// able to cast brick") ─────────────────────────────────────
+// An Awoken holding two or more Rock in the sum of its parts
+// — the registry's "brick" entry, the same ground as
+// Building — raises bricks above itself: one brick every
+// three seconds, one energy apiece, as many at once as its
+// Rock holds (capacity: +1 brick per point of Rock in the
+// sum of its parts — "per Rock level" read against the
+// registry's own reckoning, where an Awoken's Rock IS that
+// sum). The raised bricks hover until they are spent: a tap
+// on an enemy looses EVERY raised brick within four tiles
+// at the AREA around it, each judged by the standing
+// referee at 1d6; a wall rising within four tiles pulls
+// hovering bricks into itself, each brick doing the
+// rise-work of the one energy it cost; and in the living
+// battle a raised brick is the qualifying Awoken's DEFAULT
+// answer — thrown before its elemental strike whenever its
+// mark stands within the bricks' four tiles. Brick is NOT
+// channeling: it never rides the 3-energy-a-second economy;
+// its only costs are the per-brick energy above.
+// The raising settles lazily at reads, in settleBuildRises'
+// own manner: time and the purse advance it; a starved purse
+// HOLDS the rise where it stands — no advance, no charge —
+// and the brick completes at the first read after the purse
+// can pay. Bricks belong to the Awoken, not the ground: they
+// stay raised while it stands anywhere on the field, and a
+// wall's pull reaches any of its fielded Awoken in range.
+const BRICK_RAISE_MS = 3000;
+const BRICK_RANGE = 4;
+
+type RaisedBrickRow = { id: number; ownerKey: string; awakenedId: number; hovering: number; nextAt: number | null; createdAt: number };
+
+function raisedBrickRows(ownerKey: string): RaisedBrickRow[] {
+  return sqlite.prepare("SELECT id, owner_key AS ownerKey, awakened_id AS awakenedId, hovering, next_at AS nextAt, created_at AS createdAt FROM raised_bricks WHERE owner_key = ?")
+    .all(ownerKey) as RaisedBrickRow[];
+}
+
+function raisedBrickRow(ownerKey: string, awakenedId: number): RaisedBrickRow | null {
+  return (sqlite.prepare("SELECT id, owner_key AS ownerKey, awakened_id AS awakenedId, hovering, next_at AS nextAt, created_at AS createdAt FROM raised_bricks WHERE owner_key = ? AND awakened_id = ?")
+    .get(ownerKey, awakenedId) as RaisedBrickRow | undefined) ?? null;
+}
+
+/** The stand's capacity: one hovering brick per point of
+ *  Rock in the sum of the Awoken's parts. */
+function brickCapacityOf(sums: { stone?: number }): number {
+  return Math.max(0, Math.floor(sums.stone ?? 0));
+}
+
+/** One Awoken's brick stand as the doors and the land serve
+ *  it: how many bricks hover, how many its Rock can hold,
+ *  and whether another is rising now. */
+function brickStandView(ownerKey: string, awakenedId: number, sums: { stone?: number }): { awakenedId: number; hovering: number; capacity: number; raising: boolean; nextAt: number | null } {
+  const row = raisedBrickRow(ownerKey, awakenedId);
+  return {
+    awakenedId,
+    hovering: row ? Math.max(0, Math.floor(row.hovering)) : 0,
+    capacity: brickCapacityOf(sums),
+    raising: !!row && row.nextAt != null,
+    nextAt: row ? row.nextAt : null,
+  };
+}
+
+/** THE RAISE, SETTLED (Brick): every brick whose three
+ *  seconds have run completes — one energy drawn from the
+ *  purse per completion, through spendEnergy, the one purse
+ *  door. A purse that cannot pay HOLDS the rise: the brick
+ *  stays due, uncharged, and completes at the first later
+ *  read that can pay. The next brick's three seconds start
+ *  from the last completion, so a stand left alone fills at
+ *  its ruled pace and no faster; at capacity the rising
+ *  stops. An Awoken gone from the tender's keeping stops
+ *  rising; the bricks it already raised stay raised. */
+async function settleBricks(ownerKey: string): Promise<void> {
+  const now = Date.now();
+  const due = raisedBrickRows(ownerKey).filter(r => r.nextAt != null && r.nextAt <= now);
+  for (const row of due) {
+    const aw = (await db.select().from(schema.awakened).where(eq(schema.awakened.id, row.awakenedId)))[0] as any;
+    if (!aw || String(aw.ownerKey) !== ownerKey) {
+      sqlite.prepare("UPDATE raised_bricks SET next_at = NULL WHERE id = ?").run(row.id);
+      continue;
+    }
+    const capacity = brickCapacityOf(await elementSumsOf(aw));
+    let hovering = Math.max(0, Math.floor(row.hovering));
+    let nextAt: number | null = row.nextAt;
+    while (nextAt != null && nextAt <= now && hovering < capacity) {
+      const paid = await spendEnergy(ownerKey, 1);
+      if (!paid) break; // the purse is empty: the rise holds, due and uncharged
+      hovering += 1;
+      nextAt = hovering >= capacity ? null : nextAt + BRICK_RAISE_MS;
+    }
+    if (hovering >= capacity) nextAt = null;
+    if (hovering !== row.hovering || nextAt !== row.nextAt) {
+      sqlite.prepare("UPDATE raised_bricks SET hovering = ?, next_at = ? WHERE id = ?").run(hovering, nextAt, row.id);
+    }
+  }
+}
+
+/** THE WALL'S PULL (Brick): a wall still rising claims
+ *  hovering bricks from the tender's fielded Awoken standing
+ *  within four tiles of its footprint — loose bricks pulled
+ *  into the wall being built. Each claimed brick does the
+ *  rise-work of the ONE ENERGY it cost to raise: at the
+ *  standing masonry rates (settleBuildRises: the crew's
+ *  power over RISE_ANCHOR_NUMERATOR per minute, drawn as one
+ *  energy a minute from each builder), one energy of this
+ *  wall's rise is exactly crewPower / (36 × crew) of its
+ *  whole — so a claimed brick advances the wall by that
+ *  much, and the purse is never charged twice for the same
+ *  rise. The claim follows the masonry's own rules besides:
+ *  no crew standing, no pull; at the top the wall snaps by
+ *  the same support law the rise itself snaps by. Claims
+ *  settle where the rise settles — at the land's reads and
+ *  at the building doors. */
+async function settleBrickWallClaims(ownerKey: string): Promise<void> {
+  const rows = raisedBrickRows(ownerKey).filter(r => r.hovering > 0);
+  if (!rows.length) return;
+  const pieces = loadBuildPieces(ownerKey);
+  const walls = pieces
+    .filter(p => p.state === "rising" && p.frac < 1 && (p.kind === "wall" || p.kind === "door" || p.kind === "halfwall" || p.kind === "narrow"))
+    .sort((a, b) => a.id - b.id);
+  if (!walls.length) return;
+  const crew = await buildCrewFor(ownerKey);
+  if (!crew.length) return;
+  const crewPower = crew.reduce((s, c) => s + c.stone, 0);
+  if (crewPower <= 0) return;
+  const perBrick = crewPower / (RISE_ANCHOR_NUMERATOR * crew.length);
+  const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey)) as any[];
+  const tileById = new Map(tiles.map(t => [t.id, t]));
+  const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+  const standOf = new Map<number, { q: number; r: number }>();
+  for (const p of placements) {
+    const t = tileById.get(Number(p.tileId));
+    standOf.set(Number(p.awakenedId), {
+      q: p.posQ == null ? (t?.q ?? 0) : Number(p.posQ),
+      r: p.posR == null ? (t?.r ?? 0) : Number(p.posR),
+    });
+  }
+  const now = Date.now();
+  for (const wall of walls) {
+    const hexes = footprintHexes(wall.footprint);
+    if (!hexes.length) continue;
+    const inRange = rows
+      .filter(r => r.hovering > 0 && standOf.has(r.awakenedId))
+      .map(r => ({ row: r, dist: Math.min(...hexes.map(h => axialDist(standOf.get(r.awakenedId)!, h))) }))
+      .filter(x => x.dist <= BRICK_RANGE)
+      .sort((a, b) => a.dist - b.dist || a.row.awakenedId - b.row.awakenedId);
+    if (!inRange.length) continue;
+    let frac = wall.frac;
+    let claimedAny = false;
+    for (const { row } of inRange) {
+      while (row.hovering > 0 && frac < 1) {
+        row.hovering -= 1;
+        frac = Math.min(1, frac + perBrick);
+        claimedAny = true;
+      }
+      if (frac >= 1) break;
+    }
+    if (!claimedAny) continue;
+    wall.frac = frac;
+    if (frac >= 1) {
+      const stands = pieceStands(wall, pieces);
+      sqlite.prepare("UPDATE build_pieces SET frac = 1, state = ?, rise_updated_at = ? WHERE owner_key = ? AND id = ?")
+        .run(stands ? "standing" : "settling", now, ownerKey, wall.id);
+      wall.state = stands ? "standing" : "settling";
+    } else {
+      sqlite.prepare("UPDATE build_pieces SET frac = ?, rise_updated_at = ? WHERE owner_key = ? AND id = ?")
+        .run(frac, now, ownerKey, wall.id);
+    }
+    for (const { row } of inRange) {
+      sqlite.prepare("UPDATE raised_bricks SET hovering = ? WHERE id = ?").run(row.hovering, row.id);
+    }
+  }
+}
+
+/** ONE BRICK, JUDGED (Brick): a thrown brick flies Rock's
+ *  road and is judged exactly as the referee judges a
+ *  placement's stone blow — the fate die against the mark's
+ *  AC with the distance toll (strikeTargetAcFor), the same
+ *  bonuses (the level's step, stone's hit bonus, the
+ *  company's, the zodiac's), a critical on the zodiac's
+ *  threshold doubling the dice — save that the harm itself
+ *  is the brick's own: 1d6, doubled on a critical, run
+ *  through the one mitigation (homelandFateMitigate). The
+ *  loose and the battle's default answer both throw by this
+ *  one reckoning, so a brick is a brick wherever it flies. */
+function judgeBrickThrow(ownerKey: string, level: number, classKey: string | null | undefined, targetBaseAc: number, distance: number): { hit: boolean; crit: boolean; dmg: number; ac: number } {
+  const targetAC = strikeTargetAcFor(Math.max(1, Math.floor(targetBaseAc)), distance);
+  const roll = homelandDN(20);
+  const bonus = fateStep(level) + (ELEMENT_HIT_BONUS_MIRROR.stone ?? 0)
+    + companyAttackBonusFor(classKey, ownerKey) + fxSum(ownerKey, "awokinAb");
+  const critAt = 20 - fxSum(ownerKey, "critChance");
+  const crit = roll >= critAt;
+  const hit = crit || (roll !== 1 && roll + bonus >= targetAC);
+  if (!hit) return { hit: false, crit: false, dmg: 0, ac: targetAC };
+  let raw = homelandDN(6);
+  if (crit) {
+    raw += homelandDN(6);
+    const half = fxSum(ownerKey, "critHalf");
+    if (half > 0) raw = Math.round(raw * (2 + 0.5 * half) / 2);
+  }
+  return { hit: true, crit, dmg: homelandFateMitigate(raw, targetAC, level), ac: targetAC };
+}
 
 // --- The boss ladder is ABOLISHED (Nigel, 2026-10-24) ----------------------
 // The staged boss battle mode — its server ladder (boss_state), its
@@ -7857,6 +8060,12 @@ export type HomelandStrike = {
    *  on a placement's blow; the dark's bites carry none, and
    *  clients default an absent level to 1. */
   level?: number;
+  /** BRICK (Nigel, ruled 2026-10-27, amended 2026-11-10):
+   *  the blow was a raised brick, not a matter shard — the
+   *  map flies Nigel's brick art on the stone road instead.
+   *  The blow's element still reads "stone": the brick is
+   *  Rock's working, judged by Rock's reckoning. */
+  brick?: boolean;
 };
 const homelandStrikeLog = new Map<string, HomelandStrike[]>();
 let homelandStrikeSeq = 0;
@@ -8016,6 +8225,13 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     towerGuard: boolean;
     elSum: Record<string, number>; rootAspects: number; partCount: number; hp: number; maxHp: number; shield: number | null; shieldMax: number | null;
     nextAt: number; marching: boolean; dead: boolean;
+    /** BRICK (Nigel, 2026-10-27 / 2026-11-10): the fighter's
+     *  Rock in the registry's reckoning (composition parts:
+     *  a part a point, an aspect part its level) — the same
+     *  count that gates the Brick ability and sizes its
+     *  stand. Two or more, and a raised brick is her default
+     *  answer in the loop below. */
+    brickStone: number;
   };
   const placementRows = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
   const fighters: Fighter[] = [];
@@ -8043,6 +8259,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     const elSum: Record<string, number> = {};
     for (const l of layers) { const el = l.element ?? "neutral"; elSum[el] = (elSum[el] ?? 0) + (l.power ?? 0); }
     let rootAspects = 0;
+    let brickStone = 0;
     const awRow = sqlite.prepare("SELECT composition_json AS comp, experience FROM awakened WHERE id = ?").get(p.awakenedId) as any;
     if (awRow?.comp) {
       try {
@@ -8050,6 +8267,9 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         const els = await compositionElements(comp);
         comp.forEach((layer: any, i: number) => {
           if (layer?.category === "aspect" && els[i] === "root") rootAspects += Number((layer as any).aspectLevel ?? 1) || 1;
+          // BRICK's Rock, in the registry's reckoning (the
+          // parts' way — elementSumsOf's own count).
+          if (els[i] === "stone") brickStone += layer?.category === "aspect" ? (Number((layer as any).aspectLevel ?? 1) || 1) : 1;
         });
       } catch { /* a garbled composition counts no aspects */ }
     }
@@ -8061,7 +8281,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       towerGuard: false, // stamped once the towers are loaded, below
       power: payload.power ?? 0, toughness: payload.toughness ?? 1,
       level: Math.max(1, awokenLevelOf(Number(awRow?.experience ?? 0))),
-      dominant: homelandPlacementElement(layers as any[]), elSum, rootAspects, partCount: Math.max(1, layers.length),
+      dominant: homelandPlacementElement(layers as any[]), elSum, rootAspects, brickStone, partCount: Math.max(1, layers.length),
       hp: p.hp == null ? Math.max(1, payload.toughness ?? 1) : Number(p.hp), maxHp: Math.max(1, payload.toughness ?? 1),
       shield: p.shield == null ? null : Number(p.shield), shieldMax: p.shieldMax == null ? null : Number(p.shieldMax),
       nextAt: p.battleNextAt == null ? 0 : Number(p.battleNextAt),
@@ -9074,6 +9294,16 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         }
       }
     }
+    // BRICK (Nigel, 2026-10-27 / 2026-11-10): the raising
+    // settles before the answer — a brick that completed
+    // since the last settle can be this settle's answer —
+    // and the stands ride the loop in memory, spent as they
+    // fly, each spend written back to its row as it happens.
+    await settleBricks(ownerKey);
+    const brickHoverByAwakened = new Map<number, number>();
+    for (const brow of raisedBrickRows(ownerKey)) {
+      if (brow.hovering > 0) brickHoverByAwakened.set(brow.awakenedId, brow.hovering);
+    }
     // ── THE AWOKEN ANSWER ───────────────────────────────
     // THE MID-MUSTER LAW (the Token Strip, Nigel 2026-10-23):
     // a follower a read has just mustered onto a march (the
@@ -9137,6 +9367,33 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
           if (!tended) await waterShrub(f, reach, tNow);
         }
         continue;
+      }
+      // BRICK — THE DEFAULT ANSWER (Nigel, 2026-10-27 /
+      // 2026-11-10): an Awoken that can cast Brick — two Rock
+      // or more in the sum of its parts — answers with a
+      // raised brick FIRST, whenever one hangs above it and
+      // its mark stands within the bricks' four tiles: the
+      // brick is its default attack. One brick per answer,
+      // spent as it flies, judged by judgeBrickThrow (the
+      // referee's own reckoning, the brick's harm 1d6 through
+      // the one mitigation), witnessed with the brick mark so
+      // the map flies Nigel's brick art on the stone road. No
+      // elemental rider rides a brick — it is a stone, thrown.
+      // A mark beyond four tiles is answered with the
+      // elemental strike below as ever, and no brick is spent
+      // reaching for it. Binders never reach here — their heal
+      // stands above — and an Awoken with no bricks aloft
+      // answers exactly as it always has.
+      {
+        const bricksHeld = f.brickStone >= 2 ? (brickHoverByAwakened.get(f.awakenedId) ?? 0) : 0;
+        if (bricksHeld > 0 && axialDist(f, target) <= BRICK_RANGE + 0.35) {
+          brickHoverByAwakened.set(f.awakenedId, bricksHeld - 1);
+          sqlite.prepare("UPDATE raised_bricks SET hovering = hovering - 1 WHERE owner_key = ? AND awakened_id = ? AND hovering > 0").run(ownerKey, f.awakenedId);
+          const judged = judgeBrickThrow(ownerKey, f.level, progress.classKey, Math.max(1, enemyACFor(target.kind) - target.cracked), axialDist(f, target));
+          if (judged.hit && judged.dmg > 0) await hurtDark(target, judged.dmg, f.awakenedId);
+          recordHomelandStrike(ownerKey, { kind: "placement", tileId: target.tileId, wandererId: target.id, awakenedId: f.awakenedId, fromTileId: f.tileId, fromQ: f.q, fromR: f.r, toQ: target.q, toR: target.r, at: tNow, hit: judged.hit, dmg: judged.dmg, felled: target.dead, element: "stone", level: f.level, ac: judged.ac, brick: true });
+          continue;
+        }
       }
       const roll = homelandDN(20);
       const bonus = fateStep(f.level) + ((ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0)) + companyAttackBonusFor(progress.classKey, ownerKey) + zAwokinAb; // THE SAGE'S COMPANY ATTACK (companyAttackBonusFor — its base +2 and the zodiac's deepening in one reckoning) + THE ZODIAC'S AWOKIN ATTACK BONUS (Recovery #1)
@@ -13456,6 +13713,31 @@ export const handlers = {
     const shrubWorks = shrubRows
       .filter(s => s.nodes.some(n => n.hp > 0))
       .map(s => ({ id: -1000 - s.id, placementId: 0, kind: "bramble", nodes: s.nodes }));
+    // BRICK (Nigel, 2026-10-27 / 2026-11-10): the raising and
+    // the wall's pull settle at this same read, in the rise's
+    // own manner — then each fielded qualifier's stand is
+    // served beside the land, judged on the very sums stamped
+    // on its placement above: bricks aloft, the capacity its
+    // Rock holds, and whether another is rising now. A stand
+    // with nothing aloft and nothing rising is not served.
+    await settleBricks(ownerKey);
+    await settleBrickWallClaims(ownerKey);
+    const brickViews: ReturnType<typeof brickStandView>[] = [];
+    {
+      const brickDef = abilityByKey("brick");
+      if (brickDef) {
+        const seenBrick = new Set<number>();
+        for (const p of placements as any[]) {
+          const aid = Number(p.awakenedId);
+          if (seenBrick.has(aid)) continue;
+          seenBrick.add(aid);
+          const sums = (p as any).elements as ElementSums | undefined;
+          if (!sums || !abilityQualifies(brickDef.requires, sums)) continue;
+          const view = brickStandView(ownerKey, aid, sums);
+          if (view.hovering > 0 || view.raising) brickViews.push(view);
+        }
+      }
+    }
     // THE LIGHTING SYSTEM (2026-10-26): every tile carries
     // its light — the one reckoning, stamped here at serve
     // time from the records as they stand, exactly as
@@ -13483,7 +13765,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, shrubs, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), bricks: brickViews, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, shrubs, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -14247,7 +14529,13 @@ export const handlers = {
     const info = sqlite.prepare("INSERT INTO build_pieces (owner_key, kind, piece_key, verts, footprint, created_at, hp, state, frac, lead_id, rise_updated_at, energy_bank) VALUES (?, ?, ?, ?, ?, ?, ?, 'rising', 0, ?, ?, 0)")
       .run(ownerKey, kind, pieceKey, JSON.stringify(edge), JSON.stringify(footprint), Date.now(), PIECE_MAX_HP, parsed.data.leadId, Date.now());
     const row: BuildPieceRow = { id: Number(info.lastInsertRowid), kind, pieceKey, verts: edge, footprint, hp: PIECE_MAX_HP, state: "rising", frac: 0, leadId: parsed.data.leadId, riseUpdatedAt: Date.now(), energyBank: 0 };
-    return { ok: true as const, piece: buildPieceView(row, tilesByKey, tiles as any[]) };
+    // BRICK (Nigel, 2026-10-27 / 2026-11-10): a wall just set
+    // rising may pull hovering bricks into itself at once —
+    // the claim settles here as it settles at the land's
+    // reads, and the piece is served as it stands after it.
+    await settleBrickWallClaims(ownerKey);
+    const claimed = loadBuildPieces(ownerKey).find(p => p.id === row.id) ?? row;
+    return { ok: true as const, piece: buildPieceView(claimed, tilesByKey, tiles as any[]) };
   },
 
   /** Take a piece of the construction away. The FOUNDATION
@@ -15612,6 +15900,165 @@ export const handlers = {
     else sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(next, wanderer.id);
     if (felled) await creditBattleKill(ownerKey, String(wanderer.kind ?? "fray"), markTile.element ?? null, null, undefined, { q: Number(markTile.q), r: Number(markTile.r) });
     return { ok: true as const, loosed: true as const, workingId: loosedBlades[0].workingId, fromTileId: loosedBlades[0].fromTileId, targetId: wandererId, harm: totalHarm, felled, chargesLeft: loosedBlades[0].chargesLeft, loosedBlades };
+  },
+
+  // RAISE BRICKS (Brick, Nigel 2026-10-27 / 2026-11-10 /
+  // 2026-11-13): begin — or continue — one Awoken's bricks
+  // rising. The door judges what the wheel judged, by the
+  // registry's own table: the Awoken stands on the field and
+  // holds two Rock in the sum of its parts. The rise itself
+  // runs on the lazy settle (settleBricks): a brick every
+  // three seconds, one energy at its completion, as many as
+  // its Rock holds. Asking again while a brick is already
+  // rising changes nothing — the stand is served back as it
+  // stands. NOT channeling: no channel opens, nothing holds
+  // the Awoken; it fights on while its bricks rise.
+  async raiseBricks(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ awakenedId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The raise needs an Awoken to name.");
+    const { awakenedId } = parsed.data;
+    const ownerKey = landKeyFor(ctx);
+    await settleBricks(ownerKey);
+    await settleBrickWallClaims(ownerKey);
+    const placement = (await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[])
+      .find(p => Number(p.awakenedId) === awakenedId);
+    if (!placement) throw badRequest("That Awoken is not standing on your field — bricks rise over a fielded Awoken.");
+    const aw = (await db.select().from(schema.awakened).where(eq(schema.awakened.id, awakenedId)))[0] as any;
+    if (!aw || String(aw.ownerKey) !== ownerKey) throw badRequest("That Awoken is not yours to raise bricks over.");
+    const sums = await elementSumsOf(aw);
+    const brick = abilityByKey("brick");
+    if (!brick || !abilityQualifies(brick.requires, sums)) {
+      throw badRequest("Brick answers to Rock: an Awoken needs two or more Rock in the sum of its parts to raise bricks.");
+    }
+    const capacity = brickCapacityOf(sums);
+    const view = brickStandView(ownerKey, awakenedId, sums);
+    if (view.hovering >= capacity) {
+      throw badRequest(`Its bricks already hang full above it — ${capacity} is as many as its Rock can hold. Loose them, or let a wall take them.`);
+    }
+    if (!view.raising) {
+      sqlite.prepare(`INSERT INTO raised_bricks (owner_key, awakened_id, hovering, next_at, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(owner_key, awakened_id) DO UPDATE SET next_at = excluded.next_at`)
+        .run(ownerKey, awakenedId, view.hovering, Date.now() + BRICK_RAISE_MS, Date.now());
+    }
+    return { ok: true as const, brick: brickStandView(ownerKey, awakenedId, sums) };
+  },
+
+  // LOOSE BRICKS (Brick, Nigel 2026-10-27 / 2026-11-10):
+  // the tap on an enemy, answered the Blade's own way — the
+  // dark is found where it stands (pos_q/pos_r, the free
+  // point; the map never hex-locks), every fielded Awoken
+  // within FOUR TILES of it that holds raised bricks looses
+  // ALL of them, and the bricks fall on the AREA: the clicked
+  // dark and every living dark standing in its hex or a
+  // neighbour's, dealt round in turn, the clicked first.
+  // Each brick is judged by judgeBrickThrow — the referee's
+  // own reckoning, the brick's harm 1d6 through the one
+  // mitigation — and witnessed as a placement strike wearing
+  // the brick mark, so the map flies Nigel's brick art from
+  // the same witness every other blow flies from. Harm is
+  // applied to the wanderer rows as the Blade applies its
+  // own: the living keep their wounds, the felled are struck
+  // from the field and credited. Bricks still aloft when
+  // every foe in the area has fallen are spent into the
+  // emptied ground — they flew; the click looses ALL.
+  async looseBricks(args: unknown, ctx?: ActionContext) {
+    const parsed = z.object({ wandererId: z.number().int().positive() }).safeParse(args);
+    if (!parsed.success) badRequest("The loose needs a dark thing to name.");
+    const { wandererId } = parsed.data;
+    const ownerKey = landKeyFor(ctx);
+    await settleBricks(ownerKey);
+    const wanderer = sqlite.prepare("SELECT * FROM homeland_wanderers WHERE id = ? AND owner_key = ?").get(wandererId, ownerKey) as any;
+    if (!wanderer) badRequest("That dark thing is no longer on your land.");
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey)) as any[];
+    const tileById = new Map(tiles.map(t => [t.id, t]));
+    const markTile = tileById.get(Number(wanderer.tile_id));
+    if (!markTile) badRequest("That dark thing stands on ground that is gone.");
+    const darkQ = wanderer.pos_q == null ? Number(markTile.q) : Number(wanderer.pos_q);
+    const darkR = wanderer.pos_r == null ? Number(markTile.r) : Number(wanderer.pos_r);
+    const darkCell = axialRound(darkQ, darkR);
+    // The throwers: fielded, qualified, bricks aloft, in range.
+    const progress = await getTenderProgress(ownerKey);
+    const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+    const rows = raisedBrickRows(ownerKey).filter(r => r.hovering > 0);
+    type Thrower = { awakenedId: number; tileId: number; q: number; r: number; dist: number; level: number; bricks: number };
+    const throwers: Thrower[] = [];
+    let bricksAloft = 0;
+    for (const row of rows) {
+      const p = placements.find(x => Number(x.awakenedId) === row.awakenedId);
+      if (!p) continue;
+      bricksAloft += row.hovering;
+      const t = tileById.get(Number(p.tileId));
+      const q = p.posQ == null ? (t?.q ?? 0) : Number(p.posQ);
+      const r = p.posR == null ? (t?.r ?? 0) : Number(p.posR);
+      const dist = axialDist({ q, r }, { q: darkQ, r: darkR });
+      if (dist > BRICK_RANGE) continue;
+      const aw = (await db.select().from(schema.awakened).where(eq(schema.awakened.id, row.awakenedId)))[0] as any;
+      throwers.push({ awakenedId: row.awakenedId, tileId: Number(p.tileId), q, r, dist, level: Math.max(1, awokenLevelOf(Number(aw?.experience ?? 0))), bricks: row.hovering });
+    }
+    if (!throwers.length) {
+      if (bricksAloft > 0) badRequest("Your raised bricks hang too far away — bricks fly four tiles, no further. Bring the enemy within four tiles of an Awoken holding bricks.");
+      badRequest("No bricks hover ready — raise some first: an Awoken with two Rock or more, from its Abilities.");
+    }
+    throwers.sort((a, b) => a.dist - b.dist || a.awakenedId - b.awakenedId);
+    // The area: the clicked dark's hex and its neighbours.
+    const area = (sqlite.prepare("SELECT * FROM homeland_wanderers WHERE owner_key = ?").all(ownerKey) as any[])
+      .map(w => {
+        const t = tileById.get(Number(w.tile_id));
+        const q = w.pos_q == null ? (t?.q ?? 0) : Number(w.pos_q);
+        const r = w.pos_r == null ? (t?.r ?? 0) : Number(w.pos_r);
+        return { w, q, r, cell: axialRound(q, r) };
+      })
+      .filter(x => axialDist(x.cell, darkCell) <= 1)
+      .sort((a, b) => (Number(a.w.id) === wandererId ? 0 : 1) - (Number(b.w.id) === wandererId ? 0 : 1)
+        || axialDist(a.cell, darkCell) - axialDist(b.cell, darkCell) || Number(a.w.id) - Number(b.w.id));
+    const darkHpOf = (w: any): number => w.hp == null
+      ? (HOMELAND_DARK_HP[String(w.kind ?? "fray")] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1)
+      : Number(w.hp);
+    const hpOf = new Map<number, number>(area.map(x => [Number(x.w.id), darkHpOf(x.w)]));
+    const touched = new Set<number>();
+    const tNow = Date.now();
+    const throws: { awakenedId: number; bricks: number; harm: number }[] = [];
+    const felledIds: number[] = [];
+    let totalHarm = 0;
+    for (const th of throwers) {
+      let harm = 0;
+      let thrown = 0;
+      for (let i = 0; i < th.bricks; i++) {
+        const living = area.filter(x => (hpOf.get(Number(x.w.id)) ?? 0) > 0);
+        thrown += 1;
+        if (!living.length) continue; // the area stands emptied: the brick is spent into the ground
+        const foe = living[i % living.length];
+        const base = enemyACFor(String(foe.w.kind ?? "fray")) - Math.max(0, Math.min(3, Number((foe.w as any).cracked ?? 0)));
+        const judged = judgeBrickThrow(ownerKey, th.level, progress.classKey ?? null, base, axialDist({ q: th.q, r: th.r }, { q: foe.q, r: foe.r }));
+        const wid = Number(foe.w.id);
+        touched.add(wid);
+        const next = (hpOf.get(wid) ?? 0) - judged.dmg;
+        hpOf.set(wid, next);
+        harm += judged.dmg;
+        recordHomelandStrike(ownerKey, {
+          kind: "placement", tileId: Number(foe.w.tile_id), wandererId: wid, awakenedId: th.awakenedId,
+          fromTileId: th.tileId, fromQ: th.q, fromR: th.r, toQ: foe.q, toR: foe.r,
+          at: tNow, hit: judged.hit, dmg: judged.dmg, felled: next <= 0, element: "stone", level: th.level, ac: judged.ac, brick: true,
+        });
+      }
+      sqlite.prepare("UPDATE raised_bricks SET hovering = hovering - ? WHERE owner_key = ? AND awakened_id = ?").run(thrown, ownerKey, th.awakenedId);
+      throws.push({ awakenedId: th.awakenedId, bricks: thrown, harm });
+      totalHarm += harm;
+    }
+    for (const x of area) {
+      const wid = Number(x.w.id);
+      const left = hpOf.get(wid) ?? 0;
+      if (left <= 0) {
+        sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(wid);
+        felledIds.push(wid);
+        const t = tileById.get(Number(x.w.tile_id));
+        await creditBattleKill(ownerKey, String(x.w.kind ?? "fray"), t?.element ?? null, null, undefined, { q: t?.q ?? darkCell.q, r: t?.r ?? darkCell.r });
+      } else if (touched.has(wid)) {
+        sqlite.prepare("UPDATE homeland_wanderers SET hp = ? WHERE id = ?").run(left, wid);
+      }
+    }
+    return { ok: true as const, loosed: true as const, targetId: wandererId, throws, harm: totalHarm, felled: felledIds };
   },
 
 

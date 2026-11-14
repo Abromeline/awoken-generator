@@ -148,6 +148,21 @@ export const ABILITY_REGISTRY: readonly AbilityDef[] = [
     requires: { root: 3 },
     blurb: "channel a shrub up out of the ground",
   },
+  {
+    // BRICK (Nigel, ruled 2026-10-27, amended 2026-11-10;
+    // restated 2026-11-13: "any awoken that can build should
+    // be able to cast brick"). The same ground as Building —
+    // two Rock in the sum of the parts. Its working — the
+    // raise, the loose, the wall's pull and the default
+    // attack — lives in actions.ts and the cast hook in
+    // Territory (beginAbility); this row only names the gate
+    // and the words, as every ability's row does.
+    key: "brick",
+    name: "Brick",
+    mark: "🧱",
+    requires: { stone: 2 },
+    blurb: "raise bricks above it, then loose them all at an enemy's ground",
+  },
 ];
 
 export function abilityByKey(key: string): AbilityDef | undefined {

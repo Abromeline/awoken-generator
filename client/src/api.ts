@@ -251,6 +251,11 @@ export interface HomelandStrike {
    *  pace). Absent on the dark's blows and from a server
    *  older than the law; the map defaults it to 1. */
   level?: number;
+  /** BRICK (Nigel, ruled 2026-10-27, amended 2026-11-10):
+   *  the blow was a raised brick — the map flies Nigel's
+   *  brick art on the stone road instead of the matter
+   *  shard. Absent from every other blow. */
+  brick?: boolean;
 }
 
 /** A fall of Shard Rain on the homeland, served by
@@ -345,6 +350,20 @@ export interface IslandMarchView {
   minutesPerHex: number;
   since: number;
   ends: number;
+}
+
+/** One Awoken's brick stand, served with the land (Brick,
+ *  Nigel 2026-10-27 / 2026-11-10): how many bricks hover
+ *  above it, how many its Rock can hold, and whether another
+ *  is rising now (nextAt is when that brick completes). Only
+ *  fielded Awoken who qualify stand here; a stand at zero
+ *  with nothing rising is not served at all. */
+export interface BrickStandView {
+  awakenedId: number;
+  hovering: number;
+  capacity: number;
+  raising: boolean;
+  nextAt: number | null;
 }
 
 export interface CreditInfo {
@@ -1006,7 +1025,7 @@ export const api = {
   removeCardFromDeck: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("removeCardFromDeck", args),
   setDeckFace: (args: { deckId: number; awakenedId: number }) => post<{ ok: true }>("setDeckFace", args),
   getDeckCards: (args: { deckId: number }) => post<{ deck: { id: number; name: string; faceCardId: number | null }; cardIds: number[] }>("getDeckCards", args),
-  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[]; moonShrooms?: MoonShroom[]; runes?: RuneStanding[]; shrubs?: Shrub[] }>("getTerritory", {}),
+  getTerritory: () => post<{ tiles: TerritoryTile[]; placements: FieldPlacement[]; buildings: { id: number; type: string }[]; mood: { mood: string; description: string; endsAt: string }; workings: MapWorking[]; tender: { tileId: number; classKey: string; weaponKey: string | null; hp?: number; maxHp?: number; down?: boolean; downUntil?: number | null; fellCount?: number } | null; wanderers: { id: number; tileId: number; kind: string; posQ: number; posR: number; hp: number; maxHp: number }[]; weaponStrike: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean } | null; weaponStrikes?: { tileId: number; wandererId: number; weaponKey: string; at: number; hit: boolean; dmg: number; felled: boolean }[]; strikes?: HomelandStrike[]; rainFalls?: HomelandRainFall[]; battle?: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number }; defenceWorks?: { id: number; placementId: number; kind: string; nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] }[]; islandMarches?: IslandMarchView[]; bricks?: BrickStandView[]; terrainBank?: number; elsewhere: { name: string; element: string; where: "fielded" | "staged" }[]; summoning: { company: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; reinforcements: { awakenedId: number; name: string; imageUrl: string | null; power: number; toughness: number; level: number | null; cost: number }[]; summonersPower: number; standCursed: boolean }; pack?: PackView; dropNotices?: string[]; loot?: LootEntry[]; dropEvents?: DropEventView[]; buildPieces?: BuildPiece[]; moonShrooms?: MoonShroom[]; runes?: RuneStanding[]; shrubs?: Shrub[] }>("getTerritory", {}),
   // THE PACK (the drop table, ruled 2026-10-23; built
   // 2026-10-25): the item screen's own read, and the
   // shard forge — twenty rune shards into one attunement
@@ -1026,6 +1045,17 @@ export const api = {
     post<{ ok: true; pack: PackView }>("convertRuneShards", args),
   looseBlade: (args: { wandererId: number }) =>
     post<{ ok: true; loosed: true; workingId: number; fromTileId: number; targetId: number; harm: number; felled: boolean; chargesLeft: number; loosedBlades?: { workingId: number; fromTileId: number; harm: number; chargesLeft: number }[] }>("looseBlade", args),
+  // BRICK (Nigel, ruled 2026-10-27, amended 2026-11-10): the
+  // raise begins (or continues) one Awoken's bricks rising —
+  // three seconds and one energy apiece, up to its Rock — and
+  // the loose sends every raised brick within four tiles at
+  // the clicked dark's whole area, each judged 1d6 by the
+  // referee. Both answer with the Awoken's stand as it now
+  // stands; getTerritory serves the stands beside them.
+  raiseBricks: (args: { awakenedId: number }) =>
+    post<{ ok: true; brick: BrickStandView }>("raiseBricks", args),
+  looseBricks: (args: { wandererId: number }) =>
+    post<{ ok: true; loosed: true; targetId: number; throws: { awakenedId: number; bricks: number; harm: number }[]; harm: number; felled: number[] }>("looseBricks", args),
   castMapWorking: (args: { spellKey: string; hue?: string; tileId?: number; dir?: number; awakenedId?: number; heldMs?: number; facing?: string; pointQ?: number; pointR?: number }) =>
     post<{ ok: true; id?: number; edgeKey?: string; tileId?: number; healed?: number; hp?: number; maxHp?: number; cost: number; pour?: number; fizzled?: boolean; refunded?: number; roll?: number; mod?: number; dc?: number; spellKey?: string; sprung?: boolean; felled?: boolean; ground?: number; purified?: boolean; radiusHexes?: number; burst?: number; saplings?: number; hits?: number; targetId?: number; shields?: number; shieldHp?: number; wallHp?: number; facing?: string; wallQ?: number; wallR?: number; gateNodes?: number; line?: { px?: number; pr?: number; len?: number; count?: number } }>("castMapWorking", args),
   attuneGrimoirePage: (args: { spellKey: string; element: string }) =>
