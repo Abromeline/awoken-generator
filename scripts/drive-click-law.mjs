@@ -605,6 +605,31 @@ console.log("§D the cast road — left looses, right cancels, the next right re
   };
   lattice = await solveLattice();
   await clearTilePanel();
+  // RESTATED 2026-11-15 (march is the default, Nigel
+  // 22:30): §C leaves Path One CHOSEN, and a chosen
+  // Awoken's right-click is now its march order, not the
+  // wheel — so the cast road is entered with the
+  // choosing set down first, the player's way: a click
+  // on empty map background, which is what the map's
+  // dismiss handler answers. §C's entry could click a
+  // bare point for this because its camera left that
+  // point off the tiles; §D's camera does not — a tap
+  // ON a tile is lawfully not a dismissal (the hit
+  // polygon stops the click, by its own standing
+  // comment) — so the dismissal is delivered as the
+  // exact event a background click delivers: a click
+  // on the svg root itself, the same synthetic-click
+  // pattern clearTilePanel already drives by.
+  // The law §D proves is unchanged: unchosen, the right
+  // hand opens the wheel; with a run readied, it cancels.
+  // (The chosen case is drive-march-default-right-click's
+  // own ground.)
+  await page.evaluate(() => {
+    const svg = document.querySelector("svg.territory-svg");
+    if (svg) svg.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await sleep(400);
+  await clearTilePanel();
   await readyBlade();
   ok("right-click (unarmed) opened the wheel and the Rune branch readied the Blade", true);
 

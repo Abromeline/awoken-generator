@@ -4576,6 +4576,117 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (marched) showHexNotice(`The line is taken — ${marched} on the road, spread evenly along it.`);
   };
 
+  // ── MARCH IS THE DEFAULT (Nigel, 2026-11-15): with an
+  // Awoken chosen, the right hand's release on the land IS
+  // its march order — it sets off at once for the clicked
+  // ground. No wheel, no orders bar, no confirm: the
+  // ordering hand is new, the march verb beneath it is the
+  // standing one, unchanged. The clicked point is the
+  // intent: where that ground cannot be stood on — cursed,
+  // full, or no road runs to it — the order lands on the
+  // closest own ground the roads DO reach; where no road
+  // runs toward it at all, the order is refused in plain
+  // words. Returns false only when no chosen one stands on
+  // the field, so the click keeps its older meaning (the
+  // wheel) in that case alone.
+  // THE WHOLE SELECTION (Nigel, 2026-11-15 22:43: "if
+  // multiple awokin are selected all of those awokin begin
+  // moving at the same time"): the order goes to EVERY
+  // chosen one from the one release — the clicked ground
+  // is the company's order point, each one's destination
+  // reckoned against it in turn with the crowd filling as
+  // each order lands, so a company larger than a hex
+  // holds (four, counting inbound) spreads to the nearest
+  // ground around the point. Starts are simultaneous;
+  // arrivals differ by each walker's distance and pace,
+  // as the march law already reckons. A chosen one with
+  // no road toward the point is refused its part of the
+  // order in plain words; the rest still march.
+  const orderRightClickMarch = (ids: number[], pt: { x: number; y: number }): boolean => {
+    const chosen = ids
+      .map(id => placements.find(x => x.awakenedId === id))
+      .filter((pl): pl is NonNullable<typeof pl> => !!pl);
+    if (chosen.length === 0) return false;
+    // The clicked tile: the nearest tile heart to the
+    // released point — the line march's own reckoning for
+    // free points.
+    const clicked = tiles
+      .map(t => { const c = tileCenterScreen(t, pan, zoom); return { t, d: Math.hypot(c.cx - pt.x, c.cy - pt.y) }; })
+      .sort((a, b) => a.d - b.d)[0]?.t;
+    if (!clicked) return true; // no ground under the hand at all: the click is spent
+    // The crowd on a hex, in the muster's own reckoning:
+    // standing figures count where they stand; marchers
+    // count where their road ends. Each order laid in
+    // this release counts its destination at once, so
+    // the company spreads by the standing capacity as
+    // the reckoning fills it.
+    const occupants = new Map<number, number>();
+    for (const pl of placements) {
+      if (!pl.marchPath) occupants.set(pl.tileId, (occupants.get(pl.tileId) ?? 0) + 1);
+      else { const r = marchRoadOf(pl); if (r.length) occupants.set(r[r.length - 1], (occupants.get(r[r.length - 1]) ?? 0) + 1); }
+    }
+    const crowdOf = (tileId: number) => occupants.get(tileId) ?? 0;
+    // One chosen one's destination against the clicked
+    // point: the point itself when it is open ground with
+    // room and a road; else the closest own ground the
+    // roads reach — open hexes by distance from the
+    // clicked ground, a road the first law, room the
+    // preference — and a crowded roaded hex still answers
+    // when nothing emptier can, exactly as the muster
+    // reckons it (the Crowding Gate taxes the pace; it
+    // refuses no one a place). Null where no road runs
+    // toward the point at all.
+    const destOf = (p: (typeof chosen)[number]): number | null => {
+      if (clicked.id === p.tileId) return p.tileId;
+      if (!clicked.cursed && crowdOf(clicked.id) < 4 && findRoadClient(p.tileId, clicked.id)) {
+        occupants.set(clicked.id, crowdOf(clicked.id) + 1);
+        return clicked.id;
+      }
+      const candidates = tiles
+        .filter(t => !t.cursed)
+        .sort((a, b) => hexDistanceAxial(a.q, a.r, clicked.q, clicked.r) - hexDistanceAxial(b.q, b.r, clicked.q, clicked.r) || a.id - b.id);
+      let fallback: number | null = null;
+      for (const cand of candidates) {
+        if (!findRoadClient(p.tileId, cand.id)) continue;
+        if (crowdOf(cand.id) >= 4) { if (fallback === null) fallback = cand.id; continue; }
+        if (fallback === null || crowdOf(fallback) >= 4) fallback = cand.id;
+        break;
+      }
+      const destId = fallback;
+      if (destId !== null && destId !== p.tileId) occupants.set(destId, crowdOf(destId) + 1);
+      return destId;
+    };
+    const plans = chosen.map(p => ({ p, destId: destOf(p) }));
+    const refused = plans.filter(pl => pl.destId === null).map(pl => pl.p.name);
+    const movers = plans.filter(pl => pl.destId !== null && pl.destId !== pl.p.tileId);
+    if (movers.length === 0) {
+      if (refused.length > 0) { showHexNotice("No road runs there — the ground itself bars the way."); return true; }
+      // No one moves and no one is refused: every chosen
+      // one already stands at the closest ground there is.
+      if (chosen.length === 1) {
+        showHexNotice(clicked.id === chosen[0].tileId
+          ? `${chosen[0].name} already stands there.`
+          : `${chosen[0].name} already stands as close as the roads run.`);
+      } else {
+        showHexNotice("The company already stands as close as the roads run.");
+      }
+      return true;
+    }
+    // ALL the orders issue from this one release, in the
+    // same breath — the company steps off together; the
+    // roads sort out who arrives when.
+    void (async () => {
+      const results = await Promise.all(movers.map(pl => fireMarchOne(pl.p.awakenedId, pl.destId!)));
+      await refreshMarching();
+      if (results.some(Boolean)) {
+        showHexNotice(refused.length > 0
+          ? `On the road — each figure at its own pace. No road runs for ${refused.join(", ")}.`
+          : "On the road — each figure at its own pace.");
+      }
+    })();
+    return true;
+  };
+
   const handleHexTap = async (tile: { id: number; cursed: number | boolean }, pt?: { q: number; r: number } | null) => {
     if (bandJustClosed()) return; // a drag just ended here — it was a choosing, not a tap
     // Every hex tap names its tile over the energy orb (Nigel,
@@ -9810,7 +9921,19 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                 if (castMode) { endMapCastRunRef.current(); return; }
                 if (!tenderInputBlockedRef.current) {
                   const p = svgPoint(e.clientX, e.clientY);
-                  if (p) { setTenderRadial(p); }
+                  if (p) {
+                    // MARCH IS THE DEFAULT (Nigel, 2026-11-15):
+                    // with Awoken chosen — one, or a whole
+                    // company (22:43) — this release is their
+                    // march order, all of them from the one
+                    // click, fired at once, no wheel. The
+                    // cast-cancel above keeps its precedence (the
+                    // more specific state); with nothing chosen
+                    // the wheel opens here, as it always has.
+                    const chosenIds = selectedAwoken !== null ? [selectedAwoken] : selectedGroup;
+                    if (chosenIds.length > 0 && orderRightClickMarch(chosenIds, p)) return;
+                    setTenderRadial(p);
+                  }
                 }
               }
             }
