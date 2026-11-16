@@ -1426,6 +1426,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // channel order is armed (its next tap on the land names
   // the shroom's ground).
   const [moonShrooms, setMoonShrooms] = useState<MoonShroom[]>([]);
+  // PURIFY (Nigel, 2026-11-15): the tiles under a purify
+  // order and the Awoken holding each, as the server serves
+  // them — the tile card names the work wearing the curse
+  // down (a living readout, the play itself).
+  const [purifies, setPurifies] = useState<{ tileId: number; purifiers: number[] }[]>([]);
   const [moonShroomFor, setMoonShroomFor] = useState<number | null>(null);
   // THE RUNE (Nigel, 2026-11-10): the land's standing Runes,
   // as the server serves them, and the Awoken whose channel
@@ -2447,6 +2452,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setBrickStands(refreshed.bricks ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setMoonShrooms(refreshed.moonShrooms ?? []);
+    setPurifies(refreshed.purifies ?? []);
     setRunes(refreshed.runes ?? []);
     setWorkings(refreshed.workings ?? []);
     // In a room, a guest's figure stands at their SEAT's stand —
@@ -3453,7 +3459,12 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (shrubs.some(s => s.channelers.includes(id))) {
       entries.push({ key: "ord-shrub-end", emoji: "🌿", label: "End channel", act: () => { void (async () => { try { await api.stopShrubChannel({ awakenedId: id }); await refreshTerritory(); showHexNotice(`${p.name} ends its channel. The Shrub keeps every inch it has grown.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
     }
-    entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
+    // PURIFY (Nigel, 2026-11-15): the stance entry reads
+    // Purify now — the stance it sets is the same attack
+    // stance the purify order asks for, and the wheel's
+    // targeting sends a tap on a cursed tile to the purify
+    // order (api.attackTile), never to a blow.
+    entries.push({ key: "ord-attack", sigil: "sword", label: "Purify", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
     entries.push({ key: "ord-binding", sigil: "binding", label: "Binding", lit: p.stance === "binding", act: () => { void handleSetStance(id, "binding"); } } as WheelEntry);
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
@@ -4108,33 +4119,28 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // 2026-10-23.) At 0 HP the server has already dissipated
       // the attacker back to hand.
       await refreshTerritory();
-      // The blow speaks (Nigel, 2026-10-18: "a blow per order" —
-      // the Attack seal is posture AND key: with targeting armed, a
-      // tap on a cursed square is one strike of the warden's power
-      // against that tile's curse HP). attackTile wears the curse
-      // honestly server-side — power per blow, purification at 0 —
-      // and the curse does not answer (attrition law, 2026-10-19:
-      // its teeth are the withering of whatever stands in it).
+      // PURIFY (Nigel, 2026-11-15): the tap on a cursed tile
+      // is the purify ORDER now, never a blow — the server
+      // deals no instant damage, and the curse's thickness
+      // falls only to the purify itself, over time, while
+      // the Tender is present. The old strike's branches
+      // (the wave-pull into the Battleground, the blow's
+      // damage line) are struck from this path whole: a
+      // purify never opens the old battle system. The
+      // Battleground stands for its other doors.
       const attackerName = tenderItems.find(a => a.id === selectedAwoken)?.name ?? "Your warden";
-      if (result.wavePull) {
-        // Pulled into the Unraveling! Open a wave battle for this tile.
-        setWavePullTile(result.tileId);
-        setShowBattleground(true);
-      } else if (result.purified) {
-        // No newborn follows a purification (Nigel, 2026-10-14) —
-        // the dead client call that still asked for one is gone;
-        // the server refused it every time and the catch hid it.
-        showHexNotice(`⚔ The curse breaks — the tile is purified.${result.sparked ? " The broken land smoulders with fire." : ""}`);
-      } else if (typeof result.hp === "number") {
-        showHexNotice(`⚔ ${attackerName} strikes the curse for ${result.damage} — curse ${result.hp}/${result.maxHp}.`);
+      if (result.purifying && result.marching) {
+        showHexNotice(`✦ ${attackerName} marches to the cursed tile — the purify begins when it arrives.`);
+      } else if (result.purifying) {
+        showHexNotice(`✦ ${attackerName} begins purifying the curse — thickness ${result.hp} of ${result.maxHp}, wearing down while you are here.`);
       }
       setSelectedAwoken(null);
       setAttackTargeting(false);
       setTargetHexId(null);
       onUpdate();
     } catch (e) {
-      console.error("Attack failed", e);
-      showHexNotice(refusalText(e, "That strike was refused."));
+      console.error("Purify order failed", e);
+      showHexNotice(refusalText(e, "That purify was refused."));
       setAttackTargeting(false);
       setTargetHexId(null);
     }
@@ -10298,8 +10304,11 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         let text = "";
         let confirmLabel = "Confirm";
         if (hexConfirm.kind === "attack") {
-          text = `${actorName} will strike this cursed hex — its thorns answer back.`;
-          confirmLabel = "Strike";
+          // PURIFY (Nigel, 2026-11-15): the confirm speaks
+          // the purify, not the old strike — the curse wears
+          // down slowly, and the dark comes to defend it.
+          text = `${actorName} will purify this cursed hex — the curse wears down slowly, and the dark will come to defend it.`;
+          confirmLabel = "Purify";
         } else if (hexConfirm.kind === "move") {
           text = `${actorName} will move to this hex — ${actor ? moveCost(actor.power) : 1}✦.`;
           confirmLabel = "Move";
@@ -10364,6 +10373,23 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   <div className="orb-info-row"><span>Thorns</span><span>{curse.thorns}</span></div>
                 </div>
               )}
+              {/* PURIFY (Nigel, 2026-11-15): while a purify
+                  runs on this tile, the card names it and the
+                  Awoken holding it — a living readout, the
+                  play itself; the falling thickness stands in
+                  the curse health above. */}
+              {(() => {
+                const pf = purifies.find(p => p.tileId === t.id);
+                if (!pf || pf.purifiers.length === 0) return null;
+                const names = pf.purifiers
+                  .map(id => placements.find(p => p.awakenedId === id)?.name ?? tenderItems.find(a => a.id === id)?.name)
+                  .filter(Boolean) as string[];
+                return (
+                  <div className="orb-info-more">
+                    <div className="orb-info-row"><span>Purifying</span><span>{names.length > 0 ? names.join(", ") : `${pf.purifiers.length} Awoken`}</span></div>
+                  </div>
+                );
+              })()}
               {/* THE MOON SHROOM (Nigel, 2026-11-10): its numbers
                   live here, on the tile's card, as Push 85's law
                   keeps them — the growth it stands at, the

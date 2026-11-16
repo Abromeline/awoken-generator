@@ -2665,6 +2665,306 @@ export async function settlePlacementClocksById(placementId: number, nowMs: numb
 // would close the other way).
 registerPlacementDepartureHook(settlePlacementClocksById);
 
+/* ── PURIFY (Nigel, 2026-11-15) ──────────────────────────────
+ * The new way cursed ground is taken back, in his words'
+ * sense: "if an awokin is out of range to purify a square
+ * they move to it and then begin the process... purify
+ * slowly lowers the hp 'thickness' of the curse on a curse
+ * tile. doing so draws enemies to that tile to defend it,
+ * spawning from the closest cursed 15 hex... 1 hp of
+ * thickness takes about 10 min to lower." The wheel's Attack
+ * button reads PURIFY now: pointed at an enemy it strikes
+ * exactly as it always has (the living battle is untouched);
+ * pointed at a cursed tile it gives this order instead of a
+ * blow — INSTANT STRIKE DAMAGE AGAINST CURSED GROUND IS
+ * REMOVED WHOLE, and the old wave-pull that a strike's break
+ * could trigger (15%: the tile left "breaking" for a
+ * Battleground wave) does NOT ride this road either (Nigel,
+ * 2026-11-15 22:22: "remove the old battle system that was
+ * still possible to be triggered when purifying a hex") —
+ * the purify's break turns the tile outright, below.
+ *
+ * THE PROCESS: a server-held order (the purifies table) on
+ * one cursed tile by one Awoken. It drains the tile's curse
+ * HP at 1 HP per PURIFY_SECONDS_PER_HP of purifying, by the
+ * channelled works' own pattern: lazy settle at the
+ * getTerritory read and on the master clock's slow gear,
+ * presence read the house's one way (tenderLastSeenAt, the
+ * protection settle's gap) off the ORDERING Tender — away,
+ * the drain pauses and nothing is lost. No energy cost.
+ * Progress is fractional and persists ON THE TILE (its
+ * curse_drain): whole points fold into curse_hp as they
+ * complete, and the fraction survives pauses, sessions and
+ * a change of purifier. Several Awoken may purify one tile;
+ * each drains its own rate and the rates add. While the
+ * beacon is held, no ground is gained (the master clock's
+ * law — the grind's own bar): the drain pauses under light.
+ * A curse already at the wave's door (curse_hp 0, left
+ * breaking by a strike of the old road) is not drained —
+ * its wave is still owed, and resolveWavePull's road stands.
+ *
+ * THE PURIFIER never strikes back (his answer, 2026-11-15):
+ * while it stands in reach of its tile with the order live,
+ * the living battle's answer pass skips it whole — its own
+ * strikes AND its thorns answer — and it takes the dark's
+ * blows on its shield and hide like any standing figure.
+ * The order ends when the tile turns, when the purifier
+ * falls (the settle finds it gone from the field), or when
+ * the Tender gives it any other order (a stance away from
+ * attack, a march, a recall, a new purify) — the tile keeps
+ * every fraction it has lost in every ending.
+ *
+ * MOVE TO IT: the order is one tap (attackTile's door). In
+ * reach — the strike's own reach, the adjacent tile — the
+ * purify begins where the Awoken stands. Out of reach, the
+ * Awoken marches by the standing march machinery to the
+ * closest own tile within reach of the cursed tile, and the
+ * drain begins by itself when it arrives (the settle judges
+ * reach; the march carries the goal "purify:<tileId>"). If
+ * no own tile within reach exists, the order is refused in
+ * plain words and nothing is written.
+ *
+ * THE DEFENCE (Nigel, 2026-11-15, the proportional reading
+ * ratified whole the same evening): "the number of enemies
+ * attacking should be proportional to the thickness of the
+ * curse." On the cradle's own beat, a purifying tile whose
+ * standing defenders (wanderers carrying its defend mark)
+ * number fewer than its share births ONE more defender at
+ * the nearest cursed tile within PURIFY_DEFENDER_RANGE_HEXES
+ * where birth is legal under the standing bars (beacon
+ * rings, FIGHTING light), of the standing kinds, under the
+ * standing field cap — the cap binds over the share. The
+ * share reads the tile's CURRENT thickness, so the defence
+ * thins as the drain bites; the share governs births only
+ * and never despawns — a born defender is a real enemy, and
+ * when the purify ends its mark clears and it stands as
+ * ordinary dark. THE SHARE'S FIGURE is a starting figure,
+ * tunable like every figure: round(thickness /
+ * PURIFY_DEFENDER_SHARE_DIVISOR), at least 1 while a purify
+ * runs on a tile of thickness above 0.
+ *
+ * READINGS TAKEN where the record does not rule (each is
+ * flagged again in the build report for Nigel's judgement):
+ *   · REACH is the reach of the strike this replaces —
+ *     the adjacent tile, as attackTile always judged it.
+ *   · THE MARCH rides the standing march machinery whole,
+ *     its own energy price included — "no energy cost" is
+ *     the purify's own price (it has none), not the road's.
+ *   · ONE DEFENDER BIRTH per purifying tile per cradle
+ *     beat ("birth another") — the defence assembles at
+ *     the cradle's pace, it does not flood in at once.
+ *   · THE BREAK pays the hex-taken XP (+50) to the purifier
+ *     whose drain crossed zero, as the strike's break paid
+ *     its striker; the strike's per-blow attack XP (+10)
+ *     dies with the blow — a purify lands no blows. */
+export const PURIFY_SECONDS_PER_HP = 600;
+/** The defence share's divisor — a starting figure (Nigel's
+ *  play tunes it): round(thickness / 4) defenders. */
+export const PURIFY_DEFENDER_SHARE_DIVISOR = 4;
+/** Defenders are born at the nearest legal cursed tile
+ *  within this many hexes of the purifying tile. */
+export const PURIFY_DEFENDER_RANGE_HEXES = 15;
+
+interface PurifyRow {
+  id: number; tileId: number; awakenedId: number; purseKey: string;
+  startedAt: number; settledAt: number; bank: number;
+}
+function loadPurifies(ownerKey: string): PurifyRow[] {
+  const rows = sqlite.prepare("SELECT id, tile_id AS tileId, awakened_id AS awakenedId, purse_key AS purseKey, started_at AS startedAt, settled_at AS settledAt, bank FROM purifies WHERE owner_key = ? ORDER BY id")
+    .all(ownerKey) as any[];
+  return rows.map(r => ({
+    id: Number(r.id), tileId: Number(r.tileId), awakenedId: Number(r.awakenedId),
+    purseKey: String(r.purseKey), startedAt: Number(r.startedAt ?? 0),
+    settledAt: Number(r.settledAt ?? 0), bank: Number(r.bank ?? 0),
+  }));
+}
+
+/** The purifies as getTerritory serves them: per tile, the
+ *  Awoken presently purifying it — the tile card names the
+ *  work from this, as it names a shroom's channelers. */
+function purifiesView(rows: PurifyRow[]): { tileId: number; purifiers: number[] }[] {
+  const byTile = new Map<number, number[]>();
+  for (const r of rows) {
+    const arr = byTile.get(r.tileId) ?? [];
+    arr.push(r.awakenedId);
+    byTile.set(r.tileId, arr);
+  }
+  return [...byTile.entries()].map(([tileId, purifiers]) => ({ tileId, purifiers }));
+}
+
+/** The thickness a cursed tile still stands at: its curse
+ *  HP less the fraction the purify has already worn off it. */
+function purifyThicknessOf(tile: any, mood: WorldMood): number {
+  const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+  const maxHp = (tile.curseMaxHp as number | null) ?? curseHpFor(ring, mood);
+  const curHp = (tile.curseHp as number | null) ?? maxHp;
+  return Math.max(0, curHp - (Number(tile.curseDrain) || 0));
+}
+
+/** A curse breaks under a purify: the standing break path
+ *  of the old strike (attackTile's own tail, carried here
+ *  whole) — the deed recorded, the breaker's dominant
+ *  element claiming the tile (a tie, or no counted element,
+ *  falls to root, the standing default), the wildfire spark
+ *  rolled, the breaker advancing onto the broken land, the
+ *  frontier revealed, and HEX-TAKEN XP to the breaker. The
+ *  one thing NOT carried: the strike's 15% wave-pull — the
+ *  old battle trigger Nigel struck off this road (above);
+ *  a purify's break turns the tile outright. Mutates the
+ *  tile row it is handed, as the grind does, so the read
+ *  that settles it serves the ground truth. */
+async function breakCurseForPurify(ownerKey: string, tile: any, breakerAwakenedId: number, breakerPlacementId: number): Promise<void> {
+  await recordDeed(ownerKey, breakerAwakenedId, "curse_broken");
+  // No newborn follows a purification (Nigel, 2026-10-14).
+  const owned = await db.select().from(schema.awakened).where(eq(schema.awakened.id, breakerAwakenedId)).limit(1);
+  const assetRows = await db.select().from(schema.layerAssets);
+  const assetStats = new Map<number, AssetStats>();
+  for (const assetRow of assetRows) {
+    const rarity = raritySchema.safeParse(assetRow.rarity);
+    if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
+  }
+  const layers = owned.length ? parseLayers(owned[0].compositionJson, assetStats) : [];
+  const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
+  for (const layer of layers) {
+    const el = storedElement((layer as any).element);
+    if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
+  }
+  // The breaker's dominant element claims the tile; a tie
+  // (or no counted element at all) falls to the DEFAULT —
+  // root since Nigel's ruling, 2026-10-25.
+  let element: "tide" | "sky" | "stone" | "root" = "root";
+  let maxCount = 0; let tie = false;
+  for (const [el, count] of Object.entries(elementCounts)) {
+    if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
+    else if (count === maxCount && count > 0) { tie = true; }
+  }
+  if (tie) element = "root";
+  // Wildfire spark: 5% chance the purified land smolders with Fire.
+  const sparked = Math.random() < 0.05;
+  await db.update(schema.territoryTiles)
+    .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, curseDrain: 0, spark: sparked ? 1 : 0, ...PURIFIED_TILE_FIELDS })
+    .where(eq(schema.territoryTiles.id, tile.id));
+  tile.cursed = 0; tile.element = element; tile.curseHp = null; tile.curseMaxHp = null; tile.curseDrain = 0; tile.spark = sparked ? 1 : 0;
+  Object.assign(tile, PURIFIED_TILE_FIELDS);
+  // The breaker advances onto the broken land. FIX THE
+  // CLOCKS: the advance leaves the old tile — its press span
+  // settles before the move.
+  await settlePlacementClocksById(breakerPlacementId);
+  await db.update(schema.fieldPlacements)
+    .set({ tileId: tile.id })
+    .where(eq(schema.fieldPlacements.awakenedId, breakerAwakenedId));
+  // Reveal new cursed land at the frontier.
+  await expandFrontier(ownerKey, tile.q, tile.r);
+  // HEX TAKEN: this purifier's drain broke the curse — +50 XP.
+  const xpById = new Map<number, XpGainReport>();
+  await grantEventXp(xpById, breakerAwakenedId, XP_PER_HEX_TAKEN);
+}
+
+/** Settle every purify order on the land against the clock —
+ *  the lazy reckoning, run at the read and on the master
+ *  clock's slow gear like the channels'. Each order is
+ *  judged on its own clock and its orderer's presence: away
+ *  time drains nothing; an order whose purifier has left the
+ *  field, whose tile has turned by any road, or whose
+ *  purifier has been marched away under another order ends
+ *  where it stands — the tile keeps all it has lost. An
+ *  order still on the road to its tile (its march carries
+ *  the purify goal) accrues nothing until the purifier
+ *  stands in reach. `tiles`, when the read hands them in,
+ *  are mutated as the grind mutates its tile, so the read
+ *  serves the ground truth. */
+async function settlePurify(ownerKey: string, nowMs: number = Date.now(), tiles?: any[]): Promise<void> {
+  const rows = loadPurifies(ownerKey);
+  if (!rows.length) return;
+  const tileRows = tiles ?? await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+  const tileById = new Map((tileRows as any[]).map(t => [t.id, t]));
+  const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
+  const placementByAwakened = new Map((placements as any[]).map(p => [p.awakenedId, p]));
+  const delRow = sqlite.prepare("DELETE FROM purifies WHERE id = ?");
+  const updRow = sqlite.prepare("UPDATE purifies SET settled_at = ? WHERE id = ?");
+  const mood = (await getWorldMood()).mood;
+  // NO GROUND IS GAINED UNDER LIGHT (the master clock's law,
+  // the grind's own bar): while the beacon is held, the
+  // drain pauses whole — the orders stand, nothing wears.
+  const held = beaconHeld(ownerKey, nowMs);
+  for (const row of rows) {
+    const tile = tileById.get(row.tileId);
+    if (!tile || !tile.cursed) { delRow.run(row.id); continue; }
+    const placement = placementByAwakened.get(row.awakenedId);
+    if (!placement) { delRow.run(row.id); continue; } // fallen, or called off the field: the order ends, the drain stays
+    if (placement.marchPath) {
+      // On the road: to THIS tile, the order stands and
+      // waits; under any other order, the purify is
+      // superseded and ends.
+      if (placement.marchGoal !== `purify:${row.tileId}`) { delRow.run(row.id); continue; }
+      updRow.run(nowMs, row.id);
+      continue;
+    }
+    const standTile = tileById.get(placement.tileId);
+    if (!standTile || hexDistTiles(standTile, tile) > 1) {
+      // Not standing in reach (moved by another road): the
+      // order stands, the drain waits — nothing accrues
+      // from out of reach.
+      updRow.run(nowMs, row.id);
+      continue;
+    }
+    const gapMs = nowMs - row.settledAt;
+    if (gapMs <= 0) continue;
+    updRow.run(nowMs, row.id);
+    if (held) continue; // the light holds the ground: the span drains nothing
+    // Presence, reckoned the channels' own way (the moon
+    // channels' settle, word for word in shape): the span
+    // counts as present only when the span itself is no
+    // longer than the presence gap AND the last-seen stamp
+    // is fresh — a longer span is the Tender away, and away
+    // time drains nothing and loses nothing already worn.
+    const seen = tenderLastSeenAt(row.purseKey);
+    const present = gapMs <= PROTECTION_ONLINE_GAP_MS && seen > 0 && nowMs - seen <= PROTECTION_ONLINE_GAP_MS;
+    if (!present) continue;
+    const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
+    const maxHp = (tile.curseMaxHp as number | null) ?? curseHpFor(ring, mood);
+    const beforeHp = (tile.curseHp as number | null) ?? maxHp;
+    if (beforeHp <= 0) continue; // at the wave's door already (a strike of the old road left it breaking): not the purify's to drain
+    // The drain: this order's present span, at 1 HP of
+    // thickness per PURIFY_SECONDS_PER_HP — added to the
+    // tile's standing fraction, whole points folding into
+    // curse_hp as they complete.
+    let drain = (Number(tile.curseDrain) || 0) + (gapMs / 1000) / PURIFY_SECONDS_PER_HP;
+    let hp = beforeHp;
+    while (drain >= 1 && hp > 0) { hp -= 1; drain -= 1; }
+    if (hp <= 0) {
+      // THE TURN: the curse breaks through the standing
+      // break path — and every purify on the tile ends with
+      // it, the breaker's advance included.
+      await breakCurseForPurify(ownerKey, tile, row.awakenedId, placement.id);
+      placement.tileId = tile.id;
+      sqlite.prepare("DELETE FROM purifies WHERE owner_key = ? AND tile_id = ?").run(ownerKey, row.tileId);
+      continue;
+    }
+    tile.curseHp = hp; tile.curseMaxHp = maxHp; tile.curseDrain = drain;
+    sqlite.prepare("UPDATE territory_tiles SET curse_hp = ?, curse_max_hp = ?, curse_drain = ? WHERE id = ?")
+      .run(hp, maxHp, drain, tile.id);
+  }
+  // THE DEFENCE STANDS DOWN: a defender whose purify has
+  // ended keeps its life and loses its errand — it stands
+  // as ordinary dark from here (the share never unmakes
+  // what it bore).
+  sqlite.prepare(`UPDATE homeland_wanderers SET defend_tile_id = NULL WHERE owner_key = ? AND defend_tile_id IS NOT NULL AND defend_tile_id NOT IN (SELECT tile_id FROM purifies WHERE owner_key = ?)`)
+    .run(ownerKey, ownerKey);
+}
+
+/** End one Awoken's purify order, if it holds one — the
+ *  road every other order takes when it supersedes the
+ *  purify (a stance away from attack, a march, a recall).
+ *  The drain accrued to this moment is settled first, so
+ *  the tile keeps the span the order truly stood. */
+async function endPurifyForAwakened(ownerKey: string, awakenedId: number): Promise<void> {
+  const row = sqlite.prepare("SELECT id FROM purifies WHERE owner_key = ? AND awakened_id = ?").get(ownerKey, awakenedId) as any;
+  if (!row) return;
+  await settlePurify(ownerKey);
+  sqlite.prepare("DELETE FROM purifies WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, awakenedId);
+}
+
 
 /** THE FELL DRIP — the one shape a beaten creature's attunement
  *  drop takes, on BOTH grounds. The measure is the drizzle
@@ -8279,6 +8579,10 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     id: number; kind: string; tileId: number; q: number; r: number; hp: number; maxHp: number;
     power: number; lvl: number; wetUntil: number; cracked: number; lastStrikeAt: number;
     pinnedBeats: number; chewTileId: number | null; chewProgress: number; brambleCarry: number; dead: boolean; killer: number | null;
+    /** PURIFY (Nigel, 2026-11-15): the tile this defender
+     *  was born to defend, while its purify still runs —
+     *  the walk below walks it on that tile's purifier. */
+    defendTileId: number | null;
     /** The Lighting System's burn accrual: settled seconds
      *  stood on FIGHTING-lit ground, toward the next 1d10. */
     lightCarry: number;
@@ -8289,7 +8593,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
      *  numbers, not the land's bounty (fellDark, below). */
     seedRising: number;
   };
-  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress, held_until AS heldUntil, seed_rising AS seedRising FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
+  const darks: Dark[] = (sqlite.prepare(`SELECT id, kind, tile_id AS tileId, pos_q AS posQ, pos_r AS posR, hp, power, lvl, wet_until AS wetUntil, cracked, last_strike_at AS lastStrikeAt, pinned_beats AS pinnedBeats, chew_tile_id AS chewTileId, chew_progress AS chewProgress, held_until AS heldUntil, seed_rising AS seedRising, defend_tile_id AS defendTileId FROM homeland_wanderers WHERE owner_key = ?`).all(ownerKey) as any[]).map(w => {
     const t = byId.get(w.tileId);
     const kind = String(w.kind ?? "fray");
     const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + Math.max(0, (Number(w.lvl) || 1) - 1);
@@ -8304,6 +8608,7 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       brambleCarry: 0, dead: false, killer: null, lightCarry: 0,
       heldUntil: Number(w.heldUntil) || 0,
       seedRising: Number(w.seedRising) || 0,
+      defendTileId: w.defendTileId == null ? null : Number(w.defendTileId),
     };
   });
   type Fighter = {
@@ -8908,6 +9213,30 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   const lightMap = computeTileLight(ownerKey, tiles);
   const lightAt = (q: number, r: number): number => lightMap.get(`${q},${r}`) ?? LIGHT_DARK;
 
+  // PURIFY (Nigel, 2026-11-15): the land's live purify
+  // orders, read once for the whole settle. purifiersByTile
+  // steers the defenders' walk (a defender's goal is its
+  // tile's purifier); purifyingNow — the Awoken standing in
+  // reach of their tile with the order live and not on the
+  // road — never strike back in the answer below, nor answer
+  // with thorns: they hold their ground and take the blows.
+  const purifiersByTile = new Map<number, Set<number>>();
+  for (const r of loadPurifies(ownerKey)) {
+    const set = purifiersByTile.get(r.tileId) ?? new Set<number>();
+    set.add(r.awakenedId);
+    purifiersByTile.set(r.tileId, set);
+  }
+  const purifyingNow = new Set<number>();
+  for (const [tileId, ids] of purifiersByTile) {
+    const targetTile = byId.get(tileId);
+    if (!targetTile) continue;
+    for (const f of fighters) {
+      if (f.dead || f.marching || !ids.has(f.awakenedId)) continue;
+      const standTile = byId.get(f.tileId);
+      if (standTile && hexDistTiles(standTile, targetTile) <= 1) purifyingNow.add(f.awakenedId);
+    }
+  }
+
   const STEP_MS = 500;
   const steps = Math.max(0, Math.ceil(elapsed / STEP_MS));
   const windowStart = now - elapsed;
@@ -8944,8 +9273,26 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       let goal: { q: number; r: number } | null = null; let holdAt = 0;
       let nearF: Fighter | null = null; let nearFD = Infinity;
       for (const f of fighters) { if (f.dead) continue; const dd = axialDist(d, f); if (dd < nearFD) { nearFD = dd; nearF = f; } }
-      if (nearF) { goal = { q: nearF.q, r: nearF.r }; holdAt = ENEMY_BITE_REACH; }
-      else {
+      // PURIFY — THE DEFENDER'S ERRAND (Nigel, 2026-11-15):
+      // a defender born of a purify walks on that tile's
+      // purifier — the nearest purifying Awoken — and holds
+      // at its bite reach, ahead of every ordinary hunger.
+      // If the purify has ended (its tile names no live
+      // order), the mark is spent: the defender stands as
+      // ordinary dark from this step, and its row is written
+      // back unmarked below.
+      if (d.defendTileId != null) {
+        const ids = purifiersByTile.get(d.defendTileId);
+        if (ids && ids.size) {
+          let bestF: Fighter | null = null; let bestFD = Infinity;
+          for (const f of fighters) { if (f.dead || !ids.has(f.awakenedId)) continue; const dd = axialDist(d, f); if (dd < bestFD) { bestFD = dd; bestF = f; } }
+          if (bestF) { goal = { q: bestF.q, r: bestF.r }; holdAt = ENEMY_BITE_REACH; }
+          else { const tt = byId.get(d.defendTileId); if (tt) { goal = { q: tt.q, r: tt.r }; holdAt = ENEMY_BITE_REACH; } }
+        } else {
+          d.defendTileId = null;
+        }
+      }
+      if (!goal) {
         let nearT: any = null; let nearTD = Infinity;
         for (const t of tiles as any[]) { if (t.cursed) continue; const dd = axialDist(d, t); if (dd < nearTD) { nearTD = dd; nearT = t; } }
         if (nearT) { goal = { q: nearT.q, r: nearT.r }; holdAt = ENEMY_BITE_REACH; }
@@ -9283,7 +9630,10 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
               if (res.dissipated) { victim.dead = true; const wk = works.find(w => w.placementId === victim.id); if (wk) wk.gone = true; }
               // THORNS: a Root Awokin answers a landed blow —
               // 1 + her Root aspects, no roll on the answer.
-              if (!d.dead && victim.dominant === "root") await hurtDark(d, 1 + victim.rootAspects, victim.awakenedId);
+              // A PURIFYING Awoken makes no answer at all
+              // (Nigel, 2026-11-15: it keeps purifying) —
+              // thorns are an answer, and it gives none.
+              if (!d.dead && victim.dominant === "root" && !purifyingNow.has(victim.awakenedId)) await hurtDark(d, 1 + victim.rootAspects, victim.awakenedId);
               if (d.kind === "tangle" && !victim.dead) {
                 victim.row.pinnedUntil = tNow + BATTLE_BEAT_MS;
                 sqlite.prepare("UPDATE field_placements SET pinned_until = ? WHERE id = ?").run(tNow + BATTLE_BEAT_MS, victim.id);
@@ -9387,8 +9737,8 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
             // at the fall, as at the damage door.
             const grassGift = Math.floor(((target as any).sprigs ?? 0) / 10);
             const dormantHp = Math.max(0, ((target as any).hp ?? 10) - grassGift);
-            await db.update(schema.territoryTiles).set({ cursed: 1, curseHp: maxHp, curseMaxHp: maxHp, spark: 0, sprigs: 0, hp: dormantHp }).where(eq(schema.territoryTiles.id, target.id));
-            target.cursed = 1; target.curseHp = maxHp; target.curseMaxHp = maxHp; target.spark = 0;
+            await db.update(schema.territoryTiles).set({ cursed: 1, curseHp: maxHp, curseMaxHp: maxHp, curseDrain: 0, spark: 0, sprigs: 0, hp: dormantHp }).where(eq(schema.territoryTiles.id, target.id));
+            target.cursed = 1; target.curseHp = maxHp; target.curseMaxHp = maxHp; target.curseDrain = 0; target.spark = 0;
             (target as any).sprigs = 0; (target as any).hp = dormantHp;
             sqlite.prepare("UPDATE field_placements SET grass_paid_at = ? WHERE tile_id = ?")
               .run(Date.now(), target.id);
@@ -9421,6 +9771,12 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     for (const f of fighters) {
       if (f.dead) continue;
       if ((f.row.pinnedUntil ?? 0) > tNow) continue;
+      // PURIFY (Nigel, 2026-11-15): a purifying Awoken never
+      // strikes back — it holds its ground and takes the
+      // blows. Its cadence is not banked for later (the
+      // reckoning below self-heals from nextAt when the
+      // order ends, as a held cadence always has).
+      if (purifyingNow.has(f.awakenedId)) continue;
       // Her cadence: the re-based table (Nigel, 2026-10-24),
       // trimmed by her SPEED BONUS — 0.5% a level above 1 off
       // the interval — with the crowding tax multiplying the
@@ -9624,8 +9980,8 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
   // ── Write the dark back ───────────────────────────────
   for (const d of darks) {
     if (d.dead) { sqlite.prepare("DELETE FROM homeland_wanderers WHERE id = ?").run(d.id); continue; }
-    sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ?, pos_q = ?, pos_r = ?, hp = ?, wet_until = ?, cracked = ?, last_strike_at = ?, pinned_beats = ?, chew_tile_id = ?, chew_progress = ?, held_until = ? WHERE id = ?")
-      .run(d.tileId, d.q, d.r, d.hp, d.wetUntil, d.cracked, d.lastStrikeAt, d.pinnedBeats, d.chewTileId, d.chewProgress, d.heldUntil, d.id);
+    sqlite.prepare("UPDATE homeland_wanderers SET tile_id = ?, pos_q = ?, pos_r = ?, hp = ?, wet_until = ?, cracked = ?, last_strike_at = ?, pinned_beats = ?, chew_tile_id = ?, chew_progress = ?, held_until = ?, defend_tile_id = ? WHERE id = ?")
+      .run(d.tileId, d.q, d.r, d.hp, d.wetUntil, d.cracked, d.lastStrikeAt, d.pinnedBeats, d.chewTileId, d.chewProgress, d.heldUntil, d.defendTileId, d.id);
   }
   for (const f of fighters) {
     if (f.row.battleNextAt != null) sqlite.prepare("UPDATE field_placements SET battle_next_at = ? WHERE id = ?").run(f.row.battleNextAt, f.id);
@@ -13013,6 +13369,71 @@ export const handlers = {
             if (intensity >= 2) kindPool.push("hollow", "hollow");
             if (intensity >= 3) kindPool.push("unraveler", "unraveler");
             if (intensity >= 4) kindPool.push("tangle");
+            // PURIFY — THE DEFENCE (Nigel, 2026-11-15; the
+            // proportional reading ratified whole the same
+            // evening): a tile under purify draws defenders
+            // on this same beat, in proportion to the
+            // thickness it still stands at — share =
+            // round(thickness / 4), at least 1 while the
+            // purify runs and thickness stands above 0. The
+            // share is served FIRST from the field's room,
+            // before the ring births below take theirs: the
+            // cradle's flood would otherwise fill the cap
+            // whole on a wide cursed land (it rolls on every
+            // edge tile) and a purify would draw nothing,
+            // ever — the defence is the purify's own drawing,
+            // and the cap still binds over the share exactly
+            // as it binds over the ring. On each beat, a
+            // purifying tile whose standing defenders (the
+            // wanderers carrying its mark) number fewer
+            // than its share births ONE more,
+            // at the nearest cursed tile within 15 hexes
+            // where birth is legal under the cradle's own
+            // bars (unoccupied, outside a Beacon's ring, not
+            // held at FIGHTING light), of the standing kinds
+            // at the standing intensity — and the standing
+            // field cap binds over the share. The share reads
+            // CURRENT thickness, so the defence thins as the
+            // drain bites; it governs births only and never
+            // despawns — a born defender is a real enemy, and
+            // its mark clears only when the purify ends
+            // (settlePurify stands the defence down).
+            {
+              const purifyOrders = loadPurifies(ownerKey);
+              if (purifyOrders.length) {
+                const moodNow = (await getWorldMood()).mood;
+                const assigned = new Map<number, number>();
+                for (const w of sqlite.prepare("SELECT defend_tile_id AS dtid, COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ? AND defend_tile_id IS NOT NULL GROUP BY defend_tile_id").all(ownerKey) as any[]) {
+                  assigned.set(Number(w.dtid), Number(w.n));
+                }
+                const occupiedNow = new Set(rows.map(w => w.tileId));
+                const purifyTileIds = [...new Set(purifyOrders.map(r => r.tileId))];
+                for (let b = 0; b < beats; b++) {
+                  for (const tileId of purifyTileIds) {
+                    if (rows.length >= cap) break;
+                    const target = byId.get(tileId);
+                    if (!target || !target.cursed) continue;
+                    const thickness = purifyThicknessOf(target, moodNow);
+                    if (thickness <= 0) continue;
+                    const share = Math.max(1, Math.round(thickness / PURIFY_DEFENDER_SHARE_DIVISOR));
+                    if ((assigned.get(tileId) ?? 0) >= share) continue;
+                    const birthTile = tiles
+                      .filter((t: any) => t.cursed && t.id !== tileId && hexDist(t, target) <= PURIFY_DEFENDER_RANGE_HEXES && !occupiedNow.has(t.id)
+                        && !beaconTiles.some(bm => hexDist(t, bm) <= 1)
+                        && (spawnLight.get(`${t.q},${t.r}`) ?? LIGHT_DARK) !== LIGHT_FIGHTING)
+                      .sort((a: any, b2: any) => hexDist(a, target) - hexDist(b2, target) || a.id - b2.id)[0];
+                    if (!birthTile) continue;
+                    const kind = kindPool[Math.floor(Math.random() * kindPool.length)];
+                    const maxHp = (HOMELAND_DARK_HP[kind] ?? 3) + (intensity - 1);
+                    const info = sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, defend_tile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                      .run(ownerKey, birthTile.id, kind, now, maxHp, birthTile.q, birthTile.r, HOMELAND_DARK_POWER[kind] ?? 1, intensity, tileId);
+                    rows.push({ id: Number(info.lastInsertRowid), tileId: birthTile.id, kind, posQ: birthTile.q, posR: birthTile.r, hp: maxHp, lvl: intensity });
+                    occupiedNow.add(birthTile.id);
+                    assigned.set(tileId, (assigned.get(tileId) ?? 0) + 1);
+                  }
+                }
+              }
+            }
             for (let b = 0; b < beats && rows.length < cap; b++) {
               const occupied = new Set(rows.map(w => w.tileId));
               // BIRTHS SPREAD AROUND THE WHOLE RING (Nigel,
@@ -13466,7 +13887,7 @@ export const handlers = {
           if (idx >= 0) placements.splice(idx, 1);
         }
         const upd = {
-          cursed: 1, curseHp: curse, curseMaxHp: curse, spark: 0,
+          cursed: 1, curseHp: curse, curseMaxHp: curse, curseDrain: 0, spark: 0,
           attunePoints: 0, attuneElement: null, mixPoints: null,
           sealedTrays: 0, growPoints: 0, topPoints: null, height: 0,
           // A created work falls with its land (the Building
@@ -13817,6 +14238,14 @@ export const handlers = {
     await settleMoonShrooms(ownerKey);
     const moonChannels = loadMoonShroomChannels(ownerKey);
     const moonShrooms = loadMoonShrooms(ownerKey).map(s => moonShroomView(s, moonChannels));
+    // PURIFY (Nigel, 2026-11-15): the orders reckon lazily
+    // at this read, like the channels' — the tiles handed
+    // in are mutated as they settle, so the ground served
+    // below is the ground as it now stands — then each
+    // tile's purifiers are served with the land, so the
+    // tile card can name the work wearing its curse down.
+    await settlePurify(ownerKey, Date.now(), tiles as any[]);
+    const purifies = purifiesView(loadPurifies(ownerKey));
     // THE RUNE: its channels reckon lazily at this read,
     // like the rises' — then the Runes are served as they
     // stand, each with its present channelers.
@@ -13888,7 +14317,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), bricks: brickViews, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, shrubs, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), bricks: brickViews, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, shrubs, purifies, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -17557,6 +17986,11 @@ export const handlers = {
     // transit are not pillar-checked — both stand outside
     // this fix.)
     const marchPoint = freePoint ? pillarFreePoint(standingPillars(ownerKey), freePoint.q, freePoint.r) : null;
+    // PURIFY (Nigel, 2026-11-15): a march ordered is another
+    // order — it ends any purify this Awoken holds (the
+    // purify's own move-to writes its order AFTER this call
+    // returns, so its road is never eaten by this line).
+    await endPurifyForAwakened(ownerKey, awakenedId);
     await db.update(schema.fieldPlacements).set({
       marchPath: JSON.stringify(road), marchSince: now, marchEnds: now + Math.round(seconds * 1000), marchGoal: null,
       // The point this march will stand on (or none — the
@@ -17602,6 +18036,10 @@ export const handlers = {
     const placement = rows[0] as any;
     if (!placement) badRequest("That Awokin does not stand on the field.");
     if (!placement.marchPath || !placement.marchSince || !placement.marchEnds) badRequest("That Awokin is not on the march.");
+    // PURIFY (Nigel, 2026-11-15): a recall is another order —
+    // it ends any purify this Awoken holds, whichever road
+    // home the recall writes below.
+    await endPurifyForAwakened(ownerKey, awakenedId);
     let road: number[] = [];
     try { const r = JSON.parse(placement.marchPath); if (Array.isArray(r)) road = r.filter((x: any) => typeof x === "number"); } catch { /* broken below */ }
     if (road.length < 2) {
@@ -19464,7 +19902,7 @@ export const handlers = {
         // with the grass, as at every fall door.
         const fallGrassGift = Math.floor(((victim as any).sprigs ?? 0) / 10);
         await db.update(schema.territoryTiles)
-          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp, hp: Math.max(0, ((victim as any).hp ?? 10) - fallGrassGift), ...FALLEN_TILE_FIELDS })
+          .set({ cursed: 1, curseHp: fallHp, curseMaxHp: fallHp, curseDrain: 0, hp: Math.max(0, ((victim as any).hp ?? 10) - fallGrassGift), ...FALLEN_TILE_FIELDS })
           .where(eq(schema.territoryTiles.id, victim.id));
         sqlite.prepare("UPDATE field_placements SET grass_paid_at = ? WHERE tile_id = ?")
           .run(Date.now(), victim.id);
@@ -19773,6 +20211,10 @@ export const handlers = {
           : null,
       })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
+    // PURIFY (Nigel, 2026-11-15): a stance away from attack
+    // is another order, and another order ends the purify —
+    // the tile keeps the thickness the purify had worn off.
+    if (parsed.data.stance !== "attack") await endPurifyForAwakened(ownerKey, parsed.data.awakenedId);
     // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2): an
     // order given, recorded at the giving — the stance_ordered
     // mark above is its durable twin.
@@ -19784,24 +20226,32 @@ export const handlers = {
   },
 
   async attackTile(args: unknown, ctx?: ActionContext) {
+    // PURIFY (Nigel, 2026-11-15): this door is the wheel's
+    // Purify button now (it read Attack, and struck). Pointed
+    // at a cursed tile it gives the purify ORDER — no blow is
+    // landed, no energy is taken, and no instant damage is
+    // dealt: the curse's thickness falls only to the purify
+    // itself, reckoned by settlePurify. (Pointed at an enemy,
+    // an Awoken's striking lives in the living battle, which
+    // this door never dealt and does not deal now.)
     const ownerKey = landKeyFor(ctx);
+    await this.settleMarches(ownerKey);
+    await settlePurify(ownerKey);
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
       tileId: z.number().int().positive(),
     }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid attack.");
+    if (!parsed.success) badRequest("Invalid purify order.");
     // NO GROUND IS GAINED UNDER LIGHT (THE MASTER CLOCK,
     // Nigel, 2026-10-28: "The beacon must be unlit to gain
-    // ground"): a direct strike at the curse is ground
-    // gained by the blow — while the beacon burns, the
-    // light holds the curse where it stands and the blow
-    // is refused whole, before any price is taken. Douse
-    // the beacon, and strike.
-    if (beaconSwitchLit(ownerKey)) badRequest("The beacon burns, and its light holds the curse where it stands — no ground is gained under it. Douse the beacon to strike the curse.");
-    if (!(await spendEnergy(actorKeyFor(ctx), 1))) {
-      badRequest("Not enough energy (need 1).");
-    }
-    // The attacker must be on the field in attack stance.
+    // ground"): while the beacon burns, the light holds the
+    // curse where it stands and the order is refused whole,
+    // before anything is written. Douse the beacon, and
+    // purify.
+    if (beaconSwitchLit(ownerKey)) badRequest("The beacon burns, and its light holds the curse where it stands — no ground is gained under it. Douse the beacon to purify the curse.");
+    // The purifier must be on the field in attack stance —
+    // the stance the wheel's Purify entry sets, as the
+    // strike before it required.
     const placement = await db.select().from(schema.fieldPlacements)
       .where(and(
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
@@ -19817,125 +20267,64 @@ export const handlers = {
       )).limit(1);
     if (!tile.length) badRequest("That tile is not yours.");
     if (!tile[0].cursed) badRequest("That land is already pure.");
-    // Target must be adjacent to the attacker's current tile.
+    const target = tile[0] as any;
+    const mood = (await getWorldMood()).mood;
+    const ring = Math.max(Math.abs(target.q), Math.abs(target.r), Math.abs(target.q + target.r));
+    const maxHp = (target.curseMaxHp as number | null) ?? curseHpFor(ring, mood);
+    const thickness = purifyThicknessOf(target, mood);
     const fromTile = await db.select().from(schema.territoryTiles)
       .where(eq(schema.territoryTiles.id, placement[0].tileId)).limit(1);
-    if (!fromTile.length) badRequest("Attacker has no ground.");
-    const dq = Math.abs(tile[0].q - fromTile[0].q);
-    const dr = Math.abs(tile[0].r - fromTile[0].r);
-    const dist = Math.max(dq, dr, Math.abs((tile[0].q + tile[0].r) - (fromTile[0].q + fromTile[0].r)));
-    if (dist !== 1) badRequest("Can only attack adjacent tiles.");
-    // Power vs toughness: the attacker's power must meet the corruption.
-    const owned = await db.select().from(schema.awakened)
-      .where(and(
-        eq(schema.awakened.collection, "tender"),
-        or(eq(schema.awakened.ownerKey, ownerKey), isNull(schema.awakened.ownerKey))
-      ));
-    const attacker = owned.find(a => a.id === parsed.data.awakenedId);
-    if (!attacker) badRequest("Attacker not found.");
-    const assetRows = await db.select().from(schema.layerAssets);
-    const assetStats = new Map<number, AssetStats>();
-    for (const assetRow of assetRows) {
-      const rarity = raritySchema.safeParse(assetRow.rarity);
-      if (rarity.success) assetStats.set(assetRow.id, { name: assetRow.name, rarity: rarity.data, power: assetRow.power, toughness: assetRow.toughness, element: (assetRow as any).element ?? null });
+    if (!fromTile.length) badRequest("That Awokin has no ground to stand on.");
+    const dist = hexDistTiles(fromTile[0] as any, target);
+    const me = placement[0] as any;
+    // A purify already standing for this Awoken on THIS tile
+    // is the order already given — the tap simply witnesses
+    // it, and nothing is rewritten.
+    const standing = loadPurifies(ownerKey).find(r => r.awakenedId === parsed.data.awakenedId);
+    if (standing && standing.tileId === target.id && !me.marchPath) {
+      return { ok: true as const, purifying: true as const, marching: false as const, tileId: target.id, hp: Math.round(thickness * 10) / 10, maxHp, awakenedId: parsed.data.awakenedId };
     }
-    const layers = parseLayers(attacker.compositionJson, assetStats);
-    // True power from the payload — empowerment, story bonuses, aspect
-    // bonuses and stat points all count, exactly as the card displays.
-    const attackerPayload = await awakenedPayloadById(attacker.id);
-    const power = attackerPayload?.power ?? layers.reduce((s, l) => s + (l.power ?? 0), 0);
-    // HP system: each attack dwindles the curse HP by the attacker's power.
-    // Initialize HP if missing (legacy tiles).
-    const ring = Math.max(Math.abs(tile[0].q), Math.abs(tile[0].r), Math.abs(tile[0].q + tile[0].r));
-    // A legacy tile with no stored curse HP is born now, under the
-    // live sky (thickening's tooth reaches it too).
-    const maxHp = tile[0].curseMaxHp ?? curseHpFor(ring, (await getWorldMood()).mood);
-    const currentHp = tile[0].curseHp ?? maxHp;
-    // Unified XP (Nigel, 2026-10-13): the attack has landed — an ATTACK
-    // EVENT, +10 XP to the attacker, whatever the curse does next. If
-    // the blow breaks the curse, HEX-TAKEN XP (+50) joins it below.
-    const attackerXpById = new Map<number, XpGainReport>();
-    await grantEventXp(attackerXpById, parsed.data.awakenedId, XP_PER_ATTACK);
-    const xpShape = z.object({ awakenedId: z.number(), xpGain: z.number(), leveledUp: z.boolean(), newLevel: z.number() });
-    // ATTRITION, NOT THORNS (Nigel, 2026-10-19): the curse no
-    // longer answers the blow — striking it costs the striker
-    // nothing in the moment. Its teeth are the withering of
-    // whatever stands in it, reckoned at settle time (see
-    // settleMarches). The striker's standing is reported as
-    // it stands, untouched by the curse's reply — there is
-    // no reply.
-    const attackerMaxHp = await placementMaxHp(parsed.data.awakenedId);
-    const attackerOutcome = {
-      attackerHp: placement[0].hp ?? attackerMaxHp,
-      attackerMaxHp,
-      attackerDissipated: false,
-      awakenedId: parsed.data.awakenedId,
+    if (me.marchPath) badRequest("That Awokin is on the march — recall it, or let it arrive.");
+    const writeOrder = () => {
+      sqlite.prepare("DELETE FROM purifies WHERE owner_key = ? AND awakened_id = ?").run(ownerKey, parsed.data.awakenedId);
+      sqlite.prepare("INSERT INTO purifies (owner_key, tile_id, awakened_id, purse_key, started_at, settled_at, bank) VALUES (?, ?, ?, ?, ?, ?, 0)")
+        .run(ownerKey, target.id, parsed.data.awakenedId, actorKeyFor(ctx), Date.now(), Date.now());
     };
-    const newHp = Math.max(0, currentHp - power);
-    if (newHp > 0) {
-      // Curse holds — record the reduced HP.
-      await db.update(schema.territoryTiles)
-        .set({ curseHp: newHp, curseMaxHp: maxHp })
-        .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), hp: z.number(), maxHp: z.number(), damage: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
-        .parse({ ok: true, purified: false, hp: newHp, maxHp, damage: power, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
+    if (dist <= 1) {
+      // IN REACH — the strike's own reach: the adjacent
+      // tile, or the very tile the Awoken stands on. The
+      // purify begins where it stands.
+      writeOrder();
+      return { ok: true as const, purifying: true as const, marching: false as const, tileId: target.id, hp: Math.round(thickness * 10) / 10, maxHp, awakenedId: parsed.data.awakenedId };
     }
-    // HP reached 0 — the curse breaks!
-    // 15% chance: pulled into one wave of the Unraveling instead of instant purify.
-    // (Nigel, 2026-10-25: the pull is KEPT, its chance reduced from 35% to 15%.)
-    if (Math.random() < 0.15) {
-      // Don't purify yet — the wave must be beaten first.
-      // Keep HP at 0 to mark it as "breaking".
-      await db.update(schema.territoryTiles)
-        .set({ curseHp: 0 })
-        .where(eq(schema.territoryTiles.id, tile[0].id));
-      return z.object({ ok: z.literal(true), purified: z.literal(false), wavePull: z.literal(true), tileId: z.number(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
-        .parse({ ok: true, purified: false, wavePull: true, tileId: tile[0].id, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
+    // OUT OF REACH — MOVE TO IT (Nigel, 2026-11-15): the
+    // closest own tile within reach of the cursed tile —
+    // clean ground preferred, then the shortest road — and
+    // the Awoken marches there by the standing march
+    // machinery; the purify begins by itself on its arrival.
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey));
+    const blocked = buildStepBlocked(ownerKey);
+    let best: { tileId: number; steps: number; cursed: boolean } | null = null;
+    for (const t of tiles as any[]) {
+      if (t.id === target.id) continue;
+      if (hexDistTiles(t, target) !== 1) continue;
+      const road = findAnyRoad(tiles as any, placement[0].tileId, t.id, blocked);
+      if (!road) continue;
+      const cand = { tileId: t.id, steps: road.length - 1, cursed: !!t.cursed };
+      if (!best || (cand.cursed !== best.cursed ? !cand.cursed : cand.steps < best.steps)) best = cand;
     }
-    // Purify to neutral.
-    await recordDeed(ownerKey, parsed.data.awakenedId, "curse_broken");
-    // No newborn follows a purification any more (Nigel, 2026-10-14).
-    {
-        const elementCounts: Record<"tide" | "sky" | "stone" | "root", number> = { tide: 0, sky: 0, stone: 0, root: 0 };
-        for (const layer of layers) {
-          const el = storedElement((layer as any).element);
-          if (el !== "fire" && el !== "neutral") elementCounts[el] += 1;
-        }
-        // The breaker's dominant element claims the tile; a tie
-        // (or no counted element at all) falls to the DEFAULT —
-        // root since Nigel's ruling, 2026-10-25 ("i hoped the
-        // default would be root"); before, neutral (2026-10-20).
-        let element: "tide" | "sky" | "stone" | "root" = "root";
-        let maxCount = 0; let tie = false;
-        for (const [el, count] of Object.entries(elementCounts)) {
-          if (count > maxCount) { maxCount = count; element = el as typeof element; tie = false; }
-          else if (count === maxCount && count > 0) { tie = true; }
-        }
-        if (tie) element = "root";
-        // Wildfire spark: 5% chance the purified land smolders with Fire.
-        // The next Awoken born from this tile gets a random Fire aspect.
-        const sparked = Math.random() < 0.05;
-        await db.update(schema.territoryTiles)
-          .set({ cursed: 0, element, curseHp: null, curseMaxHp: null, spark: sparked ? 1 : 0, ...PURIFIED_TILE_FIELDS })
-          .where(eq(schema.territoryTiles.id, tile[0].id));
-        // The attacker advances onto the broken land. (Under
-        // the old thorns this was gated on surviving the
-        // curse's answer; there is no answer now.)
-        // FIX THE CLOCKS: the advance leaves the old tile —
-        // its press span settles before the move.
-        await settlePlacementClocksById(placement[0].id);
-        await db.update(schema.fieldPlacements)
-          .set({ tileId: tile[0].id })
-          .where(eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId));
-        // Reveal new cursed land at the frontier.
-        await expandFrontier(ownerKey, tile[0].q, tile[0].r);
-        // HEX TAKEN: this attacker's blow broke the curse — +50 XP.
-        await grantEventXp(attackerXpById, parsed.data.awakenedId, XP_PER_HEX_TAKEN);
-        return z.object({ ok: z.literal(true), purified: z.literal(true), sparked: z.boolean(), attackerHp: z.number(), attackerMaxHp: z.number(), attackerDissipated: z.boolean(), awakenedId: z.number(), attackerXp: xpShape })
-          .parse({ ok: true, purified: true, sparked, ...attackerOutcome, attackerXp: attackerXpById.get(parsed.data.awakenedId) });
-    }
+    if (!best) badRequest("No ground of yours stands within reach of that curse — there is nowhere to purify it from.");
+    // The standing march machinery carries the walker (its
+    // own road law and price); the purify goal rides the
+    // march so the road knows its errand, and the order
+    // itself is written now — the settle begins the drain
+    // when the walker stands in reach.
+    await this.setMarch({ awakenedId: parsed.data.awakenedId, tileId: best!.tileId }, ctx);
+    sqlite.prepare("UPDATE field_placements SET march_goal = ? WHERE owner_key = ? AND awakened_id = ?")
+      .run(`purify:${target.id}`, ownerKey, parsed.data.awakenedId);
+    writeOrder();
+    return { ok: true as const, purifying: true as const, marching: true as const, tileId: target.id, hp: Math.round(thickness * 10) / 10, maxHp, awakenedId: parsed.data.awakenedId };
   },
-
 
   /**
    * Server-side newborn birth: picks random layers from the pool, creates the
@@ -21185,6 +21574,12 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // growth only while its channeller is present and in
   // reach (the settle reads both itself).
   await clockStep(ownerKey, "shrubs", () => settleShrubs(ownerKey));
+  // (12) PURIFY — every land: the orders settle on the slow
+  // gear as they do at the read, so a curse keeps wearing
+  // down between reads while its purifier stands in reach
+  // and its Tender is present — and only then (the settle
+  // reads presence and reach itself).
+  await clockStep(ownerKey, "purify", () => settlePurify(ownerKey));
 }
 
 /** Settle ONE land's WAR by the realtime gear, in the
