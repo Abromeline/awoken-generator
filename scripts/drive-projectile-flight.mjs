@@ -40,8 +40,10 @@
 //      band, as her march does;
 //   §B a LEVEL-10 firer's shard stands WIDER on the map
 //      than a LEVEL-1 firer's (drawn widths: the law's
-//      ~1.44× — 144 × 1.44 ≈ 208 against 144; the standing
-//      measure stood at 216 until the launched-shot fix,
+//      ~1.44× — 96 × 1.44 ≈ 138 against 96; the standing
+//      measure stood at 144 until Nigel's size word of
+//      2026-11-15 ("reduce the size of the projectiles by
+//      1/3"), and at 216 until the launched-shot fix,
 //      2026-11-10. A drawn width here is the shard's seated
 //      frame — the host <svg data-shard-frame> the painted
 //      content fills — never the raw <image>, whose own
@@ -57,10 +59,11 @@
 //      real margin (the chord between two same-row hexes
 //      is near-level, so the rise is the arc's own);
 //   §D a DARK blow still flies its ruled third speed
-//      (~1584 ms) at its standing size (144 — the one
+//      (~1584 ms) at its standing size (96 — the one
 //      standing measure, lowered with every shard by the
-//      launched-shot fix); no level growth rides it, as
-//      the law always held.
+//      launched-shot fix and again by the size word of
+//      2026-11-15); no level growth rides it, as the law
+//      always held.
 // The drawn lives of individual flights are NOT read
 // comparatively here, deliberately: this field's witness
 // is the homeland's dense-battle one, where the Push-45
@@ -355,10 +358,10 @@ while (Date.now() < watchDeadline) {
   const dk = raw.filter(tr => nearF(tr[0], 45) && !nearF(tr[tr.length - 1], 70));
   // A flight's width is read at its peak now (the growth
   // to the zenith — see the chaining note): readiness asks
-  // for a level-10 peak past 200 and a level-1 peak on 144.
+  // for a level-10 peak past 133 and a level-1 peak on 96.
   const widths = pl.map(tr => Math.max(...tr.map(s => s.w)));
   tracks = raw;
-  if (pl.length >= 3 && dk.length >= 1 && widths.some(w => w > 200) && widths.some(w => Math.abs(w - 144) <= 3)) break;
+  if (pl.length >= 3 && dk.length >= 1 && widths.some(w => w > 133) && widths.some(w => Math.abs(w - 96) <= 3)) break;
 }
 const rec = await page.evaluate(() => { clearInterval(window.__flightRec.iv); return window.__flightRec; });
 clearInterval(stillIv);
@@ -380,7 +383,9 @@ const livesOf = (trs) => trs.map(tr => tr[tr.length - 1].t - tr[0].t);
 // standing-size ones. (RESTATED for the growth to the
 // zenith, 2026-11-10: the drawn width is the law's size
 // made visible AT THE ZENITH — each track's peak width,
-// its full size: 144 × 1.44 ≈ 208 against 144. The
+// its full size: 96 × 1.44 ≈ 138 against 96 (the measure
+// restated again for the size word of 2026-11-15, every
+// figure at two-thirds of its former self). The
 // median-of-flight reading stood while a width was fixed
 // for a flight's whole life; under the growth it would
 // read the curve's middle, not the size law's number.
@@ -388,18 +393,18 @@ const livesOf = (trs) => trs.map(tr => tr[tr.length - 1].t - tr[0].t);
 // recorder is starved by the map's render weight, and a
 // flight sighted ~8 times can miss the zenith's exact
 // frame — so the level-1 measure is judged as WITNESSED
-// (some level-1 track peaks on it, 140–146) with a floor
-// under every track's peak (≥128: each flight's zenith
+// (some level-1 track peaks on it, 93–98) with a floor
+// under every track's peak (≥85: each flight's zenith
 // neighbourhood, growth ≥ ~0.89, was flown), while the
-// widest must land on the level-10 measure (195–212).
+// widest must land on the level-10 measure (130–141).
 // The growth curve's precision is the launched-shot
 // proof's §G; this section keeps the level comparison.)
 const widths = placementTracks.map(tr => Math.max(...tr.map(s => s.w)));
 const widest = Math.max(...widths), narrowest = Math.min(...widths);
-const l1Witnessed = widths.some(w => w >= 140 && w <= 146);
+const l1Witnessed = widths.some(w => w >= 93 && w <= 98);
 console.log(`  placement track peak widths: ${widths.map(w => Math.round(w)).join(", ")}`);
-ok("§B a level-10 firer's shard stands wider at its zenith than a level-1 firer's (the law's ~1.44×: ~208 against 144, each read at its peak — the level-1 measure witnessed on the measure, no flight's peak under 128)",
-  widths.length >= 2 && widest >= 195 && widest <= 212 && l1Witnessed && narrowest >= 128 && widest / 144 >= 1.35,
+ok("§B a level-10 firer's shard stands wider at its zenith than a level-1 firer's (the law's ~1.44×: ~138 against 96, each read at its peak — the level-1 measure witnessed on the measure, no flight's peak under 85)",
+  widths.length >= 2 && widest >= 130 && widest <= 141 && l1Witnessed && narrowest >= 85 && widest / 96 >= 1.35,
   `widest=${widest.toFixed(0)} narrowest=${narrowest.toFixed(0)} l1=${l1Witnessed}`);
 
 // §C — the arc: on the longest placement track, the mid
@@ -435,8 +440,8 @@ console.log(`  dark tracks: ${darkTracks.length}; lives: ${dLives.map(Math.round
 ok("§D a dark blow still flies its ruled third speed (drawn life ~1584 ms)",
   dLives.length >= 1 && median(dLives) >= 1200 && median(dLives) <= 1900,
   `n=${dLives.length} median=${Math.round(median(dLives))}ms`);
-ok("§D a dark blow still stands at its standing size (drawn width 144 — no level growth rides it)",
-  dWidths.length >= 1 && dWidths.every(w => w === 144),
+ok("§D a dark blow still stands at its standing size (drawn width 96 — no level growth rides it)",
+  dWidths.length >= 1 && dWidths.every(w => w === 96),
   `widths=${dWidths.map(w => Math.round(w)).join(",")}`);
 
 console.log(`\nPROJECTILE FLIGHT DRIVE: ${pass} passed, ${fail} failed`);

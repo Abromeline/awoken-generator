@@ -890,10 +890,12 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
    * after the first. */
   const SHOT_FRESH_MS = 2500;
   /** The shard's drawn size on this stage: the homeland
-   * draws it 144 × 76 against its 54-unit hex base (216 ×
-   * 114 until the launched-shot fix, 2026-11-10); this
-   * stage's hex base is TILE_SIZE, and the shard keeps the
-   * same measure against its own ground. */
+   * draws it 96 × 50.7 against its 54-unit hex base (144 ×
+   * 76 until Nigel's size word of 2026-11-15 — "reduce the
+   * size of the projectiles by 1/3"; 216 × 114 until the
+   * launched-shot fix, 2026-11-10); this stage's hex base
+   * is TILE_SIZE, and the shard keeps the same measure
+   * against its own ground. */
   const SHOT_W = SHARD_DRAW_W * TILE_SIZE / 54;
   const SHOT_H = SHARD_DRAW_H * TILE_SIZE / 54;
   const [shots, setShots] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number }; element: string | null; dark: boolean; hit: boolean; killed: boolean; idx: number; pierce?: boolean; startsAt: number; flightMs: number; level: number }[]>([]);
@@ -4923,18 +4925,16 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                           fill={elementPalette[shot.element as keyof typeof elementPalette]} fillOpacity={0.5}
                           filter="url(#shard-tail-soft)" />
                       )}
-                      {/* THE SHARD'S GLOW (Nigel, 2026-11-12),
-                          the homeland halo's twin: a soft halo
-                          of the shot's element colour centred on
-                          the shard itself, wearing the tint's
-                          own condition exactly — at this seat a
-                          dark blow takes no tint (tint is null
-                          for it above), so it wears no halo. */}
-                      {tint && (
-                        <ellipse data-shard-halo="" cx={0} cy={0} rx={shotW * 0.62} ry={shotH * 0.78}
-                          fill={elementPalette[shot.element as keyof typeof elementPalette]} fillOpacity={0.55}
-                          filter="url(#shard-tail-soft)" />
-                      )}
+                      {/* THE SHARD'S GLOW IS STRUCK (Nigel,
+                          2026-11-15, from his play): the Push
+                          83 halo, the homeland halo's twin,
+                          stood here — an engine-added wash of
+                          the element colour centred on the
+                          shard. Struck with its twin: the only
+                          glow a shot wears is the glow painted
+                          in his own art, tinted by the standing
+                          tint law. The tail's wake above is
+                          untouched. */}
                       <svg data-shard-frame="" x={-shotW / 2} y={-shotH / 2} width={shotW} height={shotH} viewBox={shardFrameViewBox(slice)} overflow="hidden">
                         <image href={MATTER_SHARD_FRAMES[slice]} x={0} y={0} width={512} height={273} opacity={fade}
                           filter={tint ? `url(#${tint})` : undefined} />

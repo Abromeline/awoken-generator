@@ -10029,21 +10029,18 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     fill={elementPalette[f.element as keyof typeof elementPalette]} fillOpacity={0.5}
                     filter="url(#shard-tail-soft)" />
                 )}
-                {/* THE SHARD'S GLOW (Nigel, 2026-11-12 — "give
-                    that color more of an elemental glow"): a
-                    soft halo of the shot's own element colour
-                    centred on the shard itself, wearing the
-                    same soft blur as the wake, turning and
-                    growing with the flight as the wake does.
-                    It keeps the TINT's own condition exactly:
-                    it stands wherever the shot's image wears
-                    its tint filter, and a shot with no tint —
-                    a neutral striker — wears no halo. */}
-                {tint && (
-                  <ellipse data-shard-halo="" cx={0} cy={0} rx={drawW * 0.62} ry={drawH * 0.78}
-                    fill={elementPalette[f.element as keyof typeof elementPalette]} fillOpacity={0.55}
-                    filter="url(#shard-tail-soft)" />
-                )}
+                {/* THE SHARD'S GLOW IS STRUCK (Nigel,
+                    2026-11-15, from his play): the Push 83
+                    halo — an engine-added wash of the
+                    element colour centred on the shard —
+                    stood here and washed the middle of the
+                    screen out. His word: "i simply meant
+                    for the glow of the projectile art i gave
+                    you to have a glow to it." The only glow
+                    a shot wears now is the glow painted in
+                    his own art, tinted by the standing tint
+                    law; no layer is added around it. The
+                    tail's wake above is untouched. */}
                 {f.brick ? (() => {
                   // BRICK IN FLIGHT (Nigel, 2026-10-27 /
                   // 2026-11-10): a witnessed brick blow flies

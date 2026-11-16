@@ -20,16 +20,18 @@
 //      30% toward white, ±16 a channel); and with NO filter
 //      (the neutral shot) the same pixels render in the
 //      art's own colours (±8).
-//   §H the glow halo stands in a real flight's group: a
-//      seeded war (a Stone firer and a Sky firer beside a
-//      mountain-hide Fray, the launched-shot drive's world)
-//      flies real shots, and the recorder reads every seated
-//      shard frame's group — the halo ellipse stands exactly
-//      when the frame's image wears a tint filter, never
-//      otherwise; on tinted flights its fill is the flight's
-//      element colour, its measure is the halo's own
-//      (rx ≈ 0.62 × the frame's width, ry ≈ 0.78 × its
-//      height, soft-blurred like the wake).
+//   §H the struck halo stays struck in a real flight's
+//      group (RESTATED, Nigel 2026-11-15: the Push 83 halo
+//      is removed — "i simply meant for the glow of the
+//      projectile art i gave you to have a glow to it"; the
+//      only glow is the art's own, tinted): a seeded war (a
+//      Stone firer and a Sky firer beside a mountain-hide
+//      Fray, the launched-shot drive's world) flies real
+//      shots, and the recorder reads every seated shard
+//      frame's group — NO [data-shard-halo] stands on any
+//      flight, tinted or untinted; tinted flights are
+//      witnessed in number, so the absence is judged on the
+//      very flights that once wore the halo.
 //
 // The source samples are found IN THE PAGE from the frame
 // itself: the blackest opaque pixel with opaque, near-black
@@ -68,7 +70,7 @@ const ok = (name, cond, extra = "") => {
 };
 
 /* palette.ts's standing element colours — the same colours
-   the surfaces' tint ramps and halos are built from. */
+   the surfaces' tint ramps are built from. */
 const PALETTE = { root: "#6a8a4e", tide: "#4e8a9b", sky: "#8d9fd6", stone: "#9c7c4c", fire: "#b8542e" };
 const ELEMENTS = Object.keys(PALETTE);
 const hexRgb = (hex) => [0, 1, 2].map(i => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16));
@@ -294,10 +296,11 @@ ok("§P the neutral shot renders the art's own colours — black, white and midt
   `got black=${JSON.stringify(plain.black)} white=${JSON.stringify(plain.white)} mid=${JSON.stringify(plain.mid)}`);
 await page.evaluate(() => document.querySelector("#tint-rig")?.remove());
 
-/* ══ §H — THE HALO ON REAL FLIGHTS. The seeded war flies;
-   the recorder reads every seated shard frame's group. ══ */
+/* ══ §H — THE STRUCK HALO ON REAL FLIGHTS. The seeded war
+   flies; the recorder reads every seated shard frame's
+   group, hunting the halo that must not be there. ══ */
 const sightings = new Map();
-let haloShotEl = null;
+let flightShotEl = null;
 const hDeadline = Date.now() + 150000;
 while (Date.now() < hDeadline) {
   const seen = await page.evaluate(() => {
@@ -327,36 +330,29 @@ while (Date.now() < hDeadline) {
     const el = s.filter?.match(/shard-tint-(\w+)/)?.[1] ?? null;
     const key = JSON.stringify([el, !!s.halo, Math.round(s.w)]);
     if (!sightings.has(key)) sightings.set(key, { ...s, el });
-    if (el && s.halo && !haloShotEl && s.w >= 120 && s.rect.w > 0) {
+    if (el && !flightShotEl && s.w >= 80 && s.rect.w > 0) {
       const clip = {
         x: Math.max(0, Math.floor(s.rect.x - 110)), y: Math.max(0, Math.floor(s.rect.y - 110)),
         width: Math.min(1400, Math.ceil(s.rect.w + 220)), height: Math.min(950, Math.ceil(s.rect.h + 220)),
       };
-      await page.screenshot({ path: join(OUT, `flight-halo-${el}.png`), clip }).catch(() => {});
-      haloShotEl = el;
+      await page.screenshot({ path: join(OUT, `flight-no-halo-${el}.png`), clip }).catch(() => {});
+      flightShotEl = el;
     }
   }
-  const tinted = [...sightings.values()].filter(s => s.el && s.halo).length;
-  if (tinted >= 3 && haloShotEl) break;
+  const tinted = [...sightings.values()].filter(s => s.el).length;
+  if (tinted >= 3 && flightShotEl) break;
   await sleep(25);
 }
 const all = [...sightings.values()];
-const tintedWithHalo = all.filter(s => s.el && s.halo);
+const tintedSightings = all.filter(s => s.el);
+const withHalo = all.filter(s => s.halo);
 const untinted = all.filter(s => !s.el);
-console.log(`  flight sightings: ${all.length} distinct (${tintedWithHalo.length} tinted with halo, ${untinted.length} untinted, halo screenshot: ${haloShotEl ?? "none"})`);
-for (const s of all) console.log(`    sighting: element=${s.el ?? "none"} w=${s.w.toFixed(0)} halo=${s.halo ? `fill=${s.halo.fill} op=${s.halo.fillOpacity} rx/w=${(s.halo.rx / s.w).toFixed(2)} ry/h=${(s.halo.ry / s.h).toFixed(2)}` : "absent"}`);
+console.log(`  flight sightings: ${all.length} distinct (${tintedSightings.length} tinted, ${untinted.length} untinted, ${withHalo.length} with the struck halo, flight screenshot: ${flightShotEl ?? "none"})`);
+for (const s of all) console.log(`    sighting: element=${s.el ?? "none"} w=${s.w.toFixed(0)} halo=${s.halo ? "PRESENT — STRUCK LAW BROKEN" : "absent"}`);
 ok("§H the war stood — real shard flights crossed the page", all.length >= 1, `sightings=${all.length}`);
-ok("§H a tinted flight's group carries the glow halo", tintedWithHalo.length >= 1, `tintedWithHalo=${tintedWithHalo.length}`);
-ok("§H the halo keeps the tint's condition exactly — present on every tinted flight sighted, absent on every untinted one",
-  all.every(s => (!!s.halo) === (!!s.el)), `sightings=${all.length} untinted=${untinted.length}`);
-const haloLaw = tintedWithHalo.every(s =>
-  (s.halo.fill ?? "").toLowerCase() === PALETTE[s.el] &&
-  Math.abs(s.halo.fillOpacity - 0.55) <= 0.03 &&
-  s.halo.rx / s.w >= 0.59 && s.halo.rx / s.w <= 0.65 &&
-  s.halo.ry / s.h >= 0.75 && s.halo.ry / s.h <= 0.81 &&
-  s.halo.filter === "url(#shard-tail-soft)");
-ok("§H the halo is the flight's own element colour at 0.55, soft-blurred like the wake, at its own measure (rx ≈ 0.62 × frame width, ry ≈ 0.78 × frame height)",
-  tintedWithHalo.length >= 1 && haloLaw);
+ok("§H tinted flights were witnessed — the very flights that once wore the halo", tintedSightings.length >= 1, `tinted=${tintedSightings.length}`);
+ok("§H no flight's group carries the struck halo — absent on every sighting, tinted and untinted alike (Nigel, 2026-11-15: the only glow is the art's own)",
+  withHalo.length === 0 && tintedSightings.length >= 1, `withHalo=${withHalo.length} sightings=${all.length}`);
 
 clearInterval(stillIv);
 await browser.close();

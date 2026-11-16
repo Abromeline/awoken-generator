@@ -27,9 +27,10 @@
 //      on the real map — every strike served fresh in the
 //      window is drawn (counted element by element); peak
 //      concurrent shards pass the old keep of 25; every
-//      shard's drawn width is 144 at level 1 (twice the
+//      shard's drawn width is 96 at level 1 (twice the
 //      first 72 — it stood at 216, three times, until the
-//      launched-shot fix, 2026-11-10; the FLIGHT LAW,
+//      launched-shot fix, 2026-11-10, and at 144 until
+//      Nigel's size word of 2026-11-15; the FLIGHT LAW,
 //      2026-11-07, grows it only with the firer's level);
 //      placement flights live
 //      at their firers' pace (these Tide firers ≈ 915 ms by
@@ -45,9 +46,10 @@
 //      the struck 40-gate; every shot wears the Matter Shard
 //      face (hrefs name matter-shard, never proj-*), no SMIL
 //      rides the shots layer, the drawn width is the
-//      homeland's measure on this stage's hexes (144 ×
-//      40/54 ≈ 106.7, at level 1 — 160 until the
-//      launched-shot fix, 2026-11-10), and light shots
+//      homeland's measure on this stage's hexes (96 ×
+//      40/54 ≈ 71.1, at level 1 — 106.7 until the size
+//      word of 2026-11-15, 160 until the launched-shot
+//      fix, 2026-11-10), and light shots
 //      live at their Sky firers' pace (≈ 563 ms by the
 //      flight law).
 // Run: PUPPETEER_CACHE_DIR=~/workspace/tools-chrome/.cache node scripts/drive-projectile-rendering.mjs
@@ -367,22 +369,23 @@ ok("§B1 every strike served fresh in the window is drawn on the map", drawnInWi
 ok("§B2 peak concurrent shards pass the old keep of 25 — no live flight is dropped unseen", brec.peak >= 26, `peak=${brec.peak}`);
 const judgedB3 = brec.flights.filter(f => f.last - f.first >= 400);
 const judgedPeaks = judgedB3.map(f => f.wMax);
-const peaksInBand = judgedPeaks.filter(w => w >= 136 && w <= 145.5).length;
+const peaksInBand = judgedPeaks.filter(w => w >= 90.7 && w <= 97).length;
 /* The levels actually served in this world, read from the
    strikes themselves (the service stamps each with its
    striker's level): every fighter ENTERS at level 1, but a
    long fight pays XP and a firer can stand a level higher
    before it ends — the 2026-11-10 re-run read a fullest
-   peak of 149.9, the level-2 measure to a tenth (144 ×
-   1.0415). So a peak above the level-1 measure is lawful
+   peak on the level-2 measure to a tenth (96 × 1.0415 ≈
+   100, at the measure this drive now keeps). So a peak
+   above the level-1 measure is lawful
    only as a served level's own measure, judged below. */
 const servedLevels = [...new Set([...browserWindowStrikes.values()].map(s => Math.max(1, s.level ?? 1)))].sort((a, b) => a - b);
-const measureForLevel = (lv) => 144 * Math.min(1.5, Math.sqrt(Math.pow(1.0848077, Math.max(1, lv) - 1)));
+const measureForLevel = (lv) => 96 * Math.min(1.5, Math.sqrt(Math.pow(1.0848077, Math.max(1, lv) - 1)));
 const allowedMeasures = servedLevels.map(measureForLevel);
-const overBand = judgedPeaks.filter(w => w > 145.5);
-const overLawful = overBand.every(w => allowedMeasures.some(m => m > 144 && Math.abs(w - m) / m <= 0.03));
-ok("§B3 every shard reaches its full measure at its zenith and never passes the law's size for its firer's level (RESTATED for the growth to the zenith, Nigel 2026-11-10: the drawn width is no longer one number for a flight's whole life — it grows from half at the hand to the full measure — so this judges each flight's PEAK (the 144 measure at level 1: twice the shard's first size; three times, 216, until the launched-shot fix, 2026-11-10). A sampled peak can only UNDER-read the zenith — the recorder, starved by this dense scene's render weight, can miss the zenith's exact frame — so the level-1 band is judged as a distribution (≥85% of flights seen ≥400 ms peak within 136–145.5, the median peak on the measure). A peak ABOVE that band must sit on a higher served level's own measure (a firer levelled mid-fight by the XP law), and no peak may pass the highest served measure. Some flight is witnessed small on its road (wMin ≤ 120). The level law beneath is unchanged — the FLIGHT LAW (2026-11-07) grows a shard's size only with its firer's level)",
-  brec.flights.length > 0 && judgedB3.length >= 5 && peaksInBand / judgedB3.length >= 0.85 && median(judgedPeaks) >= 140 && median(judgedPeaks) <= 145 && Math.max(...judgedPeaks) <= Math.max(...allowedMeasures) * 1.01 && overLawful && brec.flights.some(f => f.wMin <= 120),
+const overBand = judgedPeaks.filter(w => w > 97);
+const overLawful = overBand.every(w => allowedMeasures.some(m => m > 96 && Math.abs(w - m) / m <= 0.03));
+ok("§B3 every shard reaches its full measure at its zenith and never passes the law's size for its firer's level (RESTATED for the growth to the zenith, Nigel 2026-11-10: the drawn width is no longer one number for a flight's whole life — it grows from half at the hand to the full measure — so this judges each flight's PEAK (the 96 measure at level 1: twice the shard's first size; three times, 216, until the launched-shot fix, 2026-11-10; 144 until the size word of 2026-11-15 — every figure in this section restated at two-thirds for that word). A sampled peak can only UNDER-read the zenith — the recorder, starved by this dense scene's render weight, can miss the zenith's exact frame — so the level-1 band is judged as a distribution (≥85% of flights seen ≥400 ms peak within 90.7–97, the median peak on the measure). A peak ABOVE that band must sit on a higher served level's own measure (a firer levelled mid-fight by the XP law), and no peak may pass the highest served measure. Some flight is witnessed small on its road (wMin ≤ 80). The level law beneath is unchanged — the FLIGHT LAW (2026-11-07) grows a shard's size only with its firer's level)",
+  brec.flights.length > 0 && judgedB3.length >= 5 && peaksInBand / judgedB3.length >= 0.85 && median(judgedPeaks) >= 93.3 && median(judgedPeaks) <= 96.7 && Math.max(...judgedPeaks) <= Math.max(...allowedMeasures) * 1.01 && overLawful && brec.flights.some(f => f.wMin <= 80),
   `judged=${judgedB3.length} inBand=${peaksInBand} medianPeak=${median(judgedPeaks).toFixed(1)} maxPeak=${Math.max(...judgedPeaks).toFixed(1)} servedLevels=${servedLevels.join("/")} smallestSeen=${Math.min(...brec.flights.map(f => f.wMin)).toFixed(1)}`);
 const completed = brec.flights.filter(f => f.last < recEndWall - 200 && f.last - f.first > 300);
 const darkFlights = completed.filter(f => f.dFirst < 45);
@@ -687,9 +690,9 @@ ok("§T4 the served ledger outgrows the struck 40-gate — no struck blow is dro
 ok("§T1 every shot wears the homeland's Matter Shard face — no element-GIF bolt remains in the layer", trec.shots.length > 0 && trec.badHref === 0 && trec.shots.every(s => s.href.includes("matter-shard")),
   `shots=${trec.shots.length} badHref=${trec.badHref}`);
 ok("§T1 no SMIL rides the shots layer (the old bolts' animateMotion is struck)", trec.smil === 0, `smil samples=${trec.smil}`);
-const tFullMeasure = 144 * 40 / 54;
-ok("§T2 every level-1 shot reaches the homeland's measure at its zenith on this stage's hexes and never passes it (RESTATED for the growth to the zenith, Nigel 2026-11-10: a shot's width grows from half at the hand, so this judges PEAKS — no shot peaks past the full measure (144 × 40/54 ≈ 106.7 — 160 until the launched-shot fix, 2026-11-10), the fullest peak lands on the measure (≥102.7), and shots seen for ≥300 ms each peak at ≥78, the growth's span on a ~563 ms Sky flight. The level law beneath is unchanged — the FLIGHT LAW (2026-11-07) grows a shot's size only with its firer's level, and the Table's hands here stand at level 1)",
-  trec.shots.length > 0 && trec.shots.every(s => s.wMax <= tFullMeasure + 1.5) && Math.max(...trec.shots.map(s => s.wMax)) >= tFullMeasure - 4 && trec.shots.filter(s => s.last - s.first >= 300).every(s => s.wMax >= 78),
+const tFullMeasure = 96 * 40 / 54;
+ok("§T2 every level-1 shot reaches the homeland's measure at its zenith on this stage's hexes and never passes it (RESTATED for the growth to the zenith, Nigel 2026-11-10, and again for the size word of 2026-11-15: a shot's width grows from half at the hand, so this judges PEAKS — no shot peaks past the full measure (96 × 40/54 ≈ 71.1 — 106.7 until the size word, 160 until the launched-shot fix, 2026-11-10), the fullest peak lands on the measure (≥68.5), and shots seen for ≥300 ms each peak at ≥52, the growth's span on a ~563 ms Sky flight. The level law beneath is unchanged — the FLIGHT LAW (2026-11-07) grows a shot's size only with its firer's level, and the Table's hands here stand at level 1)",
+  trec.shots.length > 0 && trec.shots.every(s => s.wMax <= tFullMeasure + 1) && Math.max(...trec.shots.map(s => s.wMax)) >= tFullMeasure - 2.7 && trec.shots.filter(s => s.last - s.first >= 300).every(s => s.wMax >= 52),
   `peaks=${[...new Set(trec.shots.map(s => Math.round(s.wMax)))].slice(0, 12).join(",")}`);
 const tCompleted = trec.shots.filter(s => s.last < lastServeWall && s.last - s.first > 300);
 const tLife = median(tCompleted.map(s => s.last - s.first));

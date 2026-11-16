@@ -25,10 +25,14 @@
 // stays black. (An earlier ramp ran the other way at both
 // ends — black lifted to a deep shade of the element, white
 // kept white under a "white-hot core" gloss that was a Keeper
-// reading, never his law; struck 2026-11-12.) The flight also
-// wears a soft halo of the same colour around the shard (see
-// the flight's drawing in Territory), so the tinted shot
-// glows as it flies.
+// reading, never his law; struck 2026-11-12.) The Push 83
+// halo — an engine-added wash of the element colour drawn
+// around the shard in flight — is STRUCK (Nigel, 2026-11-15,
+// from his play: the huge glow around the projectiles washed
+// the screen out; "i simply meant for the glow of the
+// projectile art i gave you to have a glow to it"). The only
+// glow a shot wears is the glow painted in his own art,
+// tinted by the ramp above; no layer is added around it.
 // Territory renders one SVG filter per element from the ramps
 // computed here. A striker with no element (neutral) flies the
 // art in its own colours, untinted.
@@ -65,12 +69,18 @@ export function shardFlightMsFor(dark: boolean): number {
  * projectile stands TWICE the size it first shipped at —
  * the frame once drew 72 × 38 land units, then THREE
  * times (216 × 114) by the 2026-10-25 ruling; Nigel's
- * play found that "way too big", and it now draws
- * 144 × 76, on the homeland and at the Table alike
- * (the Table's seat scales this measure onto its own
- * hexes when it draws there). */
-export const SHARD_DRAW_W = 144;
-export const SHARD_DRAW_H = 76;
+ * play found that "way too big", and it drew 144 × 76
+ * from the launched-shot fix until his next word on it
+ * (2026-11-15, from his play: "reduce the size of the
+ * projectiles by 1/3") — it now draws two-thirds of that
+ * measure, 96 × 50.7, on the homeland and at the Table
+ * alike (the Table's seat scales this measure onto its
+ * own hexes when it draws there). The level growth and
+ * the growth to the zenith (flightLaw) multiply this
+ * measure unchanged: the whole flight stands a third
+ * smaller, its shape along the road the same. */
+export const SHARD_DRAW_W = 96;
+export const SHARD_DRAW_H = 50.7;
 
 /** THE FRAMES' PAINTED CONTENT (measured from the bundled
  * PNGs at the launched-shot fix, 2026-11-10): each frame's
