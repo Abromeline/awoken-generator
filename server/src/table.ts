@@ -347,14 +347,19 @@ interface FieldUnit {
    *  formation slot around them. The rest hold their ground. */
   follow?: boolean;
   /** THE ORDERS (the Table battle port — Twelve #1,
-   *  2026-10-25): the homeland's standing order on this
-   *  unit — "attack" (the default; absent means attack, as
-   *  on the homeland where no orders strike), "defense"
-   *  (strike and raise her defence work — bramble or
-   *  rockwall by her dominant element), or "binding" (mend
-   *  the most-wounded ally of her seat in reach instead of
-   *  striking). Set through the orders wheel (setStance). */
-  stance?: "attack" | "defense" | "binding";
+   *  2026-10-25; the Attack order struck by the Purify
+   *  correction, 2026-11-16): the homeland's standing
+   *  orders on this unit — "defense" (strike and raise
+   *  her defence work — bramble or rockwall by her
+   *  dominant element) or "binding" (mend the
+   *  most-wounded ally of her seat in reach instead of
+   *  striking). There is NO attack order: an Awokin's
+   *  strikes are automatic, by range, as on the homeland
+   *  since Purify replaced Attack whole — absent, or a
+   *  legacy stored "attack", reads as standing and needs
+   *  no migration. Set through the orders wheel
+   *  (setStance). */
+  stance?: "defense" | "binding";
   /** Has this dark thing struck yet? (War Runewright's
    *  patience, tranche one.) */
   struck?: boolean;
@@ -446,6 +451,13 @@ interface EnemyUnit {
    *  burn — one 1d10 of harm per settled second, accrued
    *  here beside the bramble's thorn, on the same clock. */
   lightAcc?: number;
+  /** PURIFY — THE DEFENCE (the Purify correction,
+   *  2026-11-16, carrying the homeland's law of
+   *  2026-11-15): the cursed tile whose purify this dark
+   *  thing was born to defend. A marked defender walks on
+   *  that tile's purifier; when the purify ends, the mark
+   *  clears and it stands as ordinary dark. */
+  defendTileId?: string;
 }
 
 /** One of the dark as a DEAL struck it, before it stands:
@@ -1183,11 +1195,29 @@ interface Room {
    *  start doing that until the tenders start attacking
    *  the curse" — the free field's entry does not begin on
    *  a room's opening or on any clock. This word stands
-   *  once a seated Tender's Awokin has struck the curse in
-   *  this room (the strikeCurse act); before that blow the
-   *  room stands quiet while Tenders gather, summon and
-   *  prepare, and no ambient dark is dealt at all. */
+   *  once a seated Tender's Awokin has engaged the curse
+   *  in this room — the strike that once spoke it is gone
+   *  (the Purify correction, 2026-11-16): the PURIFY ORDER
+   *  is the act that stands the word now, as the homeland's
+   *  first engagement wakes its own field. Before that
+   *  order the room stands quiet while Tenders gather,
+   *  summon and prepare, and no ambient dark is dealt
+   *  at all. */
   curseStruck?: boolean;
+  /** PURIFY ORDERS standing in this room (the Purify
+   *  correction, 2026-11-16, carrying the homeland's
+   *  Purify law of 2026-11-15 to this ground): one record
+   *  per order — the cursed tile, the purifying unit's
+   *  key, the ordering seat's key, and the settle anchor.
+   *  The drain is reckoned by settleTablePurifies on the
+   *  room's standing pulse; the fractional wear gathers
+   *  on the TILE (MapTile.curseHp is this referee's
+   *  fractional measure), so progress persists across
+   *  pauses and across purifiers exactly as the
+   *  homeland's tile-held fraction does. Orders live in
+   *  the room's memory, as all of this referee's live
+   *  state does. */
+  purifies?: TablePurifyOrder[];
   battle: { active: boolean; wave: number; timer: ReturnType<typeof setInterval> | null; ticking: boolean; lastTick?: number; beatAcc?: number };
   /** The continuous referee's strike ledger counter, and the
    *  last moment the seed-assault's warning was told. */
@@ -2332,6 +2362,11 @@ function sharedState(room: Room) {
       id: t.id, q: t.q, r: t.r, cursed: t.cursed, element: t.element,
       points: { ...t.points },
       curseHp: Math.ceil(t.curseHp), curseMaxHp: t.curseMaxHp,
+      // PURIFY (the Purify correction, 2026-11-16): the
+      // names of the Awokin whose purify orders stand on
+      // this tile — the tile's purifiers, as the
+      // homeland's tile card names them.
+      purifiers: (room.purifies ?? []).filter(o => o.tileId === t.id).map(o => room.field.get(o.unitKey)?.card.name).filter((n): n is string => !!n),
       landing: t.landingFor ? (seatByKey(room, t.landingFor)?.name ?? null) : null,
       light: light.get(t.id) ?? LIGHT_DARK,
     })),
@@ -2386,9 +2421,15 @@ function sharedState(room: Room) {
       shield: u.shield, maxShield: u.maxShield,
       pos: roundPos(u.pos), tgt: u.target ? roundPos(u.target) : null, moving: isMoving(u),
       follow: !!u.follow,
-      // THE ORDERS (the battle port): her standing order —
-      // absent reads as attack, as on the homeland.
-      stance: u.stance ?? "attack",
+      // THE ORDERS (the battle port; the Attack order
+      // struck by the Purify correction, 2026-11-16): her
+      // standing order — only the two ordered postures are
+      // served as orders; absent, or a legacy stored
+      // "attack", reads as standing, as on the homeland.
+      stance: (u.stance === "defense" || u.stance === "binding") ? u.stance : "standing",
+      // PURIFY (the Purify correction): the cursed tile
+      // this unit's purify order stands on, or null.
+      purifyTile: (room.purifies ?? []).find(o => o.unitKey === unitKeyOf(u))?.tileId ?? null,
       level: u.card.level ?? null, ownerKey: u.ownerKey, ownerName: u.ownerName,
     })),
     enemies: room.enemies,
@@ -2804,6 +2845,20 @@ function integrate(room: Room, now: number): void {
   }
   if (room.battle.active) {
     const standing = standingUnits(room);
+    // PURIFY — THE DEFENCE (the Purify correction,
+    // 2026-11-16): the standing purifiers of each tile
+    // under purify, read once for this pass — a marked
+    // defender walks on its tile's purifier, as the
+    // homeland's defenders walk on theirs.
+    const purifiersByTile = new Map<string, FieldUnit[]>();
+    for (const o of room.purifies ?? []) {
+      const u = room.field.get(o.unitKey);
+      if (u && standing.includes(u)) {
+        const arr = purifiersByTile.get(o.tileId) ?? [];
+        arr.push(u);
+        purifiersByTile.set(o.tileId, arr);
+      }
+    }
     const seedCenter = tileCenter(SEED_TILE)!;
     // THE LIGHTING SYSTEM (2026-10-26): the room's light,
     // reckoned once for this pass — the burn below falls on
@@ -2884,6 +2939,18 @@ function integrate(room: Room, now: number): void {
       for (const u of standing) {
         const d = distPx(e.pos, u.pos);
         if (d < lightD) { lightD = d; light = u; }
+      }
+      // A defender born of a purify walks on that tile's
+      // purifier — the nearest Awokin purifying its tile —
+      // in place of the generic nearest light above.
+      if (e.defendTileId) {
+        const ps = purifiersByTile.get(e.defendTileId);
+        if (ps?.length) {
+          let best: FieldUnit | null = null;
+          let bestD = Infinity;
+          for (const u of ps) { const d = distPx(e.pos, u.pos); if (d < bestD) { bestD = d; best = u; } }
+          if (best) { light = best; lightD = bestD; }
+        }
       }
       if (light && lightD <= 69) {
         e.target = null; // clawHalt: in reach — it fights where it stands
@@ -3572,6 +3639,164 @@ function hostedLightStanding(room: Room): boolean {
   return !!(room.hosted && room.beacon?.standing);
 }
 
+/** One PURIFY ORDER standing in a room (the Purify
+ *  correction, 2026-11-16): the cursed tile being drained,
+ *  the purifying unit's field key, the ordering seat's
+ *  key, and the settle anchor the drain is reckoned from.
+ *  The homeland keeps the same order in its purifies
+ *  table; this referee's rooms are memory, so the order
+ *  stands on the room. */
+interface TablePurifyOrder {
+  tileId: string;
+  unitKey: string;
+  seatKey: string;
+  settledAt: number;
+}
+
+/** PURIFY (Nigel, 2026-11-15, the homeland's law carried
+ *  to this ground by the Purify correction, 2026-11-16):
+ *  Purify replaced Attack whole. It is an ORDER, not a
+ *  stance and not a blow: a sustained drain on a cursed
+ *  tile at the homeland's own measures — one point of
+ *  curse thickness per 600 settled seconds of the
+ *  purifier standing in reach (adjacency, the tile itself
+ *  included) while its Tender is present; the purifier
+ *  never fights back; a purifying tile draws defenders
+ *  in proportion to the thickness it still stands at
+ *  (share = round(thickness / 4), at least one while the
+ *  purify runs). The measures are the homeland's numbers,
+ *  named once here as actions.ts names them there. */
+const PURIFY_SECONDS_PER_HP = 600;
+const PURIFY_DEFENDER_SHARE_DIVISOR = 4;
+const PURIFY_DEFENDER_RANGE_HEXES = 15;
+/** The presence grace the drain is judged by: the
+ *  homeland's own five minutes (its
+ *  PROTECTION_ONLINE_GAP_MS), read here on the ordering
+ *  seat's standing in this room — seated now, or stepped
+ *  away within the grace. (The room's longer held-seat
+ *  grace, AWAY_GRACE_MS, is the seat-keeping law, a
+ *  different measure for a different office.) */
+const PURIFY_PRESENCE_GRACE_MS = 5 * 60 * 1000;
+
+function purifyOrdersOf(room: Room): TablePurifyOrder[] {
+  return room.purifies ?? (room.purifies = []);
+}
+
+/** Is the seat that gave this order present for the
+ *  drain? Seated at this room now, or stepped away
+ *  within the presence grace — the homeland's online-only
+ *  law read on this referee's seats. */
+function purifySeatPresent(room: Room, seatKey: string, now: number): boolean {
+  for (const p of room.players.values()) if (p.key === seatKey) return true;
+  const held = room.away.get(seatKey);
+  return !!held && now - held.leftAt <= PURIFY_PRESENCE_GRACE_MS;
+}
+
+/** The drain held whole: on hosted land the host's
+ *  lighthouse switch is the same light the homeland
+ *  reads — while it burns, no ground is gained under it
+ *  and the drain pauses, as the homeland's beaconHeld
+ *  pauses it there. The instanced world carries no such
+ *  switch, and no pause stands there. */
+function purifyBeaconHeld(room: Room): boolean {
+  return !!(room.hosted && room.beacon?.lit);
+}
+
+/** The units PURIFYING NOW in this room: a live order
+ *  standing, its tile still cursed, the purifier itself
+ *  standing within reach of the tile (adjacency, the
+ *  tile itself included) and not on the move. These are
+ *  the Awokin the battle's answer pass passes over whole
+ *  — a purifying Awoken never strikes back, and never
+ *  answers with thorns; the homeland computes the same
+ *  set from its placements and orders. Keyed by field
+ *  key (unitKeyOf). */
+function purifyingUnitKeys(room: Room): Set<string> {
+  const out = new Set<string>();
+  for (const o of room.purifies ?? []) {
+    const tile = room.map.get(o.tileId);
+    if (!tile || !tile.cursed) continue;
+    const unit = room.field.get(o.unitKey);
+    if (!unit || !unitStanding(room, unit) || isMoving(unit)) continue;
+    if (axialDist(unit.hex, o.tileId) > 1) continue;
+    out.add(o.unitKey);
+  }
+  return out;
+}
+
+/** SETTLE THE PURIFY ORDERS (the homeland's settlePurify
+ *  carried to this referee's pulse): every order is
+ *  reckoned from its anchor, and the anchor walks at
+ *  every reckoning so absent time banks nothing. An
+ *  order whose tile has turned (by any road) or whose
+ *  purifier has left the field ends where it stands —
+ *  the drain stays on the tile. A purifier on the move
+ *  under its order's own road, or standing out of reach,
+ *  waits: nothing accrues. Presence and the held beacon
+ *  pause the drain whole. What accrues wears the tile's
+ *  curseHp down fractionally — this referee's tiles hold
+ *  the fraction themselves, so progress persists across
+ *  pauses and across purifiers, and several purifiers'
+ *  rates add on the one tile. At nothing the tile turns
+ *  outright through purifyTile, this referee's standing
+ *  turn, in the purifier's dominant element (none → the
+ *  standing default, root). When the last order on a
+ *  tile ends, its defenders' marks clear — they stand
+ *  as ordinary dark. Returns true when anything moved. */
+function settleTablePurifies(room: Room, now: number): boolean {
+  const orders = room.purifies;
+  if (!orders || !orders.length) return false;
+  let changed = false;
+  const keep: TablePurifyOrder[] = [];
+  for (const o of orders) {
+    const tile = room.map.get(o.tileId);
+    const unit = room.field.get(o.unitKey);
+    if (!tile || !tile.cursed || !unit) { changed = true; continue; }
+    const spanMs = now - o.settledAt;
+    o.settledAt = now;
+    if (spanMs > 0 && !isMoving(unit) && axialDist(unit.hex, o.tileId) <= 1
+      && purifySeatPresent(room, o.seatKey, now) && !purifyBeaconHeld(room)) {
+      tile.curseHp -= spanMs / 1000 / PURIFY_SECONDS_PER_HP;
+      changed = true;
+      // HOSTED LAND (Twelve #2): the drain is the land's
+      // own change, written through on the pulse's roads
+      // like the grind's wear (room.landDirty).
+      if (room.hosted) room.landDirty = true;
+      if (tile.curseHp <= 0) {
+        // The purifier's dominant element claims the tile;
+        // parts that claim none fall to the purify DEFAULT
+        // — root (Nigel, 2026-10-25), as at home.
+        const el = dominantElement(partsOf(unit.card) as { element?: string | null }[]);
+        purifyTile(room, tile, el === "neutral" ? "root" : el);
+        changed = true;
+        continue; // the order ends with the turn
+      }
+    }
+    keep.push(o);
+  }
+  room.purifies = keep;
+  const liveTiles = new Set(keep.map(o => o.tileId));
+  for (const e of room.dark.values()) {
+    if (e.defendTileId && !liveTiles.has(e.defendTileId)) { e.defendTileId = undefined; changed = true; }
+  }
+  return changed;
+}
+
+/** End one unit's purify order, settling the drain to
+ *  this moment first — the homeland's
+ *  endPurifyForAwakened read on this referee: another
+ *  order (a stance, a march, a recall, a new purify)
+ *  supersedes, and the tile keeps what was worn off. */
+function endTablePurifyForUnit(room: Room, unit: FieldUnit): void {
+  if (!room.purifies?.some(o => o.unitKey === unitKeyOf(unit))) return;
+  settleTablePurifies(room, Date.now());
+  room.purifies = (room.purifies ?? []).filter(o => o.unitKey !== unitKeyOf(unit));
+  const liveTiles = new Set((room.purifies ?? []).map(o => o.tileId));
+  for (const e of room.dark.values()) {
+    if (e.defendTileId && !liveTiles.has(e.defendTileId)) e.defendTileId = undefined;
+  }
+}
+
 /** A tile turns to the light: felled dark frees it at once,
  *  or the standing light grinds its corruption to nothing.
  *  The turn is a rebirth for the tile's point ledger too:
@@ -3591,7 +3816,7 @@ function purifyTile(room: Room, tile: MapTile, element: string): void {
   // change — written through to the host's record at once,
   // whoever's hand turned it. This is the choke point every
   // purify road rides (fells, landings, the grind, the seed's
-  // rise, the curse-strike), so they all persist by it.
+  // rise, the purify order's drain), so they all persist by it.
   saveHostedLand(room);
 }
 
@@ -3836,10 +4061,12 @@ function settlePendingDark(room: Room): boolean {
  *  doing that until the tenders start attacking the
  *  curse"). No hand begins the casual field's Unraveling,
  *  and no clock does either: the entry begins only once
- *  the room's Tenders have struck the curse (the PROVOKE,
- *  room.curseStruck, struck in the strikeCurse act) —
- *  before that blow the room stands quiet while Tenders
- *  gather, summon and prepare. After it, while a standing
+ *  the room's Tenders have engaged the curse (the
+ *  PROVOKE, room.curseStruck — stood by the strikeCurse
+ *  act until the Purify correction of 2026-11-16, and by
+ *  the purify order since) — before that engagement the
+ *  room stands quiet while Tenders gather, summon and
+ *  prepare. After it, while a standing
  *  Tender sits at a free (non-campaign, no-call) table,
  *  the dark presses in on its own — a trickle at a
  *  time, on the homeland cradle's own measures: its ~45 s
@@ -3857,19 +4084,90 @@ function settlePendingDark(room: Room): boolean {
  *  deal's own law, spoken for the field itself. */
 const ENTRY_BEAT_MS = 45000, ENTRY_CAP = 8, ENTRY_PER_BEAT = 2;
 const ENTRY_KINDS = ["fray", "fray", "fray", "tangle", "tangle", "hollow", "unraveler"];
+
+/** PURIFY — THE DEFENCE'S BIRTH GROUND (the Purify
+ *  correction, 2026-11-16; the homeland's birth rule read
+ *  on this referee's bars): the nearest cursed tile
+ *  within PURIFY_DEFENDER_RANGE_HEXES of the purifying
+ *  tile where birth is legal — not the purifying tile
+ *  itself, no dark already standing on it, outside the
+ *  grown seed's protection ring, and not held at
+ *  FIGHTING light (darkGround's own bars, which every
+ *  dealing door at this Table already rides). */
+function purifyDefenderBirthTile(room: Room, target: MapTile): MapTile | null {
+  const guarded = room.seedGrowth.level >= 3;
+  const spawnLight = tableLightMap(room);
+  const cands = [...room.map.values()].filter(t => t.cursed && t.id !== target.id
+    && axialDist(t.id, target.id) <= PURIFY_DEFENDER_RANGE_HEXES
+    && !darkOn(room, t.id)
+    && !(guarded && axialDist(t.id, SEED_TILE) <= 1)
+    && (spawnLight.get(t.id) ?? LIGHT_DARK) !== LIGHT_FIGHTING);
+  cands.sort((a, b) => axialDist(a.id, target.id) - axialDist(b.id, target.id) || (a.id < b.id ? -1 : 1));
+  return cands[0] ?? null;
+}
+
+/** PURIFY — THE DEFENCE, SERVED FIRST (Nigel, 2026-11-15
+ *  on the homeland; carried here 2026-11-16): on the
+ *  entry beat, before the ambient trickle takes its
+ *  share, each tile under purify whose standing
+ *  defenders (the dark carrying its mark) number fewer
+ *  than its share — round(the thickness it still stands
+ *  at / 4), at least one while the purify runs and
+ *  thickness stands above 0 — births ONE more defender,
+ *  of this field's own dealt kinds at their base bodies,
+ *  always under the standing field cap: the cap binds
+ *  over the share exactly as it binds over the trickle.
+ *  The share governs births only and never despawns; a
+ *  born defender is a real enemy, and its mark clears
+ *  only when the purify ends (settleTablePurifies stands
+ *  the defence down). Returns how many were born. */
+function servePurifyDefenders(room: Room): number {
+  if (!room.purifies?.length) return 0;
+  const tileIds = [...new Set(room.purifies.map(o => o.tileId))];
+  let placed = 0;
+  for (const tileId of tileIds) {
+    if (room.dark.size >= ENTRY_CAP) break;
+    const tile = room.map.get(tileId);
+    if (!tile || !tile.cursed || tile.curseHp <= 0) continue;
+    const share = Math.max(1, Math.round(tile.curseHp / PURIFY_DEFENDER_SHARE_DIVISOR));
+    const assigned = [...room.dark.values()].filter(e => e.defendTileId === tileId).length;
+    if (assigned >= share) continue;
+    const birthTile = purifyDefenderBirthTile(room, tile);
+    if (!birthTile) continue;
+    const kind = ENTRY_KINDS[Math.floor(Math.random() * ENTRY_KINDS.length)];
+    const base = ENEMY_STATS[kind];
+    const face = room.enemies.find(e => e.name === kind);
+    const foe: EnemyUnit = {
+      id: nextDarkId(),
+      hex: birthTile.id, kind, label: face?.label ?? kind, art: face?.art ?? null,
+      power: base.power, hp: base.hp, maxHp: base.hp, pinnedUntil: 0, pos: { ...tileCenter(birthTile.id)! }, target: null, lastTile: birthTile.id,
+      armor: enemyACFor(kind), lvl: 1, speedGauge: 0, defendTileId: tileId,
+    };
+    room.dark.set(foe.id, foe);
+    springHex(room, birthTile.id, new Set());
+    placed++;
+  }
+  return placed;
+}
+
 function settleCasualEntry(room: Room, now: number): boolean {
   if (room.campaign || room.bastion) return false;
   // THE PROVOKE (Nigel, 2026-10-25 10:41): the dark does
   // not begin entering until the Tenders start attacking
-  // the curse — before this room's first curse strike,
-  // no ambient dark is dealt at all, however long the
-  // room stands open.
+  // the curse — before this room's first engagement of
+  // the curse (the purify order, since the Purify
+  // correction), no ambient dark is dealt at all, however
+  // long the room stands open.
   if (!room.curseStruck) return false;
   if (hostedLightStanding(room)) return false;
   if (room.dark.size >= ENTRY_CAP) return false;
   if (![...room.players.values()].some(p => !p.watcher && !p.fallen)) return false;
   if (room.entryAt != null && now - room.entryAt < ENTRY_BEAT_MS) return false;
   const fieldWasEmpty = room.dark.size === 0 && !room.battle.active;
+  // PURIFY — THE DEFENCE IS SERVED FIRST from the field's
+  // room on this beat, before the trickle below takes
+  // its share (the homeland's cradle order, carried).
+  const defenders = servePurifyDefenders(room);
   const want = Math.min(ENTRY_PER_BEAT, ENTRY_CAP - room.dark.size);
   const foes: PendingDark[] = [];
   for (let i = 0; i < want; i++) {
@@ -3878,7 +4176,7 @@ function settleCasualEntry(room: Room, now: number): boolean {
     const face = room.enemies.find(e => e.name === kind);
     foes.push({ kind, label: face?.label ?? kind, art: face?.art ?? null, power: base.power, hp: base.hp, armor: enemyACFor(kind), lvl: 1 });
   }
-  const placed = placeDark(room, foes);
+  const placed = defenders + placeDark(room, foes);
   if (placed <= 0) return false;
   room.entryAt = now;
   if (!room.battle.active) {
@@ -3886,7 +4184,8 @@ function settleCasualEntry(room: Room, now: number): boolean {
     room.roundNo = 0;
     startBattleTimer(room);
   }
-  if (fieldWasEmpty) tell(room, `The dark presses in from the curse's edge — ${placed} of the dark take the field.`);
+  if (fieldWasEmpty && placed - defenders > 0) tell(room, `The dark presses in from the curse's edge — ${placed - defenders} of the dark take the field.`);
+  else if (fieldWasEmpty) tell(room, `The dark answers the purify — it gathers to defend the cursed ground.`);
   return true;
 }
 
@@ -4171,6 +4470,13 @@ function roomPulse(room: Room): void {
   // news; a pulse that placed nothing changed nothing.
   settlePendingDark(room);
   settleCasualEntry(room, Date.now());
+  // PURIFY (the Purify correction, 2026-11-16): the purify
+  // orders settle on this same pulse, in battle and out —
+  // the drain runs while the dark answers, as the
+  // homeland's settle rides its reads and its slow gear
+  // alike. In battle the round's own clock pushes the
+  // state; out of battle a moved drain pushes it below.
+  const purifyChanged = settleTablePurifies(room, Date.now());
   // THE SEED'S FEEDING (the battle port — Twelve #1): the
   // room's seed drinks on this pulse, in battle and out —
   // only the seats present feed it, and only while their
@@ -4202,7 +4508,7 @@ function roomPulse(room: Room): void {
   // standing attunement laid, the curse ground down — write
   // the land through on the same beat they change it.
   if (room.hosted && (attuned || room.landDirty)) saveHostedLand(room);
-  if (changed || attuned || transient || seedChanged || beaconChanged) sendState(room);
+  if (changed || attuned || transient || seedChanged || beaconChanged || purifyChanged) sendState(room);
 }
 
 function engineBright(room: Room, ownerKey: string): boolean {
@@ -4772,7 +5078,7 @@ function maintainDefenceWorks(room: Room, now: number): void {
   room.workings = room.workings.filter(w => {
     if (w.engine !== "bramble" && w.engine !== "rockwall") return true;
     const unit = [...room.field.values()].find(u => unitKeyOf(u) === w.sustainer);
-    if (!unit || !unitStanding(room, unit) || (unit.stance ?? "attack") !== "defense") return false;
+    if (!unit || !unitStanding(room, unit) || unit.stance !== "defense") return false;
     w.nodes = (w.nodes ?? []).filter(n => n.hp > 0);
     if (w.nodes.length === 0) return false;
     w.hp = w.nodes.reduce((a, n) => a + n.hp, 0);
@@ -4780,7 +5086,7 @@ function maintainDefenceWorks(room: Room, now: number): void {
   });
   // The raise.
   for (const unit of standingUnits(room)) {
-    if ((unit.stance ?? "attack") !== "defense") continue;
+    if (unit.stance !== "defense") continue;
     if (isMoving(unit)) continue;
     const el = unit.card.element;
     if (el !== "stone" && el !== "root") continue;
@@ -5922,11 +6228,18 @@ async function runRound(room: Room): Promise<void> {
         fellDark(room, target, ownerSeat ?? null, unit, { heartHarvest: true, slayerName: unit.card.name });
       }
     };
+    // PURIFY (the Purify correction, 2026-11-16): the
+    // purifying stand under this round's sky — a purifying
+    // Awoken never strikes back, as on the homeland: the
+    // loop below passes it over whole, before its stance
+    // is ever read. Others are its guard.
+    const purifyingNow = purifyingUnitKeys(room);
     for (const unit of [...room.field.values()]) {
       if (!unitStanding(room, unit)) continue;
       if (room.dark.size === 0) break;
       if (isMoving(unit)) continue; // on the move: no strikes
       if ((unit.pinnedUntil ?? 0) > now) continue; // pinned: the moments pass
+      if (purifyingNow.has(unitKeyOf(unit))) continue; // purifying: it does not answer
       if (now < (unit.nextStrike ?? 0)) continue; // the cadence has not come round
       const reachPx = (ELEMENT_REACH[unit.card.element] ?? 2) * 69;
       // THE ORDERS (the battle port — Twelve #1): a unit
@@ -5936,7 +6249,7 @@ async function runRound(room: Room): Promise<void> {
       // stance amount exactly. No wounded ally in reach:
       // she waits, her cadence unspent, as a striker waits
       // with no dark in reach.
-      if ((unit.stance ?? "attack") === "binding") {
+      if (unit.stance === "binding") {
         let ally: FieldUnit | null = null;
         let worst = 1;
         for (const u of room.field.values()) {
@@ -7287,6 +7600,11 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` }));
         return;
       }
+      // PURIFY (the Purify correction, 2026-11-16): a
+      // recall is another order — it ends any purify this
+      // Awokin holds, the drain settled to this moment,
+      // before the unit leaves the field.
+      endTablePurifyForUnit(room, unit);
       removeUnit(room, unit);
       tell(room, `${player.name} recalls ${unit.card.name} from the field.`);
       sendState(room);
@@ -7322,6 +7640,13 @@ function handleConnection(ws: WebSocket): void {
         ws.send(JSON.stringify({ type: "error", message: `The march costs ✦${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at ✦${marchRateFor(unit.card.power)} for ${unit.card.name}'s power) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` }));
         return;
       }
+      // PURIFY (the Purify correction, 2026-11-16): a march
+      // ordered is another order — it ends any purify this
+      // Awokin holds, the drain settled to this moment. (The
+      // purify order's own road never rides this handler:
+      // the purify door writes its march itself, so its
+      // road is never eaten by this line.)
+      endTablePurifyForUnit(room, unit);
       // A direct order ends the follow: the Awokin goes where
       // it is sent and holds there (Nigel, 2026-10-19). Its
       // hex is NOT set — the integrator derives it from the
@@ -7375,9 +7700,13 @@ function handleConnection(ws: WebSocket): void {
     // mustering to their side whenever they arrive somewhere.
     // Hold: it keeps the ground it stands on. Only Awokin
     // ordered to follow, follow — the rest hold ground.
-    // THE ORDERS (the battle port — Twelve #1, 2026-10-25):
-    // the homeland's standing orders at the Table — attack,
-    // defend, bind — given through the orders wheel. An
+    // THE ORDERS (the battle port — Twelve #1, 2026-10-25;
+    // the Attack order struck by the Purify correction,
+    // 2026-11-16): the homeland's standing orders at the
+    // Table — defend, bind — given through the orders
+    // wheel. There is no attack order: an Awokin's strikes
+    // are automatic, by range, so the door refuses the
+    // word whole, as the homeland's door refuses it. An
     // order costs nothing here: the Table's orders ride the
     // wheel free, as march and follow do (the homeland's
     // 1-energy price is a homeland-purse price, named as
@@ -7389,23 +7718,27 @@ function handleConnection(ws: WebSocket): void {
       if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender gives orders." })); return; }
       const cardId = String(msg.cardId ?? "");
       const stance = String(msg.stance ?? "");
-      if (stance !== "attack" && stance !== "defense" && stance !== "binding") {
-        ws.send(JSON.stringify({ type: "error", message: "No such order — attack, defend, or bind." }));
+      if (stance !== "defense" && stance !== "binding") {
+        ws.send(JSON.stringify({ type: "error", message: "No such order — defend, or bind." }));
         return;
       }
       const myKey = player.key;
       const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
       if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
-      if ((unit.stance ?? "attack") === stance) { sendState(room); return; }
+      if (unit.stance === stance) { sendState(room); return; }
       unit.stance = stance;
       if (stance !== "defense") {
         room.workings = room.workings.filter(w => !((w.engine === "bramble" || w.engine === "rockwall") && w.sustainer === unitKeyOf(unit)));
       }
+      // PURIFY (the Purify correction, 2026-11-16): a
+      // stance order is another order, and another order
+      // ends the purify — the tile keeps the thickness the
+      // purify had worn off (the homeland's setStance ends
+      // it the same way).
+      endTablePurifyForUnit(room, unit);
       tell(room, stance === "defense"
         ? `🛡 ${unit.card.name} takes the defence order — she will strike, and raise her work against the dark.`
-        : stance === "binding"
-          ? `🕊 ${unit.card.name} takes the binding order — she will mend the most-wounded of your company in her reach.`
-          : `⚔ ${unit.card.name} takes the attack order.`);
+        : `🕊 ${unit.card.name} takes the binding order — she will mend the most-wounded of your company in her reach.`);
       sendState(room);
       return;
     }
@@ -7503,79 +7836,105 @@ function handleConnection(ws: WebSocket): void {
     // road when no bastion plays, and air-drops when one
     // does — Recovery R6.)
 
-    // STRIKE THE CURSE (Nigel, 2026-10-18 — the land's
-    // blow-per-order, carried to the Table): the mechanic for
-    // clearing curses for building applies to the Table's
-    // Awoken too. A standing Awokin ordered against a cursed
-    // tile within its lawful reach — the two tiles its strikes
-    // already carry — lands ONE blow: ✦1, wearing the tile's
-    // corruption by its filed power, the land's attackTile
-    // arithmetic exactly. At nothing the tile turns in the
-    // striker's dominant element, and every consequence of
-    // pure ground follows (the summon gate reads the same
-    // flag). The curse does not answer the blow (attrition
-    // law, 2026-10-19 — the thorns are gone from both maps);
-    // its harm is the withering of whatever stands in it.
-    // Victory and the standing grind remain the other roads;
-    // this is the deliberate one.
-    // The referee's say is final: no client word is trusted
-    // for the wear, the turn, or the thorns.
-    if (msg.type === "strikeCurse") {
+    // PURIFY (Nigel, 2026-11-15 on the homeland; carried
+    // to this ground by the Purify correction, 2026-11-16):
+    // Purify replaced Attack whole, and the curse-strike
+    // that stood here is gone with it — no blow is landed,
+    // no energy is taken for the purify itself, and no
+    // instant wear is dealt. This door gives the purify
+    // ORDER: the curse's thickness falls only to the
+    // purify itself, reckoned by settleTablePurifies on
+    // the room's pulse. In reach (adjacency — the tile
+    // itself included) the order is written and the drain
+    // begins where the Awokin stands; out of reach, the
+    // Awokin marches to the cursed ground's edge on the
+    // standing march machinery — the road's own per-hex
+    // price, the follow ended, the party left, exactly as
+    // a march order writes it — and the drain begins by
+    // itself on arrival. The order is also the room's
+    // provoke: the free field's entry begins from the
+    // first purify ordered here, as it once began from
+    // the first strike (the 2026-10-25 ruling's act, in
+    // its new shape). The standing grind and the fellings
+    // remain the other roads; this is the deliberate one.
+    // The referee's say is final: no client word is
+    // trusted for the wear or the turn.
+    if (msg.type === "purifyCurse") {
       if (player.fallen) { ws.send(JSON.stringify({ type: "error", message: "You have fallen — you will rise between waves." })); return; }
       if (player.watcher || player.storytender) { ws.send(JSON.stringify({ type: "error", message: "Only a seated Tender orders their Awokin against the curse." })); return; }
-      const hex = String(msg.hex ?? "");
       const targetId = String(msg.target ?? "");
       const cardId = String(msg.cardId ?? "");
       const myKey = player.key;
       const unit = [...room.field.values()].find(u => u.ownerKey === myKey && u.card.id === cardId);
-      if (!unit || (hex && unit.hex !== hex)) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand there." })); return; }
+      if (!unit) { ws.send(JSON.stringify({ type: "error", message: "That Awokin does not stand on the field." })); return; }
       if (!unitStanding(room, unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} no longer stands on the field.` })); return; }
-      if (isMoving(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — it answers when it arrives.` })); return; }
-      const now = Date.now();
-      if ((unit.pinnedUntil ?? 0) > now) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is held fast — it cannot strike.` })); return; }
+      if (isMoving(unit)) { ws.send(JSON.stringify({ type: "error", message: `${unit.card.name} is on the march — a purify is ordered from standing feet.` })); return; }
       const tile = room.map.get(targetId);
-      if (!tile || targetId === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land to strike." })); return; }
+      if (!tile) { ws.send(JSON.stringify({ type: "error", message: "That is no tile of this land." })); return; }
+      if (targetId === SEED_TILE) { ws.send(JSON.stringify({ type: "error", message: "The starseed's own ground is not cursed ground to take back." })); return; }
       if (!tile.cursed) { ws.send(JSON.stringify({ type: "error", message: "That ground is already pure." })); return; }
-      // The reach is reckoned in HEXES, as the law speaks it
-      // ("the light strikes two tiles out") — the pixel
-      // measure it replaces disagreed with the land's own
-      // geometry by a hair (an iso step is 69.09 px against
-      // the 69 allowed), so a strike at an element's full
-      // reach was refused in four of six directions
-      // (found by the test-pass audit, 2026-10-20).
-      if (axialDist(unit.hex, targetId) > (ELEMENT_REACH[unit.card.element] ?? 2)) { ws.send(JSON.stringify({ type: "error", message: "Beyond reach — the light strikes only as far as its element carries." })); return; }
-      const cost = 1;
-      if (!chargePurse(room, player, cost)) {
-        ws.send(JSON.stringify({ type: "error", message: `A curse-strike costs ✦${cost} — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` }));
+      // NO GROUND IS GAINED UNDER LIGHT (the homeland's
+      // master-clock law, 2026-10-28): on hosted land,
+      // while the host's lighthouse burns, the order is
+      // refused whole, before anything is written — the
+      // same light the homeland reads, standing over this
+      // room as room.beacon. The instanced world carries
+      // no such switch, and no refusal stands there.
+      if (purifyBeaconHeld(room)) { ws.send(JSON.stringify({ type: "error", message: "The beacon burns, and its light holds the curse where it stands — no ground is gained under it. Douse the beacon to purify the curse." })); return; }
+      const now = Date.now();
+      // The order is given: every standing drain is
+      // reckoned to this moment first (the homeland's door
+      // settles before it writes).
+      settleTablePurifies(room, now);
+      if (axialDist(unit.hex, targetId) <= 1) {
+        const orders = purifyOrdersOf(room).filter(o => o.unitKey !== unitKeyOf(unit));
+        orders.push({ tileId: targetId, unitKey: unitKeyOf(unit), seatKey: player.key, settledAt: now });
+        room.purifies = orders;
+        room.curseStruck = true;
+        tell(room, `🌿 ${player.name} sets ${unit.card.name} to purify the cursed ground — the drain begins where it stands.`);
+        sendState(room);
         return;
       }
-      // The blow is a strike: its cadence comes round, as the
-      // referee's own strikes set it.
-      unit.nextStrike = now + lightIntervalMs(unit);
-      tile.curseHp -= unit.card.power;
-      // THE PROVOKE (Nigel, 2026-10-25 10:41): the room's
-      // first curse strike is the act the dark answers —
-      // from this blow on, the free field's own entry
-      // begins (settleCasualEntry reads this word).
-      room.curseStruck = true;
-      saveHostedLand(room); // HOSTED LAND (Twelve #2): the thinned curse is the land's state, kept at once
-      const purified = tile.curseHp <= 0;
-      // The witness: the blow flies to the TILE, on the same
-      // ledger the referee's strikes fly by.
-      witnessStrike(room, { at: now, from: roundPos(unit.pos), to: roundPos(tileCenter(targetId)!), element: unit.card.element ?? "unaligned", side: "light", hit: true, killed: purified, weapon: null, level: Math.max(1, unit.card.level ?? 1), pace: marchSecondsPerHexFor(unit.card) });
-      if (purified) {
-        tell(room, `⚔️ ${unit.card.name}'s blow breaks the curse!`);
-        // The striker's dominant element claims the tile; a
-        // striker whose parts claim none falls to the purify
-        // DEFAULT — root (Nigel, 2026-10-25), as at home.
-        const struckEl = dominantElement(partsOf(unit.card) as { element?: string | null }[]);
-        purifyTile(room, tile, struckEl === "neutral" ? "root" : struckEl);
-      } else {
-        tell(room, `⚔️ ${unit.card.name} strikes the curse — its corruption thins to ${Math.ceil(tile.curseHp)} of ${tile.curseMaxHp}.`);
+      // Out of reach: the standing tiles at the cursed
+      // ground's edge, chosen the homeland's way — pure
+      // ground at distance exactly one from the target
+      // (every candidate here is pure; a march ends only
+      // on pure ground), the seed's tile never among them,
+      // a full tile never, and the shortest road wins.
+      const stands: { id: string; road: string[] }[] = [];
+      for (const t of room.map.values()) {
+        if (t.cursed || t.id === SEED_TILE) continue;
+        if (axialDist(t.id, targetId) !== 1) continue;
+        if (unitsAt(room, t.id).length >= STACK_CAP) continue;
+        const road = findAnyRoad(unit.hex, t.id, boardOf(room));
+        if (road && road.length >= 2) stands.push({ id: t.id, road });
       }
-      // The curse does not answer (attrition law, 2026-10-19):
-      // no thorns fly back at the striker. Its teeth are only
-      // for those who stand in it.
+      stands.sort((a, b) => a.road.length - b.road.length || (a.id < b.id ? -1 : 1));
+      const dest = stands[0];
+      if (!dest) { ws.send(JSON.stringify({ type: "error", message: "No road of yours reaches the cursed ground's edge — the purify cannot begin." })); return; }
+      const hexes = dest.road.length - 1;
+      const cost = hexes * marchRateFor(unit.card.power);
+      if (!chargePurse(room, player, cost)) {
+        ws.send(JSON.stringify({ type: "error", message: `The road to the cursed ground's edge costs ✦${cost} (${hexes} hex${hexes === 1 ? "" : "es"} at ✦${marchRateFor(unit.card.power)} for ${unit.card.name}'s power) — ${room.campaign && !room.campaign.over && room.campaign.seeded ? `the bank holds ✦${Math.floor(room.campaign.bank)}` : `you hold ✦${player.energy}`}.` }));
+        return;
+      }
+      // The march is written as the march handler writes
+      // it: the follow ends, the party is left, the glide
+      // rides the gait. The order is written with it, its
+      // goal the cursed tile — the settle waits out the
+      // march, and the drain begins on arrival by itself.
+      unit.follow = false;
+      const leftParty = player.expKey && unit.card.awokenId
+        ? removePartyMember(player.expKey, unit.card.awokenId)
+        : false;
+      unit.target = { ...tileCenter(dest.id)! };
+      unit.speedPx = Math.max(34, 69 / marchSecondsPerHexFor(unit.card));
+      const orders = purifyOrdersOf(room).filter(o => o.unitKey !== unitKeyOf(unit));
+      orders.push({ tileId: targetId, unitKey: unitKeyOf(unit), seatKey: player.key, settledAt: now });
+      room.purifies = orders;
+      room.curseStruck = true;
+      tell(room, `🚶 ${player.name} marches ${unit.card.name} to the cursed ground's edge (✦${cost}) — the purify begins on arrival.`);
+      if (leftParty) tell(room, `${unit.card.name} leaves ${player.name}'s party — an Awokin under orders stands outside it.`);
       sendState(room);
       return;
     }
