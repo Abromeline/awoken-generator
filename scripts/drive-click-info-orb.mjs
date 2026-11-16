@@ -268,22 +268,27 @@ const waitPopup = (sel) => page.waitForFunction((s) => !!document.querySelector(
   const glowOnce = () => page.evaluate(({ cx, cy }) => {
     const rectC = (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; };
     const near = (p, tol) => Math.abs(p.x - cx) < tol && Math.abs(p.y - cy) < tol;
-    const polyAt = (fill) => [...document.querySelectorAll("svg.territory-svg polygon")]
-      .filter((p) => p.getAttribute("fill") === fill).map(rectC).some((p) => near(p, 26));
-    const halo = [...document.querySelectorAll("svg.territory-svg ellipse")]
-      .filter((e) => e.getAttribute("fill") === "url(#corruptionHalo)").map(rectC).some((p) => near(p, 40));
-    const wisps = [...document.querySelectorAll("svg.territory-svg ellipse.mist-wisp")]
-      .map(rectC).filter((p) => Math.hypot(p.x - cx, p.y - cy) < 110).length;
-    return { outer: polyAt("rgba(110,6,26,0.16)"), inner: polyAt("rgba(148,14,52,0.20)"), halo, wisps };
+    // THE GLOW IS THE HEX'S OWN SHAPE (Nigel, 2026-11-15): one
+    // gradient-filled fitted cell at the tile's centre, its two
+    // fading bleed rings around it — and no oval left anywhere:
+    // the halo ellipse and the mist wisps are struck.
+    const glowEls = [...document.querySelectorAll("svg.territory-svg .corruption-glow polygon, svg.territory-svg .corruption-glow path")];
+    const inner = glowEls.filter((p) => p.tagName === "polygon" && p.getAttribute("fill") === "url(#cursedGlowFade)")
+      .map(rectC).some((p) => near(p, 26));
+    const rings = glowEls.filter((p) => p.tagName === "path" && p.getAttribute("fill") === "url(#cursedGlowFade)")
+      .map(rectC).filter((p) => near(p, 40)).length;
+    const ovals = [...document.querySelectorAll("svg.territory-svg ellipse")]
+      .filter((e) => e.getAttribute("fill") === "url(#corruptionHalo)" || e.classList.contains("mist-wisp")).length;
+    return { inner, rings, ovals };
   }, (() => { const p = clientOf(1, 1); return { cx: p.x, cy: p.y }; })());
   let glow = await glowOnce();
-  for (let i = 0; i < 9 && !(glow.outer && glow.inner && glow.halo && glow.wisps >= 2); i++) {
+  for (let i = 0; i < 9 && !(glow.inner && glow.rings >= 2 && glow.ovals === 0); i++) {
     await sleep(500);
     lattice = await solveLattice();
     glow = await glowOnce();
   }
-  ok("§2 the cursed glow stack still renders whole at its centre (halo, both crimson polygons, wisps)",
-    glow.outer && glow.inner && glow.halo && glow.wisps >= 2, JSON.stringify(glow));
+  ok("§2 the cursed glow still renders whole at its centre (the hex's own shape under the vertical fade, both bleed rings, no ovals left)",
+    glow.inner && glow.rings >= 2 && glow.ovals === 0, JSON.stringify(glow));
   await page.evaluate(() => { [...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === "×").forEach((b) => b.click()); });
   await sleep(300);
   await page.screenshot({ path: join(OUT, "orb-cursed-card.png") });
