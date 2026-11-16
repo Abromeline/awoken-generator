@@ -28,8 +28,13 @@
 //      the two crimson polygons, the mist wisps) still
 //      renders at its centre, untouched.
 //   §3 THE TINT: no stand-in element-tint polygon stands on
-//      any purified tile; every tint polygon in the face
-//      stands on cursed ground (theirs stays as it is).
+//      any tile. Purified ground lost its tint at Push 85;
+//      cursed ground lost its tonight (Nigel, 2026-11-15:
+//      "these tiles shouldn't have any attunement... remove
+//      the elemental tint"), so every cursed tile reads the
+//      cursed art's one colour whatever element it carries.
+//      (RESTATED 2026-11-15 from this drive's Push-85 form,
+//      which held the tint's survival on cursed ground.)
 //   §4 AWOKEN CARD: a tap on the field Awoken raises its
 //      card in the same spot — name, Health reading the
 //      placement's hp against the card's own toughness,
@@ -294,7 +299,7 @@ const waitPopup = (sel) => page.waitForFunction((s) => !!document.querySelector(
   await page.screenshot({ path: join(OUT, "orb-cursed-card.png") });
 }
 
-/* ══ §3 THE TINT STANDS ONLY ON CURSED GROUND ══════════════ */
+/* ══ §3 THE TINT STANDS NOWHERE ════════════════════════════ */
 {
   lattice = await solveLattice();
   const TINTS = ["rgba(74,144,217,0.15)", "rgba(135,206,235,0.15)", "rgba(139,115,85,0.15)", "rgba(107,142,35,0.15)", "rgba(255,68,68,0.15)"];
@@ -307,11 +312,10 @@ const waitPopup = (sel) => page.waitForFunction((s) => !!document.querySelector(
       });
   }, TINTS);
   const cursedCentres = tilesArg.filter((t) => t.cursed).map((t) => lattice.points[t.id].client);
-  const onCursed = (c) => cursedCentres.some((s) => Math.abs(s.x - c.x) < 8 && Math.abs(s.y - c.y) < 8);
-  ok("§3 the tint survives on the seeded cursed tiles (theirs stays as it is)",
-    audit.length >= 2, `tint polygons in the face: ${audit.length}`);
-  ok("§3 no tint polygon stands on any purified tile",
-    audit.every(onCursed), JSON.stringify(audit.filter((c) => !onCursed(c))));
+  ok("§3 the seeded cursed tiles stand in the face to be audited (the audit's ground is real)",
+    cursedCentres.length >= 2, `seeded cursed tiles: ${cursedCentres.length}`);
+  ok("§3 no element-tint polygon stands on any tile — cursed or purified (the tint struck whole, Nigel 2026-11-15)",
+    audit.length === 0, `tint polygons in the face: ${audit.length} ${JSON.stringify(audit)}`);
 }
 
 /* ══ §4 THE AWOKEN CARD ════════════════════════════════════ */
