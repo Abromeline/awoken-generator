@@ -46,7 +46,7 @@
 //   frames 1/6: 437 · frames 2/5: 282 · frames 3/4: 274
 // (of a 512-wide canvas; the viewBox is the content box
 // widened to the drawn aspect, so at FULL size the first
-// frame's painted width reads ~137 of the 144 measure and
+// frame's painted width reads ~91 of the 96 measure and
 // the rest exact — the per-slice factor a sample's growth
 // is reckoned against, so the growth readings below are
 // slice-blind by construction).
@@ -319,7 +319,7 @@ const med = (v) => { const s = [...v].sort((x, y) => x - y); return s.length ? s
 const growthOf = (s) => {
   const vb = s.viewBox.split(/\s+/).map(Number);
   const regionW = vb.length === 4 ? vb[2] : 512;
-  return paintedOf(s) / (144 * (PAINTED_W[s.slice] ?? 437) / regionW);
+  return paintedOf(s) / (96 * (PAINTED_W[s.slice] ?? 437) / regionW);
 };
 /* flightLaw's shotGrowthScale, mirrored for the fit
    judgement: half at the hand, full at the zenith,
@@ -530,8 +530,8 @@ ok("§G the shot stands at full size at the zenith — every distinct render in 
   zen.length >= 4 && zenMin >= 0.85 && gMax >= 0.97 && gMax <= 1.03,
   `zenMin=${zenMin.toFixed(3)} gMax=${gMax.toFixed(3)}`);
 const boxPeak = samples.length ? Math.max(...samples.map(s => s.boxW)) : 0;
-ok("§G full size is the ceiling — no render's growth passes 1.03, and the seated box peaks at the law's one measure (144 at level 1, never 216)",
-  gMax <= 1.03 && boxPeak >= 140 && boxPeak <= 145,
+ok("§G full size is the ceiling — no render's growth passes 1.03, and the seated box peaks at the law's one measure (96 at level 1, never 144 — the measure restated at two-thirds for Nigel's size word of 2026-11-15)",
+  gMax <= 1.03 && boxPeak >= 93.3 && boxPeak <= 96.7,
   `gMax=${gMax.toFixed(3)} boxPeak=${boxPeak.toFixed(1)}`);
 const late = stonePts.filter(p => p.shat >= 0.88);
 console.log(`  growth at the road's last eighth: n=${late.length} max ${late.length ? Math.max(...late.map(p => p.g)).toFixed(3) : "—"} (the mirror brings it home)`);
