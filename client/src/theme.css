@@ -2838,9 +2838,6 @@ body.defeat-flash {
 .corruption-glow{animation:corruptionPulse 4.2s ease-in-out infinite}
 @keyframes corruptionPulse{0%,100%{opacity:.7}50%{opacity:1}}
 
-.mist-wisp{transform-box:fill-box;transform-origin:center;animation:mistRise 5.5s ease-in-out infinite}
-@keyframes mistRise{0%,100%{transform:translateY(5px);opacity:.55}50%{transform:translateY(-9px);opacity:1}}
-
 /* The Ode's pause — always within reach over the main page */
 .ode-toggle{position:fixed;right:14px;bottom:96px;z-index:95;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;border:1px solid rgba(212,175,106,0.55);background:rgba(10,8,14,0.72);color:#e8d9ae;font-size:12.5px;letter-spacing:0.4px;cursor:pointer;backdrop-filter:blur(3px)}
 .ode-toggle:hover{background:rgba(30,22,10,0.85);border-color:rgba(212,175,106,0.9)}

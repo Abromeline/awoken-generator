@@ -318,6 +318,17 @@ function hexCellPoints(cx: number, cy: number, size: number, scale = 1): string 
   return hexCellVertices(cx, cy, size, scale).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 }
 
+/** The band between two scalings of the fitted hex cell, as a
+ *  path string (the outer cell and the inner cell as two
+ *  subpaths, even-odd fill): a ring that hugs the cell's own
+ *  shape exactly. The cursed glow's slight bleed past the rim
+ *  (Nigel, 2026-11-15) is built from two of these. */
+function hexRingPath(cx: number, cy: number, size: number, outerScale: number, innerScale: number): string {
+  const loop = (scale: number) => hexCellVertices(cx, cy, size, scale)
+    .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ") + " Z";
+  return `${loop(outerScale)} ${loop(innerScale)}`;
+}
+
 /** The drawn width of the fitted hex cell at a horizontal line
  *  y — the face polygon's own cross-section there, read off the
  *  same vertices the tiles are drawn with, so it is exact at
@@ -5955,31 +5966,43 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               {(t as any).baked ? `🔥 sealed · charge ${Math.round((t as any).buildCharge ?? 0)}` : "▽ lowered deep"}
             </text>
           )}
-          {t.cursed && (
-            <g clipPath={`url(#face-clip-${t.id})`}>
-              <ellipse cx={cx} cy={cy + s * 0.12} rx={s * 1.42} ry={s * 0.92}
-                fill="url(#corruptionHalo)" pointerEvents="none" />
-            </g>
-          )}
           {/* Corruption made visible (Nigel, 2026-10-14): cursed hexes
               GLOW crimson-violet from within — the dark bruising the land
               itself, never a red grid laid over it. Always on: the wilds
               smolder at the edge of the light. Layered polygons, no SVG
-              filters, so the iPad stays smooth. */}
+              filters, so the iPad stays smooth.
+              THE GLOW IS THE HEX'S OWN SHAPE (Nigel, 2026-11-15,
+              striking the shapes the first build gave it — the halo
+              ellipse and the two drifting mist-wisp ovals: "i meant
+              for the glow from the hexed tile to be the full shape
+              of the hex as if the hex is glowing and it fades
+              vertically"). What stands now: the fitted cell itself
+              filled with ONE curse colour under a vertical gradient
+              (cursedGlowFade in the defs) — strongest at the hex's
+              base, fading up to nothing at its top. The gradient is
+              read in each hex's own bounding space from the one set
+              of stops, so two cursed neighbours carry the same
+              strength at the same height along their shared edge
+              and the region still reads as one glowing land, each
+              hex keeping its own shape. No element colour: the one
+              curse colour serves every cursed tile (element colour
+              was struck off cursed ground the same night).
+              A SLIGHT BLEED PAST THE RIM (Nigel's amendment, same
+              night: "slight bleed past the rim for the cursed glow
+              is ok. but slightly, and fading"): two rings of the
+              same gradient at half and quarter strength carry the
+              glow out to the cell's 1.04 and 1.08 scalings — the
+              spill reaches 8% of the centre-to-rim distance past
+              the rim at its furthest, is weaker than the glow
+              inside at every height, and dies with it at the top.
+              The group wears no face clip now: the rim is the
+              glow's own edge, and the rings are its sanctioned
+              spill beyond it. */}
           {t.cursed && (
-            <g className="corruption-glow" clipPath={`url(#face-clip-${t.id})`} pointerEvents="none">
-              <polygon points={hexCellPoints(cx, cy, s, 1.14)} fill="rgba(110,6,26,0.16)" stroke="none" />
-              <polygon points={pts} fill="rgba(148,14,52,0.20)" stroke="none" />
-              {/* The mist climbs (Nigel, 2026-10-14): traces of deep red
-                  drifting up off the corruption — the glow made taller.
-                  Two soft wisps per hex, staggered by tile so the wilds
-                  never breathe in lockstep. CSS-risen, no filters. */}
-              <ellipse className="mist-wisp" cx={cx - s * 0.18} cy={cy - s * 0.30} rx={s * 0.30} ry={s * 0.55}
-                fill="rgba(178,24,44,0.09)" stroke="none"
-                style={{ animationDelay: `${(t.id % 5) * 0.9}s` }} />
-              <ellipse className="mist-wisp" cx={cx + s * 0.22} cy={cy - s * 0.42} rx={s * 0.22} ry={s * 0.44}
-                fill="rgba(160,20,70,0.07)" stroke="none"
-                style={{ animationDelay: `${(t.id % 7) * 0.7 + 1.3}s` }} />
+            <g className="corruption-glow" pointerEvents="none">
+              <path d={hexRingPath(cx, cy, s, 1.08, 1.04)} fill="url(#cursedGlowFade)" fillRule="evenodd" opacity={0.25} stroke="none" />
+              <path d={hexRingPath(cx, cy, s, 1.04, 1)} fill="url(#cursedGlowFade)" fillRule="evenodd" opacity={0.5} stroke="none" />
+              <polygon points={pts} fill="url(#cursedGlowFade)" stroke="none" />
             </g>
           )}
           {/* The cursed tile's numbers stood here — ♥ its curse
@@ -9794,12 +9817,19 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
           }}
           onMouseLeave={() => { lineDragRef.current = null; linePressRef.current = null; setLineDrag(null); }}>
           <defs>
-            <radialGradient id="corruptionHalo" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(96,4,18,0)" />
-              <stop offset="58%" stopColor="rgba(96,4,18,0.10)" />
-              <stop offset="80%" stopColor="rgba(52,2,10,0.55)" />
-              <stop offset="100%" stopColor="rgba(52,2,10,0)" />
-            </radialGradient>
+            {/* THE CURSED GLOW'S FADE (Nigel, 2026-11-15): one
+                curse colour, read in each glowing hex's own
+                bounding space (objectBoundingBox is the
+                gradient's native measure) — full strength at
+                the hex's base, nothing at its top, the same
+                stops for every hex so neighbours agree along
+                their shared edge. */}
+            <linearGradient id="cursedGlowFade" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stopColor="#940e34" stopOpacity={0.34} />
+              <stop offset="45%" stopColor="#940e34" stopOpacity={0.19} />
+              <stop offset="75%" stopColor="#940e34" stopOpacity={0.07} />
+              <stop offset="100%" stopColor="#940e34" stopOpacity={0} />
+            </linearGradient>
           </defs>
           {renderGrid()}
           {/* THE STRIP (the Token Strip, 2026-10-23): the
