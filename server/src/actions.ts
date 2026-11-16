@@ -2672,17 +2672,26 @@ registerPlacementDepartureHook(settlePlacementClocksById);
  * slowly lowers the hp 'thickness' of the curse on a curse
  * tile. doing so draws enemies to that tile to defend it,
  * spawning from the closest cursed 15 hex... 1 hp of
- * thickness takes about 10 min to lower." The wheel's Attack
- * button reads PURIFY now: pointed at an enemy it strikes
- * exactly as it always has (the living battle is untouched);
- * pointed at a cursed tile it gives this order instead of a
- * blow — INSTANT STRIKE DAMAGE AGAINST CURSED GROUND IS
- * REMOVED WHOLE, and the old wave-pull that a strike's break
- * could trigger (15%: the tile left "breaking" for a
- * Battleground wave) does NOT ride this road either (Nigel,
- * 2026-11-15 22:22: "remove the old battle system that was
- * still possible to be triggered when purifying a hex") —
- * the purify's break turns the tile outright, below.
+ * thickness takes about 10 min to lower."
+ *
+ * PURIFY REPLACES ATTACK (Nigel's corrections, 2026-11-15
+ * 22:57–22:58, the same evening): "Purify was meant to
+ * replace attack, not be the same" and "Awokin attacks are
+ * automatic and based on range so we don't need a button
+ * for it." So there is NO attack button and NO attack
+ * stance as a player order anywhere — the wheel carries
+ * Purify as an ORDER, not a posture, and an Awoken's
+ * strikes against enemies are AUTOMATIC in the living
+ * battle, by range, with no stance behind them (the only
+ * postures the battle still reads are the ordered Defend
+ * and Binding). Instant strike damage against cursed
+ * ground stays removed whole. And the 15% wave-pull battle
+ * mode is REMOVED ENTIRELY — the roll, the "breaking" tile
+ * it left behind (a curse at 0 HP, still cursed, owed a
+ * Battleground wave), the wave battle it opened and its
+ * resolution road are all struck, everywhere: a curse
+ * whose thickness reaches 0 by any road turns outright
+ * through the standing break, below.
  *
  * THE PROCESS: a server-held order (the purifies table) on
  * one cursed tile by one Awoken. It drains the tile's curse
@@ -2699,9 +2708,10 @@ registerPlacementDepartureHook(settlePlacementClocksById);
  * each drains its own rate and the rates add. While the
  * beacon is held, no ground is gained (the master clock's
  * law — the grind's own bar): the drain pauses under light.
- * A curse already at the wave's door (curse_hp 0, left
- * breaking by a strike of the old road) is not drained —
- * its wave is still owed, and resolveWavePull's road stands.
+ * A curse found already at 0 (a legacy tile the old road
+ * left "breaking" before the mode was struck) is owed no
+ * battle any more: the settle turns it outright through
+ * the same break, its standing purifier the breaker.
  *
  * THE PURIFIER never strikes back (his answer, 2026-11-15):
  * while it stands in reach of its tile with the order live,
@@ -2710,8 +2720,8 @@ registerPlacementDepartureHook(settlePlacementClocksById);
  * blows on its shield and hide like any standing figure.
  * The order ends when the tile turns, when the purifier
  * falls (the settle finds it gone from the field), or when
- * the Tender gives it any other order (a stance away from
- * attack, a march, a recall, a new purify) — the tile keeps
+ * the Tender gives it any other order (a Defend or Binding
+ * order, a march, a recall, a new purify) — the tile keeps
  * every fraction it has lost in every ending.
  *
  * MOVE TO IT: the order is one tap (attackTile's door). In
@@ -2808,11 +2818,11 @@ function purifyThicknessOf(tile: any, mood: WorldMood): number {
  *  falls to root, the standing default), the wildfire spark
  *  rolled, the breaker advancing onto the broken land, the
  *  frontier revealed, and HEX-TAKEN XP to the breaker. The
- *  one thing NOT carried: the strike's 15% wave-pull — the
- *  old battle trigger Nigel struck off this road (above);
- *  a purify's break turns the tile outright. Mutates the
- *  tile row it is handed, as the grind does, so the read
- *  that settles it serves the ground truth. */
+ *  strike's 15% wave-pull is not carried because it no
+ *  longer exists: the mode was removed ENTIRELY (above),
+ *  and a break by any road turns the tile outright.
+ *  Mutates the tile row it is handed, as the grind does, so
+ *  the read that settles it serves the ground truth. */
 async function breakCurseForPurify(ownerKey: string, tile: any, breakerAwakenedId: number, breakerPlacementId: number): Promise<void> {
   await recordDeed(ownerKey, breakerAwakenedId, "curse_broken");
   // No newborn follows a purification (Nigel, 2026-10-14).
@@ -2924,7 +2934,19 @@ async function settlePurify(ownerKey: string, nowMs: number = Date.now(), tiles?
     const ring = Math.max(Math.abs(tile.q), Math.abs(tile.r), Math.abs(tile.q + tile.r));
     const maxHp = (tile.curseMaxHp as number | null) ?? curseHpFor(ring, mood);
     const beforeHp = (tile.curseHp as number | null) ?? maxHp;
-    if (beforeHp <= 0) continue; // at the wave's door already (a strike of the old road left it breaking): not the purify's to drain
+    if (beforeHp <= 0) {
+      // AT ZERO ALREADY: a legacy tile the old road left
+      // "breaking" before the wave-pull mode was struck
+      // whole (Nigel, 2026-11-15) — no wave is owed it any
+      // more, and nothing may leave a tile breaking: it
+      // turns outright through the standing break, this
+      // purifier its breaker, and every purify on the tile
+      // ends with the turn, as at the drain's own crossing.
+      await breakCurseForPurify(ownerKey, tile, row.awakenedId, placement.id);
+      placement.tileId = tile.id;
+      sqlite.prepare("DELETE FROM purifies WHERE owner_key = ? AND tile_id = ?").run(ownerKey, row.tileId);
+      continue;
+    }
     // The drain: this order's present span, at 1 HP of
     // thickness per PURIFY_SECONDS_PER_HP — added to the
     // tile's standing fraction, whole points folding into
@@ -2955,7 +2977,7 @@ async function settlePurify(ownerKey: string, nowMs: number = Date.now(), tiles?
 
 /** End one Awoken's purify order, if it holds one — the
  *  road every other order takes when it supersedes the
- *  purify (a stance away from attack, a march, a recall).
+ *  purify (a Defend or Binding order, a march, a recall).
  *  The drain accrued to this moment is settled first, so
  *  the tile keeps the span the order truly stood. */
 async function endPurifyForAwakened(ownerKey: string, awakenedId: number): Promise<void> {
@@ -6117,8 +6139,8 @@ async function grantXp(awakenedId: number, amount: number): Promise<{ leveledUp:
 // --- Unified XP (Nigel, 2026-10-13): "UNify for simplicity… when an
 // awoken attacks or is attacked it gains 10 xp." Flat event XP, the same
 // on every path — the old per-path victory formulas (resolveBattle's
-// 50 + 10×wave, resolveWavePull's flat 60, the short-lived defendWave
-// formula) are folded into this one model:
+// 50 + 10×wave, the struck wave-pull road's flat 60, the short-lived
+// defendWave formula) are folded into this one model:
 //   ATTACK EVENT  — an Awoken attacks: +10 to that Awoken.
 //   DEFENSE EVENT — an Awoken is attacked, or stands in a defense
 //                   resolution (wave defense, battle defense): +10.
@@ -7200,8 +7222,10 @@ async function groveBurstHealPlacement(placementId: number, awakenedId: number, 
  *  page: "Harm to everything on its ground"). At 0 the curse
  *  breaks outright and the tile turns in the working's hue
  *  (the Awokin's Strike-the-Curse is the precedent; the
- *  Tender's dice are bigger, and his breaking carries no
- *  wave-pull — the spell is the hammer, not the summons).
+ *  Tender's dice are bigger, and his breaking turns the
+ *  tile outright — the spell is the hammer, not a summons;
+ *  the wave-pull mode itself is struck whole, Nigel
+ *  2026-11-15).
  *  Mutates the tile row it is handed, so the read that
  *  settles it serves the ground truth. */
 async function grindHomelandCurse(ownerKey: string, tile: any, harm: number, hue: string): Promise<{ ground: number; purified: boolean }> {
@@ -8671,7 +8695,15 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
     fighters.push({
       row: p, id: Number(p.id), awakenedId: Number(p.awakenedId), tileId: Number(p.tileId),
       q: p.posQ == null ? (t?.q ?? 0) : Number(p.posQ), r: p.posR == null ? (t?.r ?? 0) : Number(p.posR),
-      stance: p.stanceOrdered ? String(p.stance ?? "defense") : "attack", // NO ORDERS DEFAULTS TO ATTACK (Nigel, 2026-10-23)
+      // NO ATTACK STANCE (Nigel, 2026-11-15): an Awoken's
+      // strikes are automatic, by range — the only ordered
+      // postures the battle reads are Defend and Binding.
+      // Anything else stored (an unordered figure, a legacy
+      // "attack" from before the order was struck, a
+      // builder's span) reads as the plain standing
+      // posture: it strikes what comes within reach, like
+      // any fighter.
+      stance: p.stanceOrdered && (p.stance === "defense" || p.stance === "binding") ? String(p.stance) : "standing",
       towerGuard: false, // stamped once the towers are loaded, below
       power: payload.power ?? 0, toughness: payload.toughness ?? 1,
       level: Math.max(1, awokenLevelOf(Number(awRow?.experience ?? 0))),
@@ -9800,7 +9832,8 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
         }
         continue;
       }
-      // Attack, and Defence striking in place (the defence
+      // The strike itself — automatic, by range — with
+      // Defence striking in place beside it (the defence
       // bonus's number is unruled — the math stands plain).
       const target = darks.filter(d => !d.dead && axialDist(f, d) <= reach)
         .sort((a, b) => axialDist(f, a) - axialDist(f, b))[0];
@@ -11609,59 +11642,12 @@ export const handlers = {
     return { ok: true, id: twin.id };
   },
 
-  // Resolve a wave pull from mystery purification
-  async resolveWavePull(args: unknown, ctx?: ActionContext) {
-    const ownerKey = landKeyFor(ctx);
-    const parsed = z.object({
-      tileId: z.number().int().positive(),
-      victory: z.boolean(),
-      survivorIds: z.array(z.number().int().positive()),
-    }).safeParse(args);
-    if (!parsed.success) badRequest("Invalid request.");
-    const tiles = await db.select().from(schema.territoryTiles)
-      .where(and(
-        eq(schema.territoryTiles.id, parsed.data.tileId),
-        eq(schema.territoryTiles.ownerKey, ownerKey),
-        eq(schema.territoryTiles.cursed, 1)
-      )).limit(1);
-    if (!tiles.length) badRequest("No such cursed tile.");
-    // Unified XP (Nigel, 2026-10-13): the survivors stood against the
-    // pulled wave — a DEFENSE EVENT, +10 XP each, win or lose. The old
-    // flat-60 victory grant is abolished; on victory the hex is taken
-    // and HEX-TAKEN XP (+50) goes to each of them instead.
-    const xpById = new Map<number, XpGainReport>();
-    for (const id of parsed.data.survivorIds) {
-      await grantEventXp(xpById, id, XP_PER_DEFENSE);
-    }
-    if (parsed.data.victory) {
-      // Purify! No element claims this ground — it takes the
-      // DEFAULT (root since Nigel's ruling, 2026-10-25; before,
-      // neutral).
-      await db.update(schema.territoryTiles)
-        .set({ cursed: 0, element: "root", curseHp: null, curseMaxHp: null, ...PURIFIED_TILE_FIELDS })
-        .where(eq(schema.territoryTiles.id, parsed.data.tileId));
-      await expandFrontier(ownerKey, tiles[0].q, tiles[0].r);
-      for (const id of parsed.data.survivorIds) {
-        await grantEventXp(xpById, id, XP_PER_HEX_TAKEN);
-      }
-      // Purification births are abolished (Nigel, 2026-10-14) — too
-      // many unnamed Awoken were simply popping up. No claim is
-      // recorded here, ever. Boss victories once recorded the claim
-      // (resolveBossBattle, War-Ground fix 2026-10-15), but the boss
-      // battle mode is abolished (Nigel, 2026-10-24): no living
-      // system records a newborn claim today, and creation belongs
-      // to the Awoken Forge he plans.
-    } else {
-      // Wave lost — curse HP restores to half. A legacy tile with no
-      // stored max is measured by the ring law under the live sky.
-      const legacyRing = Math.max(Math.abs(tiles[0].q), Math.abs(tiles[0].r), Math.abs(tiles[0].q + tiles[0].r));
-      const maxHp = tiles[0].curseMaxHp ?? curseHpFor(legacyRing, (await getWorldMood()).mood);
-      await db.update(schema.territoryTiles)
-        .set({ curseHp: Math.ceil(maxHp / 2) })
-        .where(eq(schema.territoryTiles.id, parsed.data.tileId));
-    }
-    return { ok: true, purified: parsed.data.victory, xpGains: [...xpById.values()] };
-  },
+  // THE WAVE-PULL IS GONE (Nigel, 2026-11-15): the 15%
+  // battle mode was removed ENTIRELY — its resolution
+  // road stood here (resolveWavePull) and stands no
+  // more. A curse whose thickness reaches 0 turns
+  // outright through the standing break; no tile is
+  // owed a wave battle, and none can be left breaking.
 
   async setChampion(args: unknown, ctx?: ActionContext) {
     const ownerKey = ownerKeyFor(ctx);
@@ -20177,9 +20163,13 @@ export const handlers = {
 
   async setStance(args: unknown, ctx?: ActionContext) {
     const ownerKey = landKeyFor(ctx);
+    // THE ORDERS THAT REMAIN (Nigel, 2026-11-15): Defend
+    // and Binding. There is no attack order — an Awoken's
+    // strikes are automatic, by range — so the door
+    // refuses the word whole.
     const parsed = z.object({
       awakenedId: z.number().int().positive(),
-      stance: z.enum(["attack", "defense", "binding"]),
+      stance: z.enum(["defense", "binding"]),
       maxEnergy: z.number().int().min(1),
     }).safeParse(args);
     if (!parsed.success) badRequest("Invalid stance.");
@@ -20204,17 +20194,17 @@ export const handlers = {
     await db.update(schema.fieldPlacements)
       .set({
         stance: parsed.data.stance,
-        stanceOrdered: 1, // an ORDERED stance (Nigel, 2026-10-23): unordered Awokin default to attack in the living battle
+        stanceOrdered: 1, // an ORDERED stance: the living battle reads only these two ordered postures — an unordered Awokin simply strikes automatically, by range (Nigel, 2026-11-15)
         lastBindingChargeAt: parsed.data.stance === "binding" ? new Date() : null,
         bindPaidAt: parsed.data.stance === "binding"
           ? (placement[0].stance === "binding" ? (placement[0] as any).bindPaidAt ?? null : new Date())
           : null,
       })
       .where(eq(schema.fieldPlacements.id, placement[0].id));
-    // PURIFY (Nigel, 2026-11-15): a stance away from attack
-    // is another order, and another order ends the purify —
-    // the tile keeps the thickness the purify had worn off.
-    if (parsed.data.stance !== "attack") await endPurifyForAwakened(ownerKey, parsed.data.awakenedId);
+    // PURIFY (Nigel, 2026-11-15): a stance order is another
+    // order, and another order ends the purify — the tile
+    // keeps the thickness the purify had worn off.
+    await endPurifyForAwakened(ownerKey, parsed.data.awakenedId);
     // THE AWARD ROAD'S WITNESS (ENTRANCE BUILD 2, §2): an
     // order given, recorded at the giving — the stance_ordered
     // mark above is its durable twin.
@@ -20226,14 +20216,17 @@ export const handlers = {
   },
 
   async attackTile(args: unknown, ctx?: ActionContext) {
-    // PURIFY (Nigel, 2026-11-15): this door is the wheel's
-    // Purify button now (it read Attack, and struck). Pointed
-    // at a cursed tile it gives the purify ORDER — no blow is
+    // PURIFY (Nigel, 2026-11-15): this door gives the
+    // purify ORDER — the wheel's Purify entry arms the tap,
+    // and the tap on a cursed tile lands here. No blow is
     // landed, no energy is taken, and no instant damage is
     // dealt: the curse's thickness falls only to the purify
-    // itself, reckoned by settlePurify. (Pointed at an enemy,
-    // an Awoken's striking lives in the living battle, which
-    // this door never dealt and does not deal now.)
+    // itself, reckoned by settlePurify. No stance stands
+    // behind the order — Purify replaced Attack whole, and
+    // an Awoken's striking lives in the living battle,
+    // automatic by range, which this door never dealt and
+    // does not deal now. (The door keeps the name it was
+    // born with; the order it gives is the purify.)
     const ownerKey = landKeyFor(ctx);
     await this.settleMarches(ownerKey);
     await settlePurify(ownerKey);
@@ -20249,16 +20242,15 @@ export const handlers = {
     // before anything is written. Douse the beacon, and
     // purify.
     if (beaconSwitchLit(ownerKey)) badRequest("The beacon burns, and its light holds the curse where it stands — no ground is gained under it. Douse the beacon to purify the curse.");
-    // The purifier must be on the field in attack stance —
-    // the stance the wheel's Purify entry sets, as the
-    // strike before it required.
+    // The purifier must be on the field. No stance is
+    // asked — Purify is an order, not a posture (Nigel,
+    // 2026-11-15): any fielded Awoken can be given it.
     const placement = await db.select().from(schema.fieldPlacements)
       .where(and(
         eq(schema.fieldPlacements.awakenedId, parsed.data.awakenedId),
         eq(schema.fieldPlacements.ownerKey, ownerKey)
       )).limit(1);
     if (!placement.length) badRequest("That Awokin is not on your field.");
-    if (placement[0].stance !== "attack") badRequest("Set attack stance first.");
     // The target must be a cursed tile owned by the Tender.
     const tile = await db.select().from(schema.territoryTiles)
       .where(and(

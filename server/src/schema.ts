@@ -755,10 +755,12 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // roll theirs at the first battle settle that touches them).
   shield: real("shield"),
   shieldMax: real("shield_max"),
-  // Whether this stance was ever ORDERED. An Awokin with no
-  // orders defaults to ATTACK (Nigel, 2026-10-23) whatever
-  // the stored default says; setStance stamps this as it
-  // writes, so an ordered Defence is honoured as Defence.
+  // Whether a stance was ever ORDERED. The only ordered
+  // postures are Defend and Binding (Nigel, 2026-11-15 —
+  // the attack order is struck: an Awoken's strikes are
+  // automatic, by range); setStance stamps this as it
+  // writes, so an ordered Defence is honoured as Defence,
+  // and an unordered figure reads as plain standing.
   stanceOrdered: integer("stance_ordered").notNull().default(0),
   // The figure's own strike clock in the living battle (raw
   // ms): the next hour its cadence lets it strike or heal.

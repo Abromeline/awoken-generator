@@ -12,6 +12,11 @@
 //      and nothing is lost; it resumes on return.
 //   §2 TWO PURIFIERS: two Awoken on one tile drain at the
 //      sum of their rates.
+//   §N NO ATTACK ORDER: no Attack entry stands on either
+//      wheel; the stance door refuses the word "attack"
+//      whole; and a stance order given to a purifier ends
+//      its purify (the hook re-homed on the orders that
+//      remain — Defend and Binding).
 //   §M MOVE TO IT: an out-of-reach Awoken marches to the
 //      closest own tile within reach, and the purify begins
 //      on its arrival.
@@ -23,14 +28,17 @@
 //      answers with NO thorns (it keeps purifying).
 //   §F THE FALL: the purifier falling ends the purify, and
 //      the tile keeps the thickness it had lost.
-//   §E THE STRIKE STANDS: an Awoken ordered at an ENEMY
-//      still strikes — enemy combat is untouched.
-//   §T THE TURN, AND NO WAVE-PULL: at 0 the tile turns
-//      through the standing purification path (element
-//      claimed, the breaker advanced onto it) — and across
-//      ten turns, no tile is EVER left in the old breaking
-//      state (cursed at 0 HP, owed a wave battle): the old
-//      battle trigger on the purify path is gone.
+//   §E THE STRIKE IS AUTOMATIC: a fielded Awoken under NO
+//      orders strikes an enemy that comes within range —
+//      no button, no stance (Nigel, 2026-11-15: "Awokin
+//      attacks are automatic and based on range").
+//   §T THE TURN, AND THE WAVE-PULL IS GONE ENTIRELY: at 0
+//      the tile turns through the standing purification
+//      path (element claimed, the breaker advanced onto
+//      it); across ten turns, no tile is EVER left in the
+//      old breaking state (cursed at 0 HP); and the
+//      wave-pull's own door answers nothing — the action
+//      no longer exists.
 // Run after `npm run build`:
 //   node scripts/drive-purify.mjs
 import { join } from "node:path";
@@ -79,10 +87,18 @@ const now0 = Date.now();
 /* ══ §B THE BUTTON (the client source, read plainly) ══════ */
 console.log("§B the button reads Purify");
 const terrSrc = readFileSync("client/src/Territory.tsx", "utf8");
-ok("§B the individual wheel's stance entry reads Purify",
-  terrSrc.includes('key: "ord-attack", sigil: "sword", label: "Purify"'));
+ok("§B the individual wheel's Purify entry stands (an order, keyed as one)",
+  terrSrc.includes('key: "ord-purify", sigil: "sword", label: "Purify"'));
 ok("§B the touch confirm speaks the purify and confirms as Purify",
   terrSrc.includes("will purify this cursed hex") && terrSrc.includes('confirmLabel = "Purify"'));
+ok("§N no Attack entry stands on either wheel (individual or company)",
+  !terrSrc.includes('label: "Attack"'));
+const actionsSrc = readFileSync("server/src/actions.ts", "utf8");
+const apiSrc = readFileSync("client/src/api.ts", "utf8");
+ok("§T no wave-pull road stands in the server (no handler under its name, no state field)",
+  !actionsSrc.includes("wavePull") && !actionsSrc.includes("async resolveWavePull"));
+ok("§T no wave-pull door stands in the client (no api method, no tile state)",
+  !apiSrc.includes("resolveWavePull") && !terrSrc.includes("wavePull"));
 
 /* ══ THE WORLD: a fresh Tender and their sown land ═══════ */
 const claim = await callOk("claimTender", { password: PW, tenderName: "Purify Tender" });
@@ -142,8 +158,16 @@ function seedAwoken(name, partEls) {
   return Number(db.prepare("INSERT INTO awakened (name, minted_name, image_blob_key, composition_json, collection, owner_name, owner_key, created_at) VALUES (?, ?, ?, ?, 'tender', 'Purify Tender', ?, ?)")
     .run(name, name, `purify/${name}.png`, JSON.stringify(parts), ownerKey, Date.now()).lastInsertRowid);
 }
-const field = (awId, tile, stance = "attack") => db.prepare(`INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, stance, follow, hp, pos_q, pos_r, shield, shield_max, stance_ordered)
-  VALUES (?, ?, ?, ?, ?, ?, 0, 99, ?, ?, NULL, NULL, 1)`).run(ownerKey, awId, tile.id, Date.now(), Date.now(), stance, tile.q, tile.r);
+/* The default fixture wears the LEGACY standing — an
+ * ordered "attack" from before the order was struck whole
+ * (Nigel, 2026-11-15): such a placement must land sane,
+ * ordering, draining, striking and turning exactly as any
+ * other. Sections that prove the no-orders law field their
+ * Awoken unordered instead (the schema-default stored
+ * stance, never ordered — the state every new placement
+ * is born in). */
+const field = (awId, tile, stance = "attack", ordered = 1) => db.prepare(`INSERT INTO field_placements (owner_key, awakened_id, tile_id, placed_at, last_moved_at, stance, follow, hp, pos_q, pos_r, shield, shield_max, stance_ordered)
+  VALUES (?, ?, ?, ?, ?, ?, 0, 99, ?, ?, NULL, NULL, ?)`).run(ownerKey, awId, tile.id, Date.now(), Date.now(), stance, tile.q, tile.r, ordered);
 
 /* The geography is drawn on RING-2 ground throughout:
  * ring-1 tiles neighbour the centre, and the centre's
@@ -160,8 +184,8 @@ const P2 = seedAwoken("Purifier Two", ["sky", "tide", "root"]);
 const P3 = seedAwoken("Purifier Three", ["stone", "stone", "stone"]);
 const P4 = seedAwoken("Purifier Four", ["root", "root", "root"]);  // Root-dominant — the thorns witness
 const P5 = seedAwoken("Purifier Five", ["root", "tide", "sky"]);
-field(P1, tileAt(1, 0));        // adjacent to TC
-field(P2, tileAt(1, -1));       // adjacent to TC
+field(P1, tileAt(1, 0));        // adjacent to TC (legacy standing)
+field(P2, tileAt(1, -1), "defense", 0); // adjacent to TC — UNORDERED: no stance was ever given it
 field(P3, tileAt(2, 0));        // far from TC2 — it will march
 field(P5, TC4);                 // standing ON the fall tile
 setEnergy(1000);
@@ -203,10 +227,22 @@ ok("§A on return, the drain resumes where it stopped", servedTile(TC.id).curseH
 /* ══ §2 TWO PURIFIERS — the rates add ═════════════════════ */
 console.log("§2 two purifiers — twice the drain");
 const order2 = await call("attackTile", { awakenedId: P2, tileId: TC.id }, token);
-ok("§2 the second purify order is taken", order2.status === 200 && order2.body.purifying === true, JSON.stringify(order2.raw).slice(0, 200));
+ok("§2 the second purify order is taken — from an Awoken under no orders at all (no stance stands behind Purify)", order2.status === 200 && order2.body.purifying === true, JSON.stringify(order2.raw).slice(0, 200));
 for (let i = 0; i < 3; i++) { backdatePurify(P1, 240); backdatePurify(P2, 240); await readLand(); }
 ok("§2 600 shared seconds wear off 2 HP (one per purifier)", servedTile(TC.id).curseHp === 5, `curseHp ${servedTile(TC.id).curseHp}`);
 ok("§2 both purifiers stand on the tile's order", (purifyOn(TC.id)?.purifiers ?? []).length === 2, JSON.stringify(land.purifies));
+
+/* ══ §N NO ATTACK ORDER — the stance door's new shape ════ */
+console.log("§N no attack order — Purify replaced it whole");
+const atkStance = await call("setStance", { awakenedId: P2, stance: "attack", maxEnergy: 1000 }, token);
+ok("§N the stance door refuses the attack order whole", atkStance.status >= 400, JSON.stringify(atkStance.raw).slice(0, 160));
+const defStance = await call("setStance", { awakenedId: P2, stance: "defense", maxEnergy: 1000 }, token);
+ok("§N the orders that remain still stand (a Defend order is taken)", defStance.status === 200, JSON.stringify(defStance.raw).slice(0, 160));
+await readLand();
+ok("§N a stance order ends its giver's purify (P2's order on TC is ended)",
+  !(purifyOn(TC.id)?.purifiers ?? []).includes(P2), JSON.stringify(land.purifies));
+ok("§N the other purify stands untouched (P1 still purifies TC)",
+  (purifyOn(TC.id)?.purifiers ?? []).includes(P1), JSON.stringify(land.purifies));
 
 /* ══ §M MOVE TO IT — the march, then the purify ══════════ */
 console.log("§M move to it — one tap, the Awoken goes and begins");
@@ -304,10 +340,10 @@ ok("§F the fallen purifier is off the field (standing dissipation)", !placement
 ok("§F the purify ended with the fall", !purifyOn(TC4.id), JSON.stringify(land.purifies));
 ok("§F the tile keeps the thickness it lost (still 7)", dbTile(TC4.id).curse_hp === 7, `curse_hp ${dbTile(TC4.id).curse_hp}`);
 
-/* ══ §E THE STRIKE STANDS — enemy combat untouched ═══════ */
-console.log("§E the strike stands — pointed at an enemy");
+/* ══ §E THE STRIKE IS AUTOMATIC — by range, no orders ═══ */
+console.log("§E the strike is automatic — no button, no stance");
 const F1 = seedAwoken("Striker One", ["sky", "sky", "sky"]);
-field(F1, CENTRE);
+field(F1, CENTRE, "defense", 0); // UNORDERED — no stance was ever given it; it has no button to press
 const foeTile = tileAt(1, -1);
 db.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl) VALUES (?, ?, 'fray', ?, 60, ?, ?, 1, 1)")
   .run(ownerKey, foeTile.id, Date.now(), foeTile.q, foeTile.r);
@@ -318,14 +354,17 @@ for (let i = 0; i < 4; i++) {
   await readLand();
   f1Strikes += (land.strikes ?? []).filter(s => s.kind === "placement" && s.awakenedId === F1).length;
 }
-ok("§E a fielded Awoken in attack stance still strikes an enemy", f1Strikes > 0, `${f1Strikes} strikes witnessed`);
+ok("§E a fielded Awoken under NO orders strikes an enemy in range — automatically", f1Strikes > 0, `${f1Strikes} strikes witnessed`);
 
-/* ══ §T THE TURN — the standing path, and no wave-pull ═══ */
-console.log("§T the turn — purified whole, never left breaking");
+/* ══ §T THE TURN — the standing path; the wave-pull gone ═ */
+console.log("§T the turn — purified whole, never left breaking, no door back");
 /* Six fresh ring-2 tiles, then four of them a second time
  * (re-cursed by the fixture's hand): the old strike's roll
  * would have left a breaking tile behind ~86% of the time
- * across ten turns; the purify must leave none, ever. */
+ * across ten turns; the purify must leave none, ever. The
+ * walker is fielded in the LEGACY standing (an ordered
+ * "attack") throughout: a placement the old law left
+ * behind must order, drain and turn as any other. */
 const turnTiles = [[1, -2], [0, -2], [-1, -1], [-2, 0], [2, 0], [-2, 2], [1, -2], [0, -2], [-1, -1], [-2, 0]];
 field(P1, CENTRE); // fielded again — §W's cleanup lifted it; the loop below walks it tile to tile
 let turnsOk = 0, breakingSeen = 0;
@@ -343,9 +382,9 @@ for (const [q, r] of turnTiles) {
 }
 ok("§T all ten tiles turned through the standing path (element claimed, breaker advanced onto the tile)", turnsOk === 10, `${turnsOk}/10`);
 ok("§T no tile was ever left breaking (cursed at 0 HP, owed the old wave battle)", breakingSeen === 0, `${breakingSeen} breaking tiles seen`);
-const rwp = await call("resolveWavePull", { tileId: 999999, victory: false, survivorIds: [] }, token);
-ok("§T the wave-pull door itself stands for its other road (resolveWavePull answers with its own refusal)",
-  rwp.status >= 400 && JSON.stringify(rwp.raw).includes("No such cursed tile"), JSON.stringify(rwp.raw).slice(0, 160));
+const rwp = await call("resolveWavePull", { tileId: TC.id, victory: true, survivorIds: [P1] }, token);
+ok("§T the wave-pull door is GONE — no action answers at its address any more (not even for a real cursed tile)",
+  rwp.status >= 400 && !JSON.stringify(rwp.raw).includes("No such cursed tile"), `status ${rwp.status}: ${JSON.stringify(rwp.raw).slice(0, 160)}`);
 
 console.log(`\nPURIFY DRIVE: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

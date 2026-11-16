@@ -1085,12 +1085,12 @@ export const api = {
   // landing at the Tender's side and answers with the whole
   // reckoning (a falter spends the price and stands nothing).
   summonAwoken: (args: { awakenedId: number }) => post<{ ok: true; summoned: boolean; faltered: boolean; name: string; tileId?: number; roll: number; gift: number; summonersPower: number; curse: number; dc: number; cost: number; refunded?: number }>("summonAwoken", args),
-  setStance: (args: { awakenedId: number; stance: "attack" | "defense" | "binding"; maxEnergy: number }) =>
+  setStance: (args: { awakenedId: number; stance: "defense" | "binding"; maxEnergy: number }) =>
     post<{ ok: true }>("setStance", args),
   setLighthouse: (args: { lit: boolean }) =>
     post<{ ok: true; battle: { shadowMatter: number; protectionBankMs: number; lighthouseLit: boolean; waveIntensity: number } }>("setLighthouse", args),
   attackTile: (args: { awakenedId: number; tileId: number }) =>
-    post<{ ok: true; purified: boolean; purifying?: boolean; marching?: boolean; need?: number; have?: number; wavePull?: boolean; tileId?: number; sparked?: boolean; hp?: number; maxHp?: number; damage?: number; thorns?: number; thornsDamage?: number; attackerHp?: number; attackerMaxHp?: number; attackerDissipated?: boolean; awakenedId?: number; attackerXp?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number } }>("attackTile", args),
+    post<{ ok: true; purified: boolean; purifying?: boolean; marching?: boolean; need?: number; have?: number; tileId?: number; sparked?: boolean; hp?: number; maxHp?: number; damage?: number; thorns?: number; thornsDamage?: number; attackerHp?: number; attackerMaxHp?: number; attackerDissipated?: boolean; awakenedId?: number; attackerXp?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number } }>("attackTile", args),
   moveAwoken: (args: { awakenedId: number; tileId: number }) =>
     post<{ ok: true }>("moveAwoken", args),
   getWave: () => post<{
@@ -1280,7 +1280,6 @@ export const api = {
   resolveConfluence: (args: { sessionId: number; victory: boolean }) => post<{ ok: boolean; xpGain: number; participants: number; twin: any }>("resolveConfluence", args),
   claimConfluenceTwin: (args: { sessionId: number }) => post<{ ok: boolean; id: number }>("claimConfluenceTwin", args),
   getConfluenceRoster: (args: { sessionId: number }) => post<{ fighters: any[]; wavePower: number; status: string }>("getConfluenceRoster", args),
-  resolveWavePull: (args: { tileId: number; victory: boolean; survivorIds: number[] }) => post<{ ok: boolean; purified: boolean; xpGains?: { awakenedId: number; xpGain: number; leveledUp: boolean; newLevel: number }[] }>("resolveWavePull", args),
   adminSetEnergy: (args: { ownerKey: string }) => post<{ ok: true; energy: number }>("adminSetEnergy", args),
   adminRefillAllEnergy: () => post<{ ok: true; refilled: number }>("adminRefillAllEnergy", {}),
   adminResetWorldTiles: () => post<{ ok: true; tilesReset: number; tendersAffected: number }>("adminResetWorldTiles", {}),
