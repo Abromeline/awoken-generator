@@ -2445,6 +2445,40 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
     });
   };
 
+  // MARCH IS THE DEFAULT (Nigel, 2026-11-15 — the homeland's
+  // law, carried to this ground by the one-map law): with
+  // one of my Awokin chosen, the right hand's click IS its
+  // march order — the same march message the armed tap
+  // sends, fired at once. The clicked point is the intent:
+  // where that ground cannot be stood on — cursed, or four
+  // already stand there — the order lands on the nearest
+  // open ground with room, the muster's own reckoning from
+  // the line above; where no open ground stands at all,
+  // the refusal speaks in plain words. The choosing is
+  // spent by the order, as the armed tap spends it.
+  const orderTableRightClickMarch = (unit: FieldUnitView, pt: { x: number; y: number }): boolean => {
+    const clicked = tiles
+      .map(t => { const c = tileCenter(t); return { t, d: Math.hypot(c.cx - pt.x, c.cy - pt.y) }; })
+      .sort((a, b) => a.d - b.d)[0]?.t;
+    if (!clicked) return false; // no ground under the hand: the click keeps its older meaning
+    if (clicked.id === unit.hex) { setNotice(`${unit.name} already stands there.`); return true; }
+    const load = new Map<string, number>();
+    for (const u of shared.field) load.set(u.hex, (load.get(u.hex) ?? 0) + 1);
+    let dest: (typeof clicked) | null = null;
+    if (!clicked.cursed && (load.get(clicked.id) ?? 0) < 4) dest = clicked;
+    if (!dest) {
+      const cands = tiles
+        .filter(t => !t.cursed)
+        .sort((a, b) => axialDist(a, clicked) - axialDist(b, clicked) || (a.id < b.id ? -1 : 1));
+      dest = cands.find(t => (load.get(t.id) ?? 0) < 4) ?? cands[0] ?? null;
+    }
+    if (!dest) { setNotice("No road runs there — the ground itself bars the way."); return true; }
+    if (dest.id === unit.hex) { setNotice(`${unit.name} already stands as close as the roads run.`); return true; }
+    send({ type: "march", cardId: unit.cardId, from: unit.hex, to: dest.id });
+    setSelUnitId(null);
+    return true;
+  };
+
   const onStageDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     // THE LINE (Nigel, 2026-10-22 — the marching-orders
     // spec): with a March order armed, a right-drag draws
@@ -3925,6 +3959,17 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                 // readied, this click CANCELS it and no wheel
                 // opens; the next right-click opens the wheel.
                 if (placing) { unloadCast(); return; }
+                // MARCH IS THE DEFAULT (Nigel, 2026-11-15):
+                // with one of my Awokin chosen — and no march
+                // already armed, the armed order being the
+                // more specific state, as the readied cast is
+                // above — this click is its march order, fired
+                // at once; no wheel opens. With nothing chosen
+                // the wheel opens here, as it always has.
+                if (!marchArmed && selUnit && !selUnitMoving) {
+                  const pt = stagePointOf(e.clientX, e.clientY);
+                  if (pt && orderTableRightClickMarch(selUnit, pt)) return;
+                }
                 openRadialAt(e.clientX, e.clientY);
               }}
             >
