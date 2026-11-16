@@ -6024,21 +6024,17 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
               elemented tile is STRUCK for purified ground — the
               terrain art layers beneath already carry his hues,
               and no stand-in colour replaces it. For CURSED
-              ground the selfsame tint stays exactly as it is,
-              by his word in the same breath ("cursed tiles tint
-              stays as it is") — cursed tiles are born carrying
-              an element (the frontier mint, the first seed's
-              deal), and this polygon is part of their standing
-              face alongside the corruption glow above. */}
-          {t.cursed && t.element && t.element !== "neutral" && (
-            <polygon points={pts} fill={
-              t.element === "tide" ? "rgba(74,144,217,0.15)" :
-              t.element === "sky" ? "rgba(135,206,235,0.15)" :
-              t.element === "stone" ? "rgba(139,115,85,0.15)" :
-              t.element === "root" ? "rgba(107,142,35,0.15)" :
-              t.element === "fire" ? "rgba(255,68,68,0.15)" : "rgba(0,0,0,0)"
-            } pointerEvents="none" />
-          )}
+              ground the selfsame tint was kept by his word in
+              the same breath ("cursed tiles tint stays as it
+              is") — UNTIL tonight (Nigel, 2026-11-15): "these
+              tiles shouldn't have any attunement... remove the
+              elemental tint." The tint polygon is STRUCK for
+              cursed ground too: every cursed tile now reads the
+              one colour of the cursed art itself, whatever
+              element it was born carrying (the frontier mint,
+              the first seed's deal). The born element is DATA
+              and stands untouched — only its colour on the
+              tile's face is gone. */}
           {/* The hit target is NOT here — it lives in the hit layer
               below, in screen coordinates between the two camera
               groups, so its points attribute keeps the exact numbers

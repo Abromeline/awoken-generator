@@ -296,22 +296,25 @@ for (const row of faceReport.rows ?? []) {
     if (!stems.every((s) => s === "cursed-v3")) faceBad.push(`${row.id} cursed/${row.element}: ${stems.join(",")}`);
   } else if (row.element === "fire") {
     // Fire owns no bundled tray — its face is the neutral
-    // tray under the fire tint (the shipped design); the
-    // tint itself is checked below.
+    // tray (the shipped design). No tint rides it: the
+    // element tints are struck whole (purified ground at
+    // Push 85, cursed ground tonight, Nigel 2026-11-15);
+    // their absence is checked below.
     if (!stems.every((s) => s === "neutral-v3")) faceBad.push(`${row.id} fire: ${stems.join(",")}`);
   } else {
     if (!stems.length || !stems.every((s) => s === STEM[row.element])) faceBad.push(`${row.id} ${row.element}: ${stems.join(",")}`);
   }
 }
-ok("§A every tile draws its own element's face (cursed wears the cursed face; fire the neutral tray under its tint)", faceBad.length === 0, faceBad.join(" | "));
+ok("§A every tile draws its own element's face (cursed wears the cursed face; fire the neutral tray)", faceBad.length === 0, faceBad.join(" | "));
 const skyRow = (faceReport.rows ?? []).find((r) => r.element === "sky" && !r.cursed);
 const neutralRow = (faceReport.rows ?? []).find((r) => r.element === "neutral" && !r.cursed);
 ok("§A the discriminator: the sky tile wears sky-v3 and NOT the neutral tray; the neutral tile wears neutral-v3 and NOT sky",
   !!skyRow && skyRow.hrefs.some((h) => h.includes("sky-v3")) && !skyRow.hrefs.some((h) => h.includes("neutral-v3")) &&
   !!neutralRow && neutralRow.hrefs.some((h) => h.includes("neutral-v3")) && !neutralRow.hrefs.some((h) => h.includes("sky-v3")),
   JSON.stringify({ sky: skyRow?.hrefs, neutral: neutralRow?.hrefs }));
-ok("§A the element tints ride with their elements (fire's tint and sky's tint are both on the map, in the ground layer's own colours)",
-  (faceReport.fills ?? []).some((f) => f === "rgba(255,68,68,0.15)") && (faceReport.fills ?? []).some((f) => f === "rgba(135,206,235,0.15)"),
+const TINT_FILLS = ["rgba(74,144,217,0.15)", "rgba(135,206,235,0.15)", "rgba(139,115,85,0.15)", "rgba(107,142,35,0.15)", "rgba(255,68,68,0.15)"];
+ok("§A no element tint stands anywhere on the map (the tints struck whole — purified ground at Push 85, cursed ground tonight, Nigel 2026-11-15)",
+  !(faceReport.fills ?? []).some((f) => TINT_FILLS.includes(f)),
   (faceReport.fills ?? []).filter((f) => f.startsWith("rgba")).slice(0, 8).join(","));
 
 /* ══ §B — ONE FRAME, EVERY LAYER, SAMPLED ════════════════ */
