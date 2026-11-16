@@ -1437,6 +1437,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // channel order is armed (its next tap on the land names
   // the shroom's ground).
   const [moonShrooms, setMoonShrooms] = useState<MoonShroom[]>([]);
+  // PURIFY (Nigel, 2026-11-15): the tiles under a purify
+  // order and the Awoken holding each, as the server serves
+  // them — the tile card names the work wearing the curse
+  // down (a living readout, the play itself).
+  const [purifies, setPurifies] = useState<{ tileId: number; purifiers: number[] }[]>([]);
   const [moonShroomFor, setMoonShroomFor] = useState<number | null>(null);
   // THE RUNE (Nigel, 2026-11-10): the land's standing Runes,
   // as the server serves them, and the Awoken whose channel
@@ -1597,7 +1602,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   useEffect(() => { if (applyingAspect) { setCastMode(false); } }, [applyingAspect]);
   const [applyingToTarget, setApplyingToTarget] = useState<number | null>(null); // if set, orb tap applies directly to this Awoken ID
   const [celebration, setCelebration] = useState<any | null>(null);
-  const [attackTargeting, setAttackTargeting] = useState(false); // true when attack stance Awoken awaits target
+  const [purifyTargeting, setPurifyTargeting] = useState(false); // true when a Purify order awaits its cursed tile (the wheel's Purify entry arms it — an order, not a stance; Nigel, 2026-11-15)
   // The hex currently targeted in a tap-to-target flow (fix list #13) —
   // set on the very tap that chooses it, cleared when the flow ends or
   // is cancelled, so the gold marker never lags a server round-trip.
@@ -1620,8 +1625,8 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     }
   );
   const [hoverHexId, setHoverHexId] = useState<number | null>(null);
-  const [hexConfirm, setHexConfirm] = useState<{ kind: "attack" | "move"; tileId: number } | null>(null);
-  const raiseHexConfirm = (kind: "attack" | "move", tileId: number) => setHexConfirm({ kind, tileId });
+  const [hexConfirm, setHexConfirm] = useState<{ kind: "purify" | "move"; tileId: number } | null>(null);
+  const raiseHexConfirm = (kind: "purify" | "move", tileId: number) => setHexConfirm({ kind, tileId });
   const clearHexConfirm = () => setHexConfirm(null);
   // Refusals must SPEAK (Nigel's iPad, 2026-10-14: "I tapped to place and
   // nothing happened at all"). Every guard on the hex flows — staging,
@@ -1644,7 +1649,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setHexConfirm(null);
     // The mist gives way to the committed shine while it resolves.
     setTargetHexId(pending.tileId);
-    if (pending.kind === "attack") handleAttack(pending.tileId);
+    if (pending.kind === "purify") handlePurifyOrder(pending.tileId);
     else if (pending.kind === "move") handleMove(pending.tileId);
   };
   const [moveTargeting, setMoveTargeting] = useState(false); // true when move mode awaits target tile
@@ -1667,8 +1672,10 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // Battle), read on the battle's own cadence by the read loop
   // below; the dark on this map is only the real wanderers,
   // drawn with their drawn faces at their free points. The
-  // Battleground (wave-pull battles) keeps its own
-  // surface and its own resolution, untouched.
+  // Battleground (the Defend order's wave battle) keeps
+  // its own surface and its own resolution, untouched —
+  // the wave-pull battles that once also opened it are
+  // struck whole with their mode (Nigel, 2026-11-15).
   const [showBattleground, setShowBattleground] = useState(false);
   const [bonusTiles, setBonusTiles] = useState<{ id: number; q: number; r: number }[]>([]);
   const battleResolvedRef = useRef(false);
@@ -2001,7 +2008,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       return;
     }
     if (attuneElement) { showHexNotice("Attune feeds a hex of ground — tap the land to feed it, not the dark."); return; }
-    if (attackTargeting && selectedAwoken !== null) {
+    if (purifyTargeting && selectedAwoken !== null) {
       const t = tiles.find((x) => x.id === w.tileId);
       if (t) handleHexTap(t);
       return;
@@ -2035,7 +2042,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const [returnReport, setReturnReport] = useState<{ awakenedId: number; text: string } | null>(null);
   const [mood, setMood] = useState<{ mood: string; description: string; endsAt: string } | null>(null);
   const [showFriends, setShowFriends] = useState(false);
-  const [wavePullTile, setWavePullTile] = useState<number | null>(null);
   const [waveTarget, setWaveTarget] = useState<{ tile: { id: number; q: number; r: number } | null; defenderIds: number[] } | null>(null);
   // THE COLUMNS (2026-10-17): the Curse's Eye and its traced
   // lines — read from the server, refreshed as the land is.
@@ -2458,6 +2464,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     setBrickStands(refreshed.bricks ?? []);
     setBuildPieces(refreshed.buildPieces ?? []);
     setMoonShrooms(refreshed.moonShrooms ?? []);
+    setPurifies(refreshed.purifies ?? []);
     setRunes(refreshed.runes ?? []);
     setWorkings(refreshed.workings ?? []);
     // In a room, a guest's figure stands at their SEAT's stand —
@@ -2761,7 +2768,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     tenderZoomRef.current = zoom;
     tenderStandRef.current = tenderStand;
     tenderInputBlockedRef.current = !!(
-      moveTargeting || attackTargeting ||
+      moveTargeting || purifyTargeting ||
       patrolSettingFor !== null || pendingMarch !== null ||
       showBattleground || selectedBuilding || pendingTile !== null || hexConfirm
     );
@@ -3425,7 +3432,6 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (ids.length > 1) {
       return [
         { key: "ord-march", sigil: "manifest", label: "March", act: () => { setPendingMarch({ ids: [...ids] }); showHexNotice("March — tap the ground the company should muster on, or drag a line for them to stand along."); } },
-        { key: "ord-attack", sigil: "sword", label: "Attack", act: () => { void (async () => { for (const id of ids) await handleSetStance(id, "attack"); showHexNotice("The company takes the Attack stance."); })(); } },
         { key: "ord-defend", sigil: "swordshield", label: "Defend", act: () => { void (async () => { for (const id of ids) await handleSetStance(id, "defense"); showHexNotice("The company takes the Defend stance."); })(); } },
         { key: "ord-follow", sigil: "awo", label: "Follow", act: () => { void (async () => { for (const id of ids) { const p = placements.find(x => x.awakenedId === id); if (p) await toggleFollow(p.id, true); } showHexNotice("The company follows you."); })(); } },
       ] as WheelEntry[];
@@ -3464,7 +3470,14 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     if (shrubs.some(s => s.channelers.includes(id))) {
       entries.push({ key: "ord-shrub-end", emoji: "🌿", label: "End channel", act: () => { void (async () => { try { await api.stopShrubChannel({ awakenedId: id }); await refreshTerritory(); showHexNotice(`${p.name} ends its channel. The Shrub keeps every inch it has grown.`); } catch (err) { showHexNotice(err instanceof Error ? err.message : "The ending was refused."); } })(); } } as WheelEntry);
     }
-    entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: p.stance === "attack", act: () => { setSelectedAwoken(id); void handleSetStance(id, "attack"); } } as WheelEntry);
+    // PURIFY (Nigel, 2026-11-15): an ORDER, not a stance —
+    // Purify replaced Attack whole, and there is no attack
+    // order left to give. The entry arms the targeting;
+    // the tap on a cursed tile gives the order
+    // (api.attackTile), never a blow. The entry stands lit
+    // while the targeting is armed for this Awoken or its
+    // purify order stands on the land.
+    entries.push({ key: "ord-purify", sigil: "sword", label: "Purify", lit: (purifyTargeting && selectedAwoken === id) || purifies.some(pf => pf.purifiers.includes(id)), act: () => { setSelectedAwoken(id); setPurifyTargeting(true); showHexNotice(`Purify — tap the cursed tile ${p.name} should take back.`); } } as WheelEntry);
     entries.push({ key: "ord-defend", sigil: "swordshield", label: "Defend", lit: p.stance === "defense", act: () => { void handleSetStance(id, "defense"); } } as WheelEntry);
     entries.push({ key: "ord-binding", sigil: "binding", label: "Binding", lit: p.stance === "binding", act: () => { void handleSetStance(id, "binding"); } } as WheelEntry);
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!p.follow, act: () => { void toggleFollow(p.id, true); } } as WheelEntry);
@@ -4089,24 +4102,21 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // single attunement point, gathered from the shining pop on
   // the Tender's home face (claimFirstSeedReward).
 
-  const handleSetStance = async (awakenedId: number, stance: "attack" | "defense" | "binding", opts?: { keepOpen?: boolean }) => {
+  const handleSetStance = async (awakenedId: number, stance: "defense" | "binding", opts?: { keepOpen?: boolean }) => {
     void opts;
     try {
       await api.setStance({ awakenedId, stance, maxEnergy });
       await refreshEnergy();
       await refreshTerritory();
-      if (stance === "attack") {
-        setAttackTargeting(true);
-      } else {
-        setAttackTargeting(false);
-      }
-
+      // A stance order supersedes a purify (the server ends
+      // it at the same door) — the targeting disarms with it.
+      setPurifyTargeting(false);
     } catch (e) {
       console.error("Stance change failed", e);
     }
   };
 
-  const handleAttack = async (tileId: number) => {
+  const handlePurifyOrder = async (tileId: number) => {
     if (selectedAwoken === null) return;
     // (No client energy gate — the server's cashier decides.)
     try {
@@ -4119,34 +4129,29 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       // 2026-10-23.) At 0 HP the server has already dissipated
       // the attacker back to hand.
       await refreshTerritory();
-      // The blow speaks (Nigel, 2026-10-18: "a blow per order" —
-      // the Attack seal is posture AND key: with targeting armed, a
-      // tap on a cursed square is one strike of the warden's power
-      // against that tile's curse HP). attackTile wears the curse
-      // honestly server-side — power per blow, purification at 0 —
-      // and the curse does not answer (attrition law, 2026-10-19:
-      // its teeth are the withering of whatever stands in it).
+      // PURIFY (Nigel, 2026-11-15): the tap on a cursed tile
+      // is the purify ORDER, never a blow — the server deals
+      // no instant damage, and the curse's thickness falls
+      // only to the purify itself, over time, while the
+      // Tender is present. The old battle system this tap
+      // once risked opening — the 15% wave-pull into the
+      // Battleground — is removed ENTIRELY, mode and all;
+      // the Battleground stands for its other door (the
+      // Defend order's wave battle) alone.
       const attackerName = tenderItems.find(a => a.id === selectedAwoken)?.name ?? "Your warden";
-      if (result.wavePull) {
-        // Pulled into the Unraveling! Open a wave battle for this tile.
-        setWavePullTile(result.tileId);
-        setShowBattleground(true);
-      } else if (result.purified) {
-        // No newborn follows a purification (Nigel, 2026-10-14) —
-        // the dead client call that still asked for one is gone;
-        // the server refused it every time and the catch hid it.
-        showHexNotice(`⚔ The curse breaks — the tile is purified.${result.sparked ? " The broken land smoulders with fire." : ""}`);
-      } else if (typeof result.hp === "number") {
-        showHexNotice(`⚔ ${attackerName} strikes the curse for ${result.damage} — curse ${result.hp}/${result.maxHp}.`);
+      if (result.purifying && result.marching) {
+        showHexNotice(`✦ ${attackerName} marches to the cursed tile — the purify begins when it arrives.`);
+      } else if (result.purifying) {
+        showHexNotice(`✦ ${attackerName} begins purifying the curse — thickness ${result.hp} of ${result.maxHp}, wearing down while you are here.`);
       }
       setSelectedAwoken(null);
-      setAttackTargeting(false);
+      setPurifyTargeting(false);
       setTargetHexId(null);
       onUpdate();
     } catch (e) {
-      console.error("Attack failed", e);
-      showHexNotice(refusalText(e, "That strike was refused."));
-      setAttackTargeting(false);
+      console.error("Purify order failed", e);
+      showHexNotice(refusalText(e, "That purify was refused."));
+      setPurifyTargeting(false);
       setTargetHexId(null);
     }
   };
@@ -4827,7 +4832,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     {
       const bt = tiles.find(t => t.id === tile.id);
       const bs = (bt as any)?.buildStage ?? 0;
-      if (bt && bs >= 1 && bs <= 4 && !selectedBuilding && !attackTargeting && !moveTargeting) {
+      if (bt && bs >= 1 && bs <= 4 && !selectedBuilding && !purifyTargeting && !moveTargeting) {
         openBuildTile(bt.id);
         return;
       }
@@ -4846,9 +4851,9 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       setSelectedBuilders([]);
       setTargetHexId(null);
       clearHexConfirm();
-    } else if (attackTargeting && selectedAwoken !== null) {
-      if (touchMode) raiseHexConfirm("attack", tile.id);
-      else { setTargetHexId(tile.id); handleAttack(tile.id); }
+    } else if (purifyTargeting && selectedAwoken !== null) {
+      if (touchMode) raiseHexConfirm("purify", tile.id);
+      else { setTargetHexId(tile.id); handlePurifyOrder(tile.id); }
     } else if (moveTargeting && selectedAwoken !== null) {
       if (touchMode) raiseHexConfirm("move", tile.id);
       else { setTargetHexId(tile.id); handleMove(tile.id); }
@@ -4936,21 +4941,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   const handleBattleEnd = async (result: { victory: boolean; survivors: number[]; continueWave?: boolean; bonusTileId?: number; grimState?: { id: number; hp?: number; stops?: number; charges?: number; spent?: boolean }[]; grimEnergy?: number }) => {
     setShowBattleground(false);
     battleResolvedRef.current = false; // reset for next battle
-    // Wave-pull battle (from mystery purification): resolve separately
-    if (wavePullTile !== null) {
-      const tileId = wavePullTile;
-      setWavePullTile(null);
-      try {
-        const res = await api.resolveWavePull({ tileId, victory: result.victory, survivorIds: result.survivors });
-        if (res.purified) {
-          api.birthNewbornToHand({ tileId, liberatorNames: [] }).catch(() => {});
-        }
-        await refreshTerritory();
-        await refreshEnergy();
-        onUpdate();
-      } catch (e) { console.error("Wave-pull resolve failed", e); }
-      return;
-    }
+    // (The wave-pull battle that once resolved separately
+    // here is struck whole with its mode — Nigel,
+    // 2026-11-15: the 15% battle mode is removed entirely.
+    // Every battle that ends on this face now resolves
+    // through the one road below.)
     // Column battles on this face are retired (the Token
     // Strip, 2026-10-23): a landed column's force stands on
     // the land as wanderers and is fought there; a column
@@ -5404,7 +5399,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   e.stopPropagation();
                   // A building stands ON a hex: while a flow is armed,
                   // a tap here is a tap on that hex (round four).
-                  if (attackTargeting || moveTargeting) { handleHexTap(t); return; }
+                  if (purifyTargeting || moveTargeting) { handleHexTap(t); return; }
                   if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
                   if (demoMode) {
                     if (confirm(`Demolish this ${b.buildingType}?`)) {
@@ -5502,7 +5497,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                   e.stopPropagation();
                   // A shroom stands ON a hex: while a flow is armed,
                   // a tap here is a tap on that hex (round four).
-                  if (attackTargeting || moveTargeting) { handleHexTap(t); return; }
+                  if (purifyTargeting || moveTargeting) { handleHexTap(t); return; }
                   if (pendingTile !== null || moveTargeting) return; // Non-clickable in build/move mode
                   if (demoMode) {
                     if (confirm(`Demolish this Dream Shroom?`)) {
@@ -5658,7 +5653,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       }
                       // An Awoken stands ON a hex: while a flow is armed,
                       // a tap here is a tap on that hex (round four).
-                      if (attackTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null || moonShroomFor !== null || runeFor !== null || shrubFor !== null) { handleHexTap(t); return; }
+                      if (purifyTargeting || moveTargeting || patrolSettingFor !== null || pendingMarch || islandMarchFor !== null || moonShroomFor !== null || runeFor !== null || shrubFor !== null) { handleHexTap(t); return; }
                       if (selectedBuilding) return; // Let tile handle it in build mode
                       if (applyingAspect) {
                         try {
@@ -5692,7 +5687,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       setSelectedAwoken(a.id);
                       setOrbInfo({ kind: "awoken", awakenedId: a.id }); // its card stands over the energy orb (Nigel, 2026-11-12)
                       setSelectedGroup([]); // a single choosing ends the company's
-                      setAttackTargeting(false);
+                      setPurifyTargeting(false);
                       setMoveTargeting(false);
                       setOrdersWheel({ ids: [a.id], x: e.clientX, y: e.clientY });
                     }}>
@@ -5720,10 +5715,18 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                       x={kx - aws / 2} y={ky + baseAhs / 2 - ahs}
                       width={aws} height={ahs} />
                     </g>
-                    {placement && placement.stance !== "defense" && (
+                    {/* The posture mark over a figure's head:
+                        the ⚔ that named an attack order is
+                        struck with the order itself (Nigel,
+                        2026-11-15 — strikes are automatic, and
+                        no mark is needed for what every Awoken
+                        does). The one ordered posture still
+                        marked is Binding, in its ✦; Defend was
+                        never marked and stays unmarked. */}
+                    {placement && placement.stance === "binding" && (
                       <text x={kx} y={ky + baseAhs / 2 - ahs - 4 / zoom} textAnchor="middle" fontSize={7 / zoom}
-                        fill={placement.stance === "attack" ? "#ff6666" : "#66aaff"}>
-                        {placement.stance === "attack" ? "⚔" : "✦"}
+                        fill="#66aaff">
+                        {"✦"}
                       </text>
                     )}
                     {/* The under-feet readout that stood here —
@@ -6196,7 +6199,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
                 fill="rgba(0,0,0,0)"
                 stroke="transparent"
                 style={{
-                  cursor: attackTargeting ? "pointer" : "default",
+                  cursor: purifyTargeting ? "pointer" : "default",
                   pointerEvents: "all"
                 }}
                 onMouseEnter={() => setHoverHexId(t.id)}
@@ -6745,7 +6748,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     //    committed; the confirm bar (or the builder popup) decides.
     //  · SHINE (committed): the gold double outline + chevron on the
     //    hex the tap chose, while its action resolves.
-    const flowArmed = attackTargeting || moveTargeting || !!selectedBuilding;
+    const flowArmed = purifyTargeting || moveTargeting || !!selectedBuilding;
     const mistTileId = hexConfirm?.tileId ?? pendingTile;
     const cellLayer = (tileId: number | null, kind: "hover" | "mist" | "shine") => {
       if (tileId === null) return null;
@@ -9832,7 +9835,7 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         setSelectedAwoken(null);
         setOrbInfo(null); // the card over the orb closes with the choosing (Nigel, 2026-11-12)
         setSelectedGroup([]);
-        setAttackTargeting(false);
+        setPurifyTargeting(false);
         setMoveTargeting(false);
         setTargetHexId(null);
         clearHexConfirm();
@@ -10443,9 +10446,12 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
         const actorName = (selectedAwoken !== null ? placements.find(p => p.awakenedId === selectedAwoken)?.name : undefined) ?? actor?.name;
         let text = "";
         let confirmLabel = "Confirm";
-        if (hexConfirm.kind === "attack") {
-          text = `${actorName} will strike this cursed hex — its thorns answer back.`;
-          confirmLabel = "Strike";
+        if (hexConfirm.kind === "purify") {
+          // PURIFY (Nigel, 2026-11-15): the confirm speaks
+          // the purify, not the old strike — the curse wears
+          // down slowly, and the dark comes to defend it.
+          text = `${actorName} will purify this cursed hex — the curse wears down slowly, and the dark will come to defend it.`;
+          confirmLabel = "Purify";
         } else if (hexConfirm.kind === "move") {
           text = `${actorName} will move to this hex — ${actor ? moveCost(actor.power) : 1}✦.`;
           confirmLabel = "Move";
@@ -10510,6 +10516,23 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                   <div className="orb-info-row"><span>Thorns</span><span>{curse.thorns}</span></div>
                 </div>
               )}
+              {/* PURIFY (Nigel, 2026-11-15): while a purify
+                  runs on this tile, the card names it and the
+                  Awoken holding it — a living readout, the
+                  play itself; the falling thickness stands in
+                  the curse health above. */}
+              {(() => {
+                const pf = purifies.find(p => p.tileId === t.id);
+                if (!pf || pf.purifiers.length === 0) return null;
+                const names = pf.purifiers
+                  .map(id => placements.find(p => p.awakenedId === id)?.name ?? tenderItems.find(a => a.id === id)?.name)
+                  .filter(Boolean) as string[];
+                return (
+                  <div className="orb-info-more">
+                    <div className="orb-info-row"><span>Purifying</span><span>{names.length > 0 ? names.join(", ") : `${pf.purifiers.length} Awoken`}</span></div>
+                  </div>
+                );
+              })()}
               {/* THE MOON SHROOM (Nigel, 2026-11-10): its numbers
                   live here, on the tile's card, as Push 85's law
                   keeps them — the growth it stands at, the

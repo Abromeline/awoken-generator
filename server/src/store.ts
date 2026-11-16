@@ -483,6 +483,13 @@ if (!tileCols.some((col) => col.name === "curse_hp")) {
 if (!tileCols.some((col) => col.name === "curse_max_hp")) {
   sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_max_hp INTEGER`);
 }
+// PURIFY (Nigel, 2026-11-15): the fractional thickness a
+// purify has worn off a tile's curse, not yet folded into
+// curse_hp — the fraction persists on the tile across pauses
+// and across purifiers (see schema.ts, territoryTiles).
+if (!tileCols.some((col) => col.name === "curse_drain")) {
+  sqlite.exec(`ALTER TABLE territory_tiles ADD COLUMN curse_drain REAL NOT NULL DEFAULT 0`);
+}
 // Terraforming trays (Nigel, 2026-10-15): the hex's stack — sealed
 // trays, the growing tray's points, the top tray's remaining HP.
 if (!tileCols.some((col) => col.name === "sealed_trays")) {
@@ -876,6 +883,13 @@ try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN retaliation INTEGER
 // rising it rode in with — the hold's ledger reads the
 // land by this mark: a rising stands while its Fray stand.
 try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN seed_rising INTEGER"); } catch { /* exists */ }
+// PURIFY (Nigel, 2026-11-15): a defender born of a purify's
+// defence carries the tile it was born to defend — the living
+// battle's walk reads it and walks the defender on that tile's
+// purifier. When the purify ends, the mark is cleared and the
+// defender stands as ordinary dark (a born defender is never
+// unmade by the share that bore it).
+try { sqlite.exec("ALTER TABLE homeland_wanderers ADD COLUMN defend_tile_id INTEGER"); } catch { /* exists */ }
 // The battle's own ledgers on the progress row: the Shadow
 // Matter hoard, the banked protection and the lighthouse that
 // spends it, the standing wave intensity and the weather
@@ -1345,6 +1359,22 @@ sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_rune_channels_owner ON rune_channels
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_rune_channels_rune ON rune_channels (rune_id);`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_shrub_channels_owner ON shrub_channels (owner_key);`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_shrub_channels_shrub ON shrub_channels (shrub_id);`);
+// PURIFY (Nigel, 2026-11-15): one Awoken's purify order on a
+// cursed tile — see schema.ts (purifies) for the columns'
+// meanings. One purify to an Awoken: a new order replaces it.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS purifies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tile_id INTEGER NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  purse_key TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  settled_at INTEGER NOT NULL DEFAULT 0,
+  bank REAL NOT NULL DEFAULT 0,
+  UNIQUE(owner_key, awakened_id)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_purifies_owner ON purifies (owner_key);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_purifies_tile ON purifies (tile_id);`);
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

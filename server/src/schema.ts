@@ -615,6 +615,12 @@ export const territoryTiles = sqliteTable("territory_tiles", {
   // Curse HP: attacks dwindle this; at 0 the tile becomes neutral.
   curseHp: integer("curse_hp"),
   curseMaxHp: integer("curse_max_hp"),
+  // PURIFY (Nigel, 2026-11-15): the fractional thickness a
+  // purify has worn off this curse and not yet folded into
+  // curse_hp — whole points fold as they complete, and the
+  // fraction persists on the tile across pauses and across
+  // purifiers, so a half-worn curse is never forgotten.
+  curseDrain: real("curse_drain").notNull().default(0),
 });
 
 // Terrain stage art (Nigel, 2026-10-15): the creator's uploaded faces for
@@ -749,10 +755,12 @@ export const fieldPlacements = sqliteTable("field_placements", {
   // roll theirs at the first battle settle that touches them).
   shield: real("shield"),
   shieldMax: real("shield_max"),
-  // Whether this stance was ever ORDERED. An Awokin with no
-  // orders defaults to ATTACK (Nigel, 2026-10-23) whatever
-  // the stored default says; setStance stamps this as it
-  // writes, so an ordered Defence is honoured as Defence.
+  // Whether a stance was ever ORDERED. The only ordered
+  // postures are Defend and Binding (Nigel, 2026-11-15 —
+  // the attack order is struck: an Awoken's strikes are
+  // automatic, by range); setStance stamps this as it
+  // writes, so an ordered Defence is honoured as Defence,
+  // and an unordered figure reads as plain standing.
   stanceOrdered: integer("stance_ordered").notNull().default(0),
   // The figure's own strike clock in the living battle (raw
   // ms): the next hour its cadence lets it strike or heal.
@@ -1060,6 +1068,30 @@ export const shrubChannels = sqliteTable("shrub_channels", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerKey: text("owner_key").notNull(),
   shrubId: integer("shrub_id").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  purseKey: text("purse_key").notNull(),
+  startedAt: integer("started_at").notNull(),
+  settledAt: integer("settled_at").notNull().default(0),
+  bank: real("bank").notNull().default(0),
+});
+
+// PURIFY (Nigel, 2026-11-15): ONE AWOKEN'S PURIFY ORDER on a
+// cursed tile — the sustained wearing-down that replaced the
+// strike against cursed ground. ownerKey is the LAND's key
+// (the ground the tile stands on). tileId — the cursed tile
+// being purified. awakenedId — the purifying Awoken (fielded
+// on the land; one purify to an Awoken — a new order replaces
+// it). purseKey — the Tender who gave the order (the
+// purifier's own Tender; at home, the land's): presence is
+// read off it, for the drain runs only while that Tender is
+// online. settledAt — the order's own lazy-settle clock (ms).
+// bank — accrued present seconds not yet converted into the
+// tile's drain (kept whole at each settle; the fraction lives
+// on the tile, as curse_drain).
+export const purifies = sqliteTable("purifies", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  tileId: integer("tile_id").notNull(),
   awakenedId: integer("awakened_id").notNull(),
   purseKey: text("purse_key").notNull(),
   startedAt: integer("started_at").notNull(),
