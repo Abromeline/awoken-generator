@@ -148,6 +148,9 @@ interface MapTileView {
   points?: Record<string, number>;
   curseHp: number;
   curseMaxHp: number;
+  /** PURIFY (the Purify correction, 2026-11-16): the names
+   *  of the Awokin whose purify orders stand on this tile. */
+  purifiers?: string[];
   landing: string | null;
   /** THE LIGHTING SYSTEM (2026-10-26): this tile's light
    *  level as the server reckons it — 0 dark · 1 faint ·
@@ -177,9 +180,15 @@ interface FieldUnitView {
   moving: boolean;
   /** FOLLOW: the standing order to trail its Tender. */
   follow?: boolean;
-  /** THE ORDERS (the battle port): attack / defense /
-   *  binding — absent reads as attack, as on the homeland. */
+  /** THE ORDERS (the battle port; the Attack order struck
+   *  by the Purify correction, 2026-11-16): defense /
+   *  binding are the ordered postures — the server serves
+   *  "standing" for everything else, as on the homeland. */
   stance?: string;
+  /** PURIFY (the Purify correction, 2026-11-16): the
+   *  cursed tile this unit's purify order stands on, or
+   *  null when it holds none. */
+  purifyTile?: string | null;
   level: number | null;
   ownerKey: string;
   ownerName: string;
@@ -552,10 +561,6 @@ const ROOM_INTENT: string | null = (() => {
   } catch { return null; }
 })();
 const SEED_TILE_ID = "0,0";
-/** The strike's reach by the striker's element — the
- *  referee's own ELEMENT_REACH (table.ts), the same table
- *  the Zodiac reads: stone 1, root 2, fire 2, tide 3, sky 4. */
-const STRIKE_REACH: Record<string, number> = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
 const TILE_K = TILE_SIZE / ISO_DEN;
 
 /** How a tile's painted face is drawn — Territory's seating law,
@@ -1028,12 +1033,13 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // THE MARCH (2026-10-18): a standing Awoken of mine, chosen
   // to receive orders — march, heal, recall (see the unit bar).
   const [selUnitId, setSelUnitId] = useState<string | null>(null);
-  // STRIKE THE CURSE (Nigel, 2026-10-18): the chosen Awokin is
-  // armed against the curse — its tile taps spend blows on
-  // cursed ground instead of marching (see onTileTap), one
-  // blow per tap, as the land's blow-per-order rules it.
-  const [strikeArm, setStrikeArm] = useState(false);
-  useEffect(() => { setStrikeArm(false); }, [selUnitId]);
+  // PURIFY (Nigel, 2026-11-15 on the homeland; carried
+  // here by the Purify correction, 2026-11-16): the chosen
+  // Awokin's Purify entry is armed — its next tap on a
+  // cursed tile gives the purify ORDER (see onTileTap),
+  // never a blow: Purify replaced the curse-strike whole.
+  const [purifyArm, setPurifyArm] = useState(false);
+  useEffect(() => { setPurifyArm(false); }, [selUnitId]);
   // SEAMLESS STICKY CASTING (Nigel, 2026-10-20; the run's
   // ends re-ruled 2026-10-23 23:39, corrected 23:40): a
   // target tap fires the cast at once — no confirm stands
@@ -2706,20 +2712,25 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // light holds it purified.
   const meStanding = you ? shared.players.find(p => p.key === you.key) ?? null : null;
   const myStandingTile = meStanding?.hex ? tileById.get(meStanding.hex) ?? null : null;
-  const strikeReachOf = (u: FieldUnitView): number => STRIKE_REACH[u.element ?? ""] ?? 2;
-  const curseInReach = selUnit && selTile ? shared.map.filter(t => t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) : [];
-  const strikeArmed = strikeArm && !!selUnit && !selUnitMoving;
+  // PURIFY (the Purify correction, 2026-11-16): the chosen
+  // one's Purify entry stands armed — its next tap on a
+  // cursed tile gives the order. Every cursed tile is a
+  // lawful target: out of reach, the order marches the
+  // Awokin to the cursed ground's edge on its own.
+  const purifyArmed = purifyArm && !!selUnit && !selUnitMoving;
 
   // ── THE ORDERS WHEELS' ENTRIES (Nigel, 2026-10-22 — the
   // marching-orders spec): one Awokin's wheel carries the
   // Table's own orders — March (armed here, obeyed by the
-  // next tile tap or a right-dragged line), Strike the
-  // curse while cursed ground stands in its reach, Heal,
+  // next tile tap or a right-dragged line), Purify (armed
+  // here, obeyed by the next tap on a cursed tile), Heal,
   // Follow as an ORDER (the pick sets it following; it
   // never toggles off from here), its party door, Recall.
-  // The company's wheel carries March · Follow — the
-  // Table's field holds no stance verbs; Attack/Defend
-  // ride the homeland's stance law alone.
+  // The company's wheel carries March · Follow. There is
+  // no Attack entry: Purify replaced Attack whole (the
+  // Purify correction, 2026-11-16, carrying the homeland's
+  // law of 2026-11-15) — an Awokin's strikes are automatic,
+  // by range, and need no order.
   const buildTableOrdersEntries = (ids: string[]): WheelEntry[] => {
     if (!you) return [];
     const units = ids
@@ -2738,19 +2749,23 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
       entries.push({ key: "ord-moving", sigil: "manifest", label: "On the move", locked: true } as WheelEntry);
     } else {
       entries.push({ key: "ord-march", sigil: "manifest", label: "March", act: () => { setMarchArmed([u.cardId]); setSelUnitId(u.cardId); setNotice(`March — tap the ground ${u.name} should march to, or right-drag a line for it to stand on.`); } } as WheelEntry);
-      // THE ORDERS (the battle port — Twelve #1): her
-      // standing order, lit where it stands — Attack (strike
-      // the dark in reach), Defend (strike, and raise her
-      // bramble or rockwall when the dark comes near), Bind
-      // (mend the most-wounded of your company in reach
-      // instead of striking).
-      const stanceNow = u.stance ?? "attack";
-      entries.push({ key: "ord-attack", sigil: "sword", label: "Attack", lit: stanceNow === "attack", act: () => { send({ type: "setStance", cardId: u.cardId, stance: "attack" }); } } as WheelEntry);
+      // THE ORDERS (the battle port — Twelve #1; the
+      // Purify correction, 2026-11-16): her standing
+      // orders, lit where they stand — Defend (strike, and
+      // raise her bramble or rockwall when the dark comes
+      // near), Bind (mend the most-wounded of your company
+      // in reach instead of striking). There is no Attack
+      // order to give.
+      const stanceNow = u.stance ?? "standing";
       entries.push({ key: "ord-defend", emoji: "🛡", label: "Defend", lit: stanceNow === "defense", act: () => { send({ type: "setStance", cardId: u.cardId, stance: "defense" }); } } as WheelEntry);
       entries.push({ key: "ord-bind", sigil: "heal", label: "Bind", lit: stanceNow === "binding", act: () => { send({ type: "setStance", cardId: u.cardId, stance: "binding" }); } } as WheelEntry);
-      const ut = tileById.get(u.hex);
-      const reach = ut ? shared.map.filter(t => t.cursed && axialDist(ut, t) <= strikeReachOf(u)) : [];
-      if (reach.length) entries.push({ key: "ord-strike", sigil: "sword", label: strikeArmed ? "Stay the hand" : "Strike the curse", lit: strikeArmed, act: () => { setStrikeArm(!strikeArmed); } } as WheelEntry);
+      // PURIFY (Nigel, 2026-11-15): an ORDER, not a stance —
+      // Purify replaced Attack whole. The entry arms the
+      // targeting; the tap on a cursed tile gives the order
+      // (purifyCurse), never a blow. The entry stands lit
+      // while the targeting is armed for this Awokin or its
+      // purify order stands on the land.
+      entries.push({ key: "ord-purify", sigil: "sword", label: "Purify", lit: purifyArmed || !!u.purifyTile, act: () => { setPurifyArm(true); setNotice(`Purify — tap the cursed tile ${u.name} should take back.`); } } as WheelEntry);
       entries.push({ key: "ord-heal", sigil: "heal", label: `Heal · ✦${healDef?.cost ?? 2}`, act: () => { send({ type: "castHeal", hex: u.hex }); beginCast(u.hex); } } as WheelEntry);
     }
     entries.push({ key: "ord-follow", sigil: "awo", label: "Follow", summoned: !!u.follow, act: () => { send({ type: "setFollow", cardId: u.cardId, follow: true }); } } as WheelEntry);
@@ -2919,32 +2934,28 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
         return;
       }
     }
-    // (This armed-order branch stands ABOVE the marked-
-    // curse shortcut below on purpose: a March expressly
-    // armed in the orders wheel is the player's stated
-    // order, and the tap obeys IT — the ambient strike
-    // belongs to a chosen-but-unordered Awokin's taps.)
-    // THE MARKED CURSE (Nigel, 2026-10-20): with one of my
-    // Awokin chosen, the cursed ground inside its strike
-    // reach stands MARKED — its corruption numbered on the
-    // tile for all to read — and tapping the mark IS the
-    // order: one blow, ✦1, the referee's arithmetic. No
-    // separate arming stands between the eye and the blow
-    // any longer; the unit bar's button still arms the old
-    // road beside this one.
-    if (selUnit && selTile && !selUnitMoving && t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) {
-      send({ type: "strikeCurse", cardId: selUnit.cardId, hex: selUnit.hex, target: t.id });
-      return;
-    }
-    // Armed against the curse, the chosen one's taps are
-    // blows: cursed ground within two tiles is struck (one
-    // order, one blow, ✦1 — the server referees the wear);
-    // any other tap is answered plainly, and the arm holds.
-    if (strikeArmed && selUnit && selTile) {
-      if (t.cursed && axialDist(selTile, t) <= strikeReachOf(selUnit)) {
-        send({ type: "strikeCurse", cardId: selUnit.cardId, hex: selUnit.hex, target: t.id });
+    // (This armed-order branch stands ABOVE the purify
+    // branch below on purpose: a March expressly armed in
+    // the orders wheel is the player's stated order, and
+    // the tap obeys IT.)
+    // PURIFY (the Purify correction, 2026-11-16): with the
+    // chosen one's Purify armed in the orders wheel, a tap
+    // on a cursed tile gives the purify ORDER — never a
+    // blow. Any cursed tile may be named: in reach, the
+    // drain begins where the Awokin stands; out of reach,
+    // the referee marches it to the cursed ground's edge
+    // and the drain begins on arrival. A tap on pure
+    // ground is answered plainly, and the arm holds. (The
+    // marked-curse tap that stood here — tap cursed ground
+    // in strike reach and a blow lands at once — died with
+    // the curse-strike it belonged to; the wheel's arming
+    // is the order's only door, as on the homeland.)
+    if (purifyArmed && selUnit) {
+      if (t.cursed) {
+        send({ type: "purifyCurse", cardId: selUnit.cardId, target: t.id });
+        setPurifyArm(false);
       } else {
-        setNotice(t.cursed ? "Beyond its reach — the light strikes only as far as its element carries." : "That ground is not cursed — there is nothing there to strike.");
+        setNotice("That ground is not cursed — there is nothing there to take back.");
       }
       return;
     }
@@ -3045,7 +3056,7 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
   // one of my own figures always did.
   const onDarkTap = (e: SharedState["dark"][number]) => {
     if (suppressTapRef.current) return;
-    if (placing || marchArmed?.length || strikeArmed) {
+    if (placing || marchArmed?.length || purifyArmed) {
       const t = tileById.get(e.hex);
       if (t) onTileTap(t);
       return;
@@ -3123,8 +3134,8 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
         {/* THE ORDERS' MARK (the battle port): a small mark
             for a standing order other than attack, beside the
             follow mark — 🛡 she defends, 🕊 she binds. */}
-        {!moving && (u.stance ?? "attack") === "defense" && <text x={ax + 16} y={ay - 16} fontSize={9}>🛡</text>}
-        {!moving && (u.stance ?? "attack") === "binding" && <text x={ax + 16} y={ay - 16} fontSize={9}>🕊</text>}
+        {!moving && u.stance === "defense" && <text x={ax + 16} y={ay - 16} fontSize={9}>🛡</text>}
+        {!moving && u.stance === "binding" && <text x={ax + 16} y={ay - 16} fontSize={9}>🕊</text>}
         {mine && !moving && (
           <circle
             cx={ax} cy={ay - 19} r={20} fill="transparent" pointerEvents="all"
@@ -3995,11 +4006,13 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                   if (wardAnchor === t.id) overlay = { fill: "#ffd977", opacity: 0.35 };
                   if (bladePicks.includes(t.id)) overlay = { fill: "#ff7a33", opacity: 0.3 };
                 } else if (selUnit && selTile) {
-                  // The marked curse: cursed ground inside the
-                  // chosen one's reach burns dark red, armed
-                  // or not — the mark is the invitation.
-                  if (t.cursed && !selUnitMoving && axialDist(selTile, t) <= strikeReachOf(selUnit)) overlay = { fill: "#c22333", opacity: 0.32 };
-                  else if (t.id !== selUnit.hex) overlay = { fill: "#ffffff", opacity: strikeArmed ? 0.05 : 0.07 };
+                  // PURIFY (the Purify correction, 2026-11-16):
+                  // while the chosen one's Purify stands armed,
+                  // cursed ground burns dark red — every cursed
+                  // tile is a lawful target of the order, for
+                  // the order marches into reach on its own.
+                  if (purifyArmed && t.cursed) overlay = { fill: "#c22333", opacity: 0.32 };
+                  else if (t.id !== selUnit.hex) overlay = { fill: "#ffffff", opacity: 0.07 };
                 }
                 return (
                   <g key={t.id}>
@@ -4043,10 +4056,10 @@ export default function Table({ campaignDoor = false }: { campaignDoor?: boolean
                             stands on every cursed tile now, and
                             its remaining corruption is numbered
                             once it has been worn — or whenever a
-                            warden stands armed against it. */}
+                            purify stands armed against it. */}
                         <rect x={cx - 17} y={cy + 22} width={34} height={3} fill="#000000" opacity={0.55} pointerEvents="none" />
                         <rect x={cx - 17} y={cy + 22} width={34 * clamp01(t.curseHp / Math.max(1, t.curseMaxHp))} height={3} fill="#c22333" pointerEvents="none" />
-                        {(t.curseHp < t.curseMaxHp || strikeArmed || (selUnit && selTile && !selUnitMoving && axialDist(selTile, t) <= strikeReachOf(selUnit))) && (
+                        {(t.curseHp < t.curseMaxHp || purifyArmed) && (
                           <text className="curse-hp-label" x={cx} y={cy + 34}>{Math.max(0, Math.ceil(t.curseHp))}</text>
                         )}
                       </>

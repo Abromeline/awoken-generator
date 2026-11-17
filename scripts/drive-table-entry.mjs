@@ -8,12 +8,14 @@
 //      message sent anyway deals nothing — no wave, no
 //      tale, no refusal: silence, as for any unbuilt word.
 //   §2 THE DARK ENTERS ON ITS OWN AT INTENSITY ONE —
-//      ONCE THE CURSE IS STRUCK (Nigel, 2026-10-25 10:41:
+//      ONCE THE CURSE IS ENGAGED (Nigel, 2026-10-25 10:41:
 //      "they dont start doing that until the tenders start
 //      attacking the curse"): a casual room with a Tender
 //      seated and a hand standing stands QUIET across a
 //      watched window — no entry on an opening or a clock;
-//      after the first curse strike, foes appear over
+//      after the first engagement of the curse (the
+//      curse-strike until the Purify correction of
+//      2026-11-16 struck it; the purify order since), foes appear over
 //      time, every one at its base body (filed power and
 //      health, level one), and the standing dark climbs
 //      to the homeland cradle's intensity-one cap (eight)
@@ -191,20 +193,26 @@ async function summonStanding(actor, wstate, ownerName, awakenedId, unitName, tr
   throw new Error("summon never landed: " + unitName + " | seat errors: " + JSON.stringify(actor.errors.slice(-3)) + " | energy: " + actor.you?.energy);
 }
 
-/* Strike the curse once with a standing hand — the act
- * the dark answers (Nigel, 2026-10-25 10:41: the entry
- * does not begin until the Tenders start attacking the
- * curse). The target is a cursed tile within the hand's
- * element reach, read off the served map; the seed tile
- * is never a target (the handler refuses it). */
-const REACH = { stone: 1, root: 2, fire: 2, tide: 3, sky: 4 };
+/* Engage the curse with a standing hand — the act the
+ * dark answers (Nigel, 2026-10-25 10:41: the entry does
+ * not begin until the Tenders start attacking the curse).
+ * The act was the curse-strike until the Purify
+ * correction (2026-11-16) struck the strike whole and
+ * carried the homeland's Purify law to this ground: the
+ * act is now the PURIFY ORDER, and the provoke stands on
+ * the order exactly as it stood on the blow. The named
+ * tile is a cursed one BESIDE the hand (the seed tile
+ * never — the referee refuses it): an in-reach order is
+ * written at once, where a deep tile in a fresh field
+ * may have no pure ground at its edge for the order's
+ * road to end on, and be refused whole. */
 async function strikeCurse(actor, wstate, ownerName) {
   const unit = (wstate.state?.field ?? []).find(u => u.ownerName === ownerName);
-  if (!unit) throw new Error("strikeCurse: no standing hand for " + ownerName);
-  const reach = REACH[unit.element] ?? 2;
-  const target = (wstate.state?.map ?? []).find(t => t.cursed && t.id !== "0,0" && axDist(t.id, unit.hex) <= reach);
-  if (!target) throw new Error("strikeCurse: no cursed tile in reach of " + unit.hex);
-  actor.send({ type: "strikeCurse", cardId: unit.cardId, hex: unit.hex, target: target.id });
+  if (!unit) throw new Error("engageCurse: no standing hand for " + ownerName);
+  const target = (wstate.state?.map ?? []).find(t => t.cursed && t.id !== "0,0" && axDist(t.id, unit.hex) <= 1)
+    ?? (wstate.state?.map ?? []).find(t => t.cursed && t.id !== "0,0");
+  if (!target) throw new Error("engageCurse: no cursed tile on the field");
+  actor.send({ type: "purifyCurse", cardId: unit.cardId, target: target.id });
   await sleep(400);
   return target.id;
 }
@@ -222,7 +230,7 @@ console.log("§1 the beginning-of-waves door is removed — no button on the cli
   const a = new Actor(); await a.join(A1.tt, "entry-a"); await a.waitYou("the keeper's seat");
   await waitFor(() => !!seatOf(wstate, A1.name)?.hex, "the keeper's landing");
   const hand1 = await summonStanding(a, wstate, A1.name, kinId, "Doorhand");
-  await strikeCurse(a, wstate, A1.name); // the dark answers a struck curse (10:41) — §2 proves the quiet before it
+  await strikeCurse(a, wstate, A1.name); // the dark answers an engaged curse (10:41) — §2 proves the quiet before it
   // The hand is ordered to BINDING (the wire's own word):
   // a binding hand spends her cadence mending, not
   // striking, and with no wounded ally in reach she simply
@@ -315,9 +323,20 @@ let firstDark = [];
 
 /* ══ §3 EVERY DOOR, THE FURTHEST RING ONLY ════════════════ */
 console.log("§3 every door deals only onto the furthest ring of the curse — the entry (§2's first foes), the Storytender, the column");
+// §2's first foes may include a PURIFY DEFENDER (the
+// Purify correction, 2026-11-16): the purify that provoked
+// the entry draws its first defender on the same beat,
+// born by the homeland's own birth rule — the nearest
+// legal cursed tile within fifteen of the purifying tile,
+// NOT the furthest ring. That door's ground is its own
+// law (proven in full by drive-table-purify §7); the
+// ENTRY's ring law below is read on the unmarked foes.
 ok("§3a the entry's first foes stand on the FURTHEST RING (ring 6 of the fresh field) — nowhere deeper, though every tile inward is cursed too",
-  firstDark.length >= 1 && firstDark.every(e => ringOfHex(e.hex) === 6),
+  firstDark.filter(e => !e.defendTileId).length >= 1 && firstDark.filter(e => !e.defendTileId).every(e => ringOfHex(e.hex) === 6),
   JSON.stringify(firstDark.map(e => e.hex)));
+ok("§3a any marked foe among them is a purify defender — it carries its purifying tile's mark, and no other foe does",
+  firstDark.filter(e => e.defendTileId).every(e => typeof e.defendTileId === "string" && e.hex !== e.defendTileId),
+  JSON.stringify(firstDark.map(e => `${e.hex} mark=${e.defendTileId ?? "-"}`)));
 {
   // §3b THE STORYTENDER'S DEAL.
   const { wstate } = await watchRoom("campaign-entry-c");
@@ -486,8 +505,8 @@ async function breakProof({ roomId, campaign }) {
     await summonStanding(t, wstate, T.name, kinId, "Fieldstand");
   } else {
     // The casual field's dark is the entry's — and the
-    // entry begins only once the curse is struck (10:41):
-    // the witness's hand stands first and strikes it.
+    // entry begins only once the curse is engaged (10:41):
+    // the witness's hand stands first and orders a purify.
     await summonStanding(t, wstate, T.name, kinId, "Fieldstand");
     await strikeCurse(t, wstate, T.name);
     await waitFor(() => (wstate.state?.dark ?? []).length > 0 && wstate.state?.battle?.active, "the field's own dark stands");
@@ -532,7 +551,7 @@ console.log("§6 on hosted land the lit beacon holds ALL entry — and doused, t
   await waitFor(() => !!seatOf(wstate, H6.name)?.hex, "the keeper's landing");
   h.send({ type: "beaconOpen", privacy: "public" });
   await tryWait(() => wstate.state?.hosted?.hostName === H6.name, 8000);
-  // The room's curse is struck BEFORE the lighting (the
+  // The room's curse is engaged BEFORE the lighting (the
   // 10:41 provoke): the entry is live in this room, so
   // the hold proven below is the light's — against an
   // entry that would otherwise be dealing — and the
