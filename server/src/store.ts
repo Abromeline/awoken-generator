@@ -1375,6 +1375,28 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS purifies (
 );`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_purifies_owner ON purifies (owner_key);`);
 sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_purifies_tile ON purifies (tile_id);`);
+// THE PERSONALITY SYSTEM (Nigel, 2026-11-17): the per-Awokin
+// life record (its first content the profile read off the
+// sum of its parts, plus the Grass programme's claim) and
+// the Grass programme's per-land stage mark — see schema.ts
+// (awokinLifeRecords, grassProgrammeState) for the columns'
+// meanings.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS awokin_life_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  awakened_id INTEGER NOT NULL,
+  profile_json TEXT NOT NULL DEFAULT '{}',
+  grass_tile_id INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(owner_key, awakened_id)
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_awokin_life_records_owner ON awokin_life_records (owner_key);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS grass_programme_state (
+  owner_key TEXT PRIMARY KEY,
+  mark INTEGER NOT NULL DEFAULT 10,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);`);
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

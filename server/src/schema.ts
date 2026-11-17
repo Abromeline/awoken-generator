@@ -1099,6 +1099,43 @@ export const purifies = sqliteTable("purifies", {
   bank: real("bank").notNull().default(0),
 });
 
+// THE PERSONALITY SYSTEM (Nigel, 2026-11-17): one life
+// record per Awokin — the foundation every passive stands
+// on. Its first content is the PROFILE: the element sums
+// read off the sum of the Awokin's parts (elementSumsOf,
+// the standing way parts are summed everywhere), with the
+// gates those sums open, kept as JSON so later passives
+// (Brick mending, the Moonshroom contest) read the same
+// record. The profile is READ from what the Awokin already
+// is — never assigned, never picked from a menu — and it is
+// never served to any surface: a personality is only ever
+// what an Awokin does. grassTileId — the Grass programme's
+// claim: the tile this Awokin is tending toward the stage
+// mark (it stands on it, or its programme march runs to
+// it). Null = no claim. Written and read by the programme's
+// settle alone.
+export const awokinLifeRecords = sqliteTable("awokin_life_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  awakenedId: integer("awakened_id").notNull(),
+  profileJson: text("profile_json").notNull().default("{}"),
+  grassTileId: integer("grass_tile_id"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull().default(0),
+});
+
+// THE GRASS PROGRAMME's stage state, one row per land: the
+// MARK every purified tile is being tended toward — whole
+// sprigs, 10 at the first stage, rising by 10 whenever
+// every eligible tile stands at or above it (10 → 20 →
+// 30 …). Persisted so the stage survives every restart and
+// read; written by the programme's settle alone.
+export const grassProgrammeState = sqliteTable("grass_programme_state", {
+  ownerKey: text("owner_key").primaryKey(),
+  mark: integer("mark").notNull().default(10),
+  updatedAt: integer("updated_at").notNull().default(0),
+});
+
 // Hall of Champions residents: one Awoken per room, freely swappable.
 export const hallResidents = sqliteTable("hall_residents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
