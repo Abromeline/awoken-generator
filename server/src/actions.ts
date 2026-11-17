@@ -2665,6 +2665,364 @@ export async function settlePlacementClocksById(placementId: number, nowMs: numb
 // would close the other way).
 registerPlacementDepartureHook(settlePlacementClocksById);
 
+/* ── THE PERSONALITY SYSTEM — THE RECORD, THE PROFILE, AND
+ * THE GRASS PROGRAMME (Nigel, 2026-11-17) ────────────────
+ *
+ * THE FOUNDATION: every Awokin carries a LIFE RECORD
+ * (awokin_life_records), and its first content is the
+ * PROFILE — the element sums read off the sum of its parts
+ * by elementSumsOf, the standing way parts are summed
+ * everywhere in this house, with the gates those sums open
+ * judged by the registry's own checker (abilityQualifies).
+ * The profile is READ from what the Awokin already is; it
+ * is never assigned, never picked from a menu, and never
+ * served to any surface — a personality is only ever what
+ * an Awokin does (his ruling of the same day: no text
+ * boxes; behaviour only). Later passives (Brick mending,
+ * the Moonshroom contest) plug into this same record and
+ * this same engine; this build carries only Grass on it.
+ *
+ * THE GRASS PROGRAMME: the land's idle grass-able company
+ * tends the land's purified tiles toward a STAGE MARK —
+ * 10 whole sprigs at the first stage, kept per land in
+ * grass_programme_state. A participant claims the nearest
+ * eligible tile standing below the mark (a tile another
+ * participant has claimed is passed over for the next
+ * nearest), travels to it by the standing march law —
+ * roads over the Tender's own uncursed ground (findRoad),
+ * the march's own price and pace reckonings, landing
+ * through settleMarches — and stands with it while sprigs
+ * grow under the standing garden clock (settleGrassForTile;
+ * this settle changes no growth law, no rate, no HP-pool
+ * rule). When its tile reaches the mark it moves to the
+ * next below the mark; when EVERY eligible tile stands at
+ * or above the mark, the mark rises by 10 (10 → 20 → 30 …)
+ * and the work continues. A cursed tile is not eligible; a
+ * tile the curse takes back leaves the programme until it
+ * is purified again, and damage that breaks a tile's tufts
+ * re-opens it through the same below-mark rule, untouched.
+ *
+ * IDLE is a strict word: no march or patrol under way, no
+ * purify order, no channel (Moon Shroom, Rune or Shrub),
+ * no ordered stance, no follow, no party membership, no
+ * island march of its own, no standing on a marching
+ * island. ORDERS OUTRANK INSTANTLY: the beat re-derives
+ * idleness before it touches any claim, so an ordered
+ * Awokin is out of the programme from the first settle
+ * that sees the order, its claim released in the same
+ * beat — and it rejoins on a later beat once its order
+ * completes and it stands idle again. One road is the
+ * programme's own: a claim stands while its holder is
+ * travelling to that very tile, the march the claim
+ * itself ordered; an order marching it anywhere else
+ * releases the claim like any other order. A programme march
+ * is written through the march's own reckonings but is
+ * NOT the Tender's order: it witnesses nothing on the
+ * Award Road and strips no party membership (a
+ * participant is never in the party — that is part of
+ * idle), and it ends no purify (a participant holds none).
+ *
+ * THE COMMONS (ruled 2026-11-16: Awokin may spend 50% of
+ * a Tender's energy on their own doings): programme
+ * travel pays the standing per-hex march price from the
+ * Tender's purse, and the company's own spending may not
+ * take the purse below HALF ITS STANDING MEASURE —
+ * calculateMaxEnergy, the purse's full size. A march
+ * whose price would cross that line is not paid and not
+ * marched: the Awokin tends where it stands instead (the
+ * drift-and-do fallback — grass grows under a standing
+ * qualifier by the garden clock's own law, claim or no
+ * claim, and if the ground it stands on is itself
+ * programme work, that ground becomes its claim). The
+ * Tender's own ordered spending is never the commons and
+ * is never capped here. The under-50 refill behaviour is
+ * a later phase and is deliberately not built.
+ *
+ * PRESENCE: the programme decides and travels only while
+ * the land's company is present (landOnline —
+ * tenderLastSeenAt and the house's five-minute gap, seats
+ * included), riding the read (getTerritory, before the
+ * field is loaded) and the master clock's slow gear, and
+ * it rests when he leaves. What pauses in absence is the
+ * deciding and the travelling; a march already written
+ * lands by the march law as marches always land, and the
+ * garden clock grows only the spans a qualifier actually
+ * stood, by its own settle, exactly as before this build.
+ */
+
+type AwokinProfile = { sums: ElementSums; grassAble: boolean };
+
+/** The profile of one Awokin, read off the sum of its
+ *  parts — the record's first content, and the one place
+ *  the gates are judged for the programme. */
+async function profileOfAwokin(aw: any): Promise<AwokinProfile> {
+  const sums = await elementSumsOf(aw);
+  const grass = abilityByKey("grass");
+  return { sums, grassAble: grass ? abilityQualifies(grass.requires, sums) : false };
+}
+
+function lifeRecordRow(ownerKey: string, awakenedId: number): any | null {
+  return (sqlite.prepare("SELECT id, profile_json AS profileJson, grass_tile_id AS grassTileId FROM awokin_life_records WHERE owner_key = ? AND awakened_id = ?")
+    .get(ownerKey, awakenedId) as any) ?? null;
+}
+
+/** The record, kept: created at the first beat that meets
+ *  the Awokin, its profile refreshed whenever the sums it
+ *  was read from have moved. Returns the standing row. */
+function keepLifeRecord(ownerKey: string, awakenedId: number, profile: AwokinProfile, nowMs: number): any {
+  const profileJson = JSON.stringify({ sums: profile.sums, grassAble: profile.grassAble });
+  const existing = lifeRecordRow(ownerKey, awakenedId);
+  if (existing) {
+    if (existing.profileJson !== profileJson) {
+      sqlite.prepare("UPDATE awokin_life_records SET profile_json = ?, updated_at = ? WHERE id = ?")
+        .run(profileJson, nowMs, existing.id);
+      existing.profileJson = profileJson;
+    }
+    return existing;
+  }
+  const info = sqlite.prepare("INSERT INTO awokin_life_records (owner_key, awakened_id, profile_json, grass_tile_id, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)")
+    .run(ownerKey, awakenedId, profileJson, nowMs, nowMs);
+  return { id: Number(info.lastInsertRowid), profileJson, grassTileId: null };
+}
+
+function setLifeRecordClaim(ownerKey: string, awakenedId: number, tileId: number | null): void {
+  sqlite.prepare("UPDATE awokin_life_records SET grass_tile_id = ? WHERE owner_key = ? AND awakened_id = ?")
+    .run(tileId, ownerKey, awakenedId);
+}
+
+/** THE GRASS PROGRAMME's one beat for a land, as the
+ *  header above lays it out. Rides the read and the slow
+ *  gear; presence-gated at its own head, so every road
+ *  into it is safe. A fault here must never break a read
+ *  or a tick: the callers wrap it (clockStep, and the
+ *  read's own settle chain keeps its shape), and the beat
+ *  itself keeps its writes until the reckoning is done. */
+export async function settleGrassProgramme(ownerKey: string, nowMs: number = Date.now()): Promise<void> {
+  if (!landOnline(ownerKey, nowMs)) return;
+  const grass = abilityByKey("grass");
+  if (!grass) return;
+  const tiles = await db.select().from(schema.territoryTiles)
+    .where(eq(schema.territoryTiles.ownerKey, ownerKey)) as any[];
+  if (!tiles.length) return;
+  const tileById = new Map<number, any>(tiles.map(t => [t.id, t]));
+  // Eligible ground: the land's purified tiles. A cursed
+  // tile joins the programme when it is purified, and
+  // leaves it the moment the curse takes it back.
+  const eligible = tiles.filter(t => !t.cursed);
+  if (!eligible.length) return;
+  const wholeSprigs = (t: any) => Math.floor(Number(t.sprigs ?? 0));
+
+  // THE STAGE MARK, kept per land: while every eligible
+  // tile stands at or above it, it rises by 10 and the
+  // work continues at the new stage. The reckoning counts
+  // every purified tile, reachable by road or not — the
+  // stage is the land's, not the road's.
+  let markRow = sqlite.prepare("SELECT mark FROM grass_programme_state WHERE owner_key = ?").get(ownerKey) as any;
+  let mark = markRow ? (Number(markRow.mark) || 10) : 10;
+  let rose = false;
+  for (let guard = 0; guard < 10000 && eligible.every(t => wholeSprigs(t) >= mark); guard++) {
+    mark += 10;
+    rose = true;
+  }
+  if (!markRow || rose) {
+    sqlite.prepare(`INSERT INTO grass_programme_state (owner_key, mark, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(owner_key) DO UPDATE SET mark = excluded.mark, updated_at = excluded.updated_at`)
+      .run(ownerKey, mark, nowMs);
+  }
+
+  const placements = await db.select().from(schema.fieldPlacements)
+    .where(eq(schema.fieldPlacements.ownerKey, ownerKey)) as any[];
+  // The programme is the land Tender's own company: a
+  // guest standing on the land in a room is not the land's
+  // to programme (its actor key is another Tender's).
+  const mine = placements.filter(p => (p.actorKey ?? ownerKey) === ownerKey)
+    .sort((a, b) => a.awakenedId - b.awakenedId);
+  if (!mine.length) return;
+
+  // The order state of the whole field, read once: a
+  // purify order, or a channel on any channelled work, is
+  // an order — its holder is out, whatever its stance.
+  const ordered = new Set<number>();
+  for (const row of await db.select({ awakenedId: schema.purifies.awakenedId }).from(schema.purifies)
+    .where(eq(schema.purifies.ownerKey, ownerKey))) ordered.add(row.awakenedId);
+  for (const tbl of [schema.moonShroomChannels, schema.runeChannels, schema.shrubChannels]) {
+    for (const row of await db.select({ awakenedId: tbl.awakenedId }).from(tbl)
+      .where(eq(tbl.ownerKey, ownerKey))) ordered.add(row.awakenedId);
+  }
+  const islands = islandMarchRows(ownerKey);
+  const islandOrderers = new Set(islands.map(r => r.awakenedId));
+  const islandTiles = new Set<number>();
+  for (const r of islands) for (const id of r.tileIds) islandTiles.add(id);
+
+  const isIdle = (p: any): boolean =>
+    !p.marchPath && !p.patrolPath
+    && !ordered.has(p.awakenedId)
+    && !p.stanceOrdered && !p.follow
+    && !isPartyMember(ownerKey, p.awakenedId)
+    && !islandOrderers.has(p.awakenedId)
+    && !islandTiles.has(p.tileId);
+
+  // The march reckoning's furniture, built only when a
+  // travel is actually reckoned (the asset ledger, the
+  // purse and its measure are read at need, not per beat).
+  let assetStats: Map<number, AssetStats> | null = null;
+  let balance: number | null = null;
+  let commonsLine: number | null = null;
+  const reckonTravel = async (p: any, aw: any, dest: any) => {
+    // The destination's road, by the march's own law for
+    // high ground: a floating destination is roaded to its
+    // hex's ground and risen to at the last step, exactly
+    // as setMarch roads it — over the Tender's own
+    // uncursed ground only (findRoad).
+    let roadDestId = dest.id as number;
+    if (tileFloats(dest)) {
+      const groundRow = tiles.find(t => t.q === dest.q && t.r === dest.r && (t.z ?? 0) === 0);
+      if (!groundRow) return null;
+      roadDestId = groundRow.id;
+    }
+    const groundRoad = findRoad(tiles as any, p.tileId, roadDestId, buildStepBlocked(ownerKey));
+    if (!groundRoad) return null;
+    const road = roadDestId === dest.id ? groundRoad : [...groundRoad, dest.id];
+    const steps = road.length - 1;
+    if (steps <= 0) return null;
+    if (!assetStats) {
+      assetStats = new Map<number, AssetStats>();
+      for (const r of await db.select().from(schema.layerAssets)) {
+        const rar = raritySchema.safeParse(r.rarity);
+        if (rar.success) assetStats.set(r.id, { name: r.name, rarity: rar.data, power: r.power, toughness: r.toughness, element: (r as any).element ?? null });
+      }
+    }
+    const layers = parseLayers(aw.compositionJson, assetStats);
+    const payload = await awakenedPayloadById(aw.id);
+    const power = payload?.power ?? layers.reduce((s: number, l: any) => s + (l.power ?? 0), 0);
+    const cost = steps * (1 + Math.floor((power - 1) / 3));
+    const seconds = marchWeightedSeconds(road, marchSecondsPerHexFor(layers, aw.experience ?? 0), () => false,
+      marchCrowdOf(placements as any[], new Set([p.awakenedId])));
+    return { road, cost, seconds };
+  };
+  /** The commons gate and the march's writing, shared by
+   *  every programme travel: the price must keep the
+   *  purse at or above half its standing measure, or the
+   *  march is not paid and not marched. */
+  const writeProgrammeMarch = async (p: any, reckon: { road: number[]; cost: number; seconds: number }): Promise<boolean> => {
+    if (balance === null) balance = await getEnergyFor(ownerKey);
+    if (commonsLine === null) commonsLine = (await calculateMaxEnergy(ownerKey)) / 2;
+    if (balance - reckon.cost < commonsLine) return false;
+    if (!(await spendEnergy(ownerKey, reckon.cost))) return false;
+    balance -= reckon.cost;
+    const roadJson = JSON.stringify(reckon.road);
+    await db.update(schema.fieldPlacements).set({
+      marchPath: roadJson, marchSince: nowMs, marchEnds: nowMs + Math.round(reckon.seconds * 1000), marchGoal: null,
+      marchPosQ: null, marchPosR: null,
+    } as any).where(eq(schema.fieldPlacements.id, p.id));
+    // The beat's own snapshot stays honest for the crowd
+    // reckonings of the participants still to come.
+    p.marchPath = roadJson;
+    return true;
+  };
+
+  // ── PHASE ONE: the records, the profiles, the claims.
+  // Every fielded Awokin of the land's is met and kept;
+  // a claim stands only while its holder is grass-able
+  // and its tile is still eligible work (uncursed, below
+  // the mark), and its holder is either idle or ON THE
+  // ROAD TO THAT VERY TILE — the claim is a programme
+  // march's destination, and it stands while its holder
+  // travels to it. Anything else releases the claim in
+  // this same beat: an order that marches the holder
+  // anywhere else is out at once, as every order is.
+  const marchEndsAt = (p: any, tileId: number): boolean => {
+    if (!p.marchPath) return false;
+    try {
+      const road = JSON.parse(p.marchPath);
+      return Array.isArray(road) && road[road.length - 1] === tileId;
+    } catch { return false; }
+  };
+  type Participant = { p: any; aw: any; record: any; claim: any | null };
+  const participants: Participant[] = [];
+  const claimedBy = new Map<number, number>();
+  const awCache = new Map<number, any>();
+  for (const p of mine) {
+    let aw = awCache.get(p.awakenedId);
+    if (!aw) {
+      const rows = await db.select().from(schema.awakened).where(eq(schema.awakened.id, p.awakenedId)).limit(1);
+      aw = rows[0];
+      awCache.set(p.awakenedId, aw);
+    }
+    if (!aw) continue;
+    const profile = await profileOfAwokin(aw);
+    const record = keepLifeRecord(ownerKey, p.awakenedId, profile, nowMs);
+    let claim: any | null = null;
+    if (profile.grassAble && record.grassTileId != null) {
+      const t = tileById.get(record.grassTileId);
+      if (t && !t.cursed && wholeSprigs(t) < mark && !claimedBy.has(t.id)
+        && (isIdle(p) || marchEndsAt(p, t.id))) claim = t;
+    }
+    if (record.grassTileId != null && (!claim || claim.id !== record.grassTileId)) {
+      setLifeRecordClaim(ownerKey, p.awakenedId, claim ? claim.id : null);
+      record.grassTileId = claim ? claim.id : null;
+    }
+    if (claim) claimedBy.set(claim.id, p.awakenedId);
+    if (profile.grassAble && isIdle(p)) participants.push({ p, aw, record, claim });
+  }
+
+  // ── PHASE TWO: the work. A participant standing on its
+  // claim stands with it — done. A participant with a
+  // claim elsewhere travels to it. A participant with no
+  // claim takes the work where it stands if that ground
+  // is the programme's, else the nearest unclaimed tile
+  // below the mark that a road runs to and the commons
+  // can pay for.
+  for (const part of participants) {
+    const { p, aw, record } = part;
+    const standing = tileById.get(p.tileId);
+    if (part.claim) {
+      if (part.claim.id === p.tileId) continue; // standing with its work
+      const reckon = await reckonTravel(p, aw, part.claim);
+      if (reckon && (await writeProgrammeMarch(p, reckon))) continue;
+      // No road, or the commons cannot pay: it tends
+      // where it stands — and if that ground is itself
+      // unclaimed programme work, the claim moves to it
+      // (the drift-and-do fallback).
+      if (standing && !standing.cursed && wholeSprigs(standing) < mark && !claimedBy.has(standing.id)) {
+        claimedBy.delete(part.claim.id);
+        setLifeRecordClaim(ownerKey, p.awakenedId, standing.id);
+        record.grassTileId = standing.id;
+        claimedBy.set(standing.id, p.awakenedId);
+        part.claim = standing;
+      }
+      continue;
+    }
+    // No claim: the ground it stands on first.
+    if (standing && !standing.cursed && wholeSprigs(standing) < mark && !claimedBy.has(standing.id)) {
+      setLifeRecordClaim(ownerKey, p.awakenedId, standing.id);
+      record.grassTileId = standing.id;
+      claimedBy.set(standing.id, p.awakenedId);
+      part.claim = standing;
+      continue;
+    }
+    // The nearest unclaimed work, by the hex reckoning,
+    // ties broken by the tile's own id so the beat is
+    // steady from read to read.
+    const candidates = eligible
+      .filter(t => wholeSprigs(t) < mark && !claimedBy.has(t.id) && t.id !== p.tileId)
+      .sort((a, b) => (axialDist(standing ?? a, a) - axialDist(standing ?? b, b)) || (a.id - b.id));
+    for (const dest of candidates) {
+      const reckon = await reckonTravel(p, aw, dest);
+      if (!reckon) continue;
+      if (balance === null) balance = await getEnergyFor(ownerKey);
+      if (commonsLine === null) commonsLine = (await calculateMaxEnergy(ownerKey)) / 2;
+      if (balance - reckon.cost < commonsLine) continue; // a shorter road may still fit
+      setLifeRecordClaim(ownerKey, p.awakenedId, dest.id);
+      record.grassTileId = dest.id;
+      claimedBy.set(dest.id, p.awakenedId);
+      part.claim = dest;
+      await writeProgrammeMarch(p, reckon);
+      break;
+    }
+  }
+}
+
 /* ── PURIFY (Nigel, 2026-11-15) ──────────────────────────────
  * The new way cursed ground is taken back, in his words'
  * sense: "if an awokin is out of range to purify a square
@@ -13801,6 +14159,14 @@ export const handlers = {
       const body = await this.tenderBodyView(ownerKey);
       if (body) tenderView = { ...tenderStand, ...body };
     }
+    // THE GRASS PROGRAMME (Nigel, 2026-11-17): the land's
+    // idle grass-able company is set to its tending on the
+    // read, before the field is loaded below — so the
+    // programme's claims and marches are part of the field
+    // this very read serves, as every lazy settle's work
+    // is. The settle reads presence itself and rests the
+    // programme whole while the company is away.
+    await settleGrassProgramme(ownerKey, Date.now());
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
 
     await settleBindingUpkeep(ownerKey, tiles as any[], placements as any[]);
@@ -21572,6 +21938,14 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // and its Tender is present — and only then (the settle
   // reads presence and reach itself).
   await clockStep(ownerKey, "purify", () => settlePurify(ownerKey));
+
+  // (13) THE GRASS PROGRAMME — present lands only: the
+  // land's idle grass-able company tends its purified
+  // tiles toward the stage mark, on the slow gear as at
+  // the read, so the tending continues between reads
+  // while the Tender is present — and only then (the
+  // settle reads presence itself, at its own head).
+  if (online) await clockStep(ownerKey, "grass-programme", () => settleGrassProgramme(ownerKey, now));
 }
 
 /** Settle ONE land's WAR by the realtime gear, in the
