@@ -1397,6 +1397,39 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS grass_programme_state (
   mark INTEGER NOT NULL DEFAULT 10,
   updated_at INTEGER NOT NULL DEFAULT 0
 );`);
+// THE AWAY-CHANGE, TENDRILS AND THE ROOT (Dark Builds,
+// 2026-11-20): the away-settle's presence watermark, the
+// Root's standing row, and the tendril chain's rows — see
+// schema.ts (awayChangeState, darkRoots, darkTendrils)
+// for the columns' meanings.
+sqlite.exec(`CREATE TABLE IF NOT EXISTS away_change_state (
+  owner_key TEXT PRIMARY KEY,
+  seen_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS dark_roots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  tile_id INTEGER NOT NULL,
+  hp INTEGER NOT NULL,
+  max_hp INTEGER NOT NULL,
+  summon_anchor_at INTEGER NOT NULL DEFAULT 0,
+  growth_anchor_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_dark_roots_owner ON dark_roots (owner_key);`);
+sqlite.exec(`CREATE TABLE IF NOT EXISTS dark_tendrils (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_key TEXT NOT NULL,
+  root_id INTEGER NOT NULL,
+  tile_id INTEGER NOT NULL,
+  ord INTEGER NOT NULL,
+  hp INTEGER NOT NULL,
+  max_hp INTEGER NOT NULL,
+  wither_at INTEGER,
+  created_at INTEGER NOT NULL
+);`);
+sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_dark_tendrils_owner ON dark_tendrils (owner_key);`);
 // Territory buildings
 sqlite.exec(`CREATE TABLE IF NOT EXISTS territory_buildings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

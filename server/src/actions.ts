@@ -8993,6 +8993,14 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       defendTileId: w.defendTileId == null ? null : Number(w.defendTileId),
     };
   });
+  // THE ROOT AND ITS TENDRILS as targets (Dark Builds,
+  // 2026-11-20): the dark's structures stand in this same
+  // field — loaded once with it, struck by the Awoken
+  // Answer where no dark stands in reach (reading 11 of
+  // the away-change), their wounds persisted as they land
+  // and their fells paid on the spot (hurtDarkStructure).
+  const structs = loadDarkStructures(ownerKey, byId);
+  const structDamage = new Map<string, Map<number, number>>();
   type Fighter = {
     row: any; id: number; awakenedId: number; tileId: number; q: number; r: number;
     stance: string; power: number; toughness: number; level: number; dominant: string;
@@ -10196,6 +10204,14 @@ async function settleHomelandBattle(ownerKey: string, tiles: any[], standTileId:
       const target = darks.filter(d => !d.dead && axialDist(f, d) <= reach)
         .sort((a, b) => axialDist(f, a) - axialDist(f, b))[0];
       if (!target) {
+        // THE ROOT AND ITS TENDRILS (Dark Builds, Nigel,
+        // 2026-11-20): no dark stands within her reach, but
+        // the dark's building may — she strikes it before
+        // any tending (defence first, the watering law's
+        // own order). Her strike is spent on the structure
+        // whether it lands or not (strikeDarkStructure,
+        // reading 11 of the away-change).
+        if (await strikeDarkStructure(ownerKey, f, structs, structDamage, reach, zCritAt, zCritHalf, zAwokinAb, progress.classKey)) continue;
         // WATERING (Nigel, 2026-10-24): no dark stands
         // within her reach — a Tide hand's strike is not
         // spent idle while bramble near her goes thirsty.
@@ -14167,6 +14183,15 @@ export const handlers = {
     // is. The settle reads presence itself and rests the
     // programme whole while the company is away.
     await settleGrassProgramme(ownerKey, Date.now());
+    // THE AWAY-CHANGE (Dark Builds, Nigel, 2026-11-20): a
+    // returning Tender's absence is resolved in one pass
+    // on the read, as every lazy settle's work is — the
+    // frontier's thickening, the tendril's growth, the
+    // Root's raising and its calling — and while she is
+    // present the growth creeps at its slow hour. The
+    // settle reads presence itself, holds the away land
+    // whole, and never touches purified ground.
+    await settleAwayChange(ownerKey, Date.now());
     const placements = await db.select().from(schema.fieldPlacements).where(eq(schema.fieldPlacements.ownerKey, ownerKey));
 
     await settleBindingUpkeep(ownerKey, tiles as any[], placements as any[]);
@@ -14590,6 +14615,12 @@ export const handlers = {
     await settleMoonShrooms(ownerKey);
     const moonChannels = loadMoonShroomChannels(ownerKey);
     const moonShrooms = loadMoonShrooms(ownerKey).map(s => moonShroomView(s, moonChannels));
+    // THE DARK'S BUILDING (Dark Builds, 2026-11-20): the
+    // Root's standing and its tendril chain, served fresh
+    // after every settle above — the face draws them from
+    // this, and their numbers live on the tiles' click
+    // cards.
+    const darkGrowth = darkGrowthView(ownerKey);
     // PURIFY (Nigel, 2026-11-15): the orders reckon lazily
     // at this read, like the channels' — the tiles handed
     // in are mutated as they settle, so the ground served
@@ -14669,7 +14700,7 @@ export const handlers = {
       }
       guestAwoken = await awakenedPayloadsForRows(foreignRows);
     }
-    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), bricks: brickViews, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, shrubs, purifies, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
+    return { guestAwoken, tiles, placements, buildings, mood, workings, islandMarches: this.islandMarchView(ownerKey), bricks: brickViews, tender: tenderView, wanderers: wandererViews, weaponStrike: weaponStrikeView, weaponStrikes: recentHomelandWeaponStrikes(ownerKey), strikes: recentHomelandStrikes(ownerKey), rainFalls: recentHomelandRainFalls(ownerKey), terrainBank: await terrainBankFor(ownerKey), elsewhere, summoning, battle: await battleStateView(ownerKey), pack: inventoryView(ctx?.room ? actorKeyFor(ctx) : ownerKey), dropNotices: drainDropNotices(ctx?.room ? actorKeyFor(ctx) : ownerKey), loot: homelandPackView(ownerKey), dropEvents: drainDropEvents(ownerKey), buildPieces, moonShrooms, runes, shrubs, purifies, darkGrowth, defenceWorks: [...(sqlite.prepare("SELECT id, placement_id AS placementId, kind, nodes FROM defence_works WHERE owner_key = ?").all(ownerKey) as any[]).map(w => { let nodes: { q: number; r: number; hp: number; maxHp: number; mote?: number; pq?: number; pr?: number; born?: number; bank?: number }[] = []; try { nodes = JSON.parse(w.nodes ?? "[]"); } catch { nodes = []; } return { id: Number(w.id), placementId: Number(w.placementId), kind: String(w.kind), nodes }; }), ...shrubWorks] };
   },
 
   /** The Tender walks his own land: the client reports the hex
@@ -21767,6 +21798,641 @@ export const MASTER_CLOCK_REALTIME_MS = (() => {
   return Number.isFinite(v) && v >= 100 ? Math.floor(v) : 500;
 })();
 
+/* ── THE AWAY-CHANGE, TENDRILS AND THE ROOT ─────────────
+ * (Dark Builds, Build 1 — Nigel, 2026-11-20.)
+ *
+ * THE LAW. While the Tender is away, the curse may
+ * strengthen AT THE EDGE and the dark may BUILD — but
+ * purified ground is never re-taken, damaged or re-cursed,
+ * and no Awoken, building or tender asset is harmed by an
+ * absence. Absence costs the Tender nothing they have won.
+ * The dark's building is THE ROOT: a structure raised on
+ * deep cursed ground by a long absence, which grows
+ * TENDRILS — a chain of cursed tiles reaching toward the
+ * nearest purified edge, never entering it — and SUMMONS
+ * dark ones at its tendril's far end while it stands. Cut
+ * a tendril tile and everything beyond the cut withers;
+ * break the Root and the summoning stops, the whole
+ * tendril withers, and the Root pays the big take.
+ *
+ * THE ROADS. The away-settle (settleAwayChange) rides the
+ * same two roads as the Grass programme: the getTerritory
+ * read and the master clock's slow gear. It keeps its own
+ * presence watermark (away_change_state), as every
+ * presence-reckoning system keeps its own: a jump longer
+ * than the house 5-minute gap (PROTECTION_ONLINE_GAP_MS)
+ * between the watermark and the Tender's standing
+ * last-seen stamp is an absence, resolved ONCE, in one
+ * pass, at the return — frontier thickening, tendril
+ * growth, the Root's raising and its summons all reckoned
+ * from the one elapsed span, and the watermark discipline
+ * (the state row + the Root's own anchors) means no span
+ * is ever settled twice. While the Tender is present the
+ * growth creeps on the same functions at its slow hour.
+ * While she is away the land is held, exactly as the war
+ * is held: the clock walks the settle but it does nothing
+ * — the growth is reckoned from the absence at her
+ * return, never dripped out behind her back.
+ *
+ * READINGS — every number below is a proposal in pencil,
+ * Nigel's to strike (2026-11-20):
+ * (1) STARFALL AND SPARKS ARE NOT BANKED — RULED
+ *     (Nigel, 2026-11-20, A1: the law stands). Star-seeds
+ *     fall ONLINE only (his word, 2026-10-24: "they only
+ *     fall online") — absent hours never roll, and
+ *     settleIncursions' own anchor walks past them
+ *     unrolled; sparks are born at purification (the 5%
+ *     wildfire roll), not by time. So the away-settle
+ *     carries NO starfall resolution and NO spark
+ *     accrual, and never will behind a flag: if the law
+ *     is ever revisited, that line amends in its own
+ *     step. (The design draft's away-settle line listing
+ *     starfall among the missed hours was a Keeper
+ *     drafting error, struck by this ruling.)
+ * (2) FRONTIER THICKENING: +1 curseHp per full hour of
+ *     absence to each still-cursed FRONTIER tile (a cursed
+ *     tile sharing a hex edge, in the plane, with purified
+ *     ground, or standing over/under purified ground on
+ *     its own hex), capped at the tile's curseMaxHp.
+ *     Part-drained progress on a still-cursed tile is not
+ *     ground won, so the edge-only law holds: no purified
+ *     tile is ever written by this settle.
+ * (3) THE ROOT'S RAISING: an absence of 4+ hours raises
+ *     one, if none stands. At most ONE Root per land.
+ * (4) THE ROOT'S GROUND: the deepest-ring cursed tile
+ *     (ring = max(|q|, |r|, |q+r|)), never a beacon-ring
+ *     tile (checked against beaconRingKeys; ring tiles
+ *     are purified by law in any case). Ties: the
+ *     thickest curse, then the lowest tile id.
+ * (5) THE ROOT'S BODY: HP = curseHpFor(ring, mood) × 10 —
+ *     ten thicknesses of its own ground. Its AC is the
+ *     Tangle's, read through enemyACFor("tangle") so the
+ *     workshop's record moves it with the kind it
+ *     mirrors. A tendril tile's AC is the Hollow's,
+ *     enemyACFor("hollow"), read the same way.
+ * (6) SUMMONS: one dark per 10 minutes of settled time —
+ *     the absence span in bulk at the return, the online
+ *     span while present — kinds from the cradle's pool
+ *     at the land's standing wave intensity, bodies by
+ *     the cradle's own reckoning (HOMELAND_DARK_HP /
+ *     HOMELAND_DARK_POWER, lvl = intensity), born on the
+ *     tendril's far-end tile (the Root's own tile while
+ *     no tendril stands), under the standing field cap
+ *     8 + 2×(intensity−1), and never while the beacon
+ *     switch is lit (the lit light bars every birth on
+ *     the land). The born dark then walks the standing
+ *     enemy law whole — the homeland referee's own
+ *     targeting walks it toward the nearer of the party
+ *     and the purified ground (proximity, Nigel,
+ *     2026-11-20), as every wanderer is walked.
+ * (7) TENDRIL GROWTH: one tile per full hour of settled
+ *     time. The path steps on the Root's own plane (same
+ *     z), cursed tiles only, each step to a strictly
+ *     smaller plane-distance from purified ground (a BFS
+ *     measure); at distance 1 the tendril PRESSES and
+ *     grows no further — it never enters, converts or
+ *     damages a purified tile. A crossed tile is restored
+ *     to its full curse thickness as the tendril takes
+ *     it. Beats processed per pass are capped at 200 as
+ *     a safety bound; a real map's edge is far closer.
+ * (8) TENDRIL HP: the tile's curse thickness (curseMaxHp;
+ *     curseHpFor where the tile carries none).
+ * (9) SEVERING: a destroyed tendril tile cuts the chain;
+ *     every tile beyond the cut (higher ord) withers over
+ *     10 minutes, then dies paying its take where it
+ *     fell. The stump regrows from its new far end while
+ *     the Root stands.
+ * (10) TAKES: a tendril tile pays rollFellTake("fray",
+ *     its ground element); a withered tile pays the same
+ *     where it falls; the Root pays rollFellTake("tangle",
+ *     its ground element) rolled THREE times, keeping the
+ *     richest take — a take carrying a relic beats one
+ *     without; else the take carrying the most goods;
+ *     else the first (the "relic chance rolled three
+ *     times / take best" reading). Takes land through the
+ *     Pack's dealing law (settlePackDrops) with the drop
+ *     event at the tile, exactly as a felled dark's take
+ *     lands. A structure's fell divides the standing XP
+ *     pot (XP_PER_ATTACK) among the Awoken who damaged
+ *     it, as a dark's fell does.
+ * (11) STRUCTURE STRIKES: in the living battle, a fighter
+ *     with no dark in reach strikes the nearest tendril
+ *     tile or the Root in reach BEFORE any tending
+ *     (defence first, the watering law's own order) — her
+ *     plain elemental strike whole: d20 + her standing
+ *     bonus against the structure's AC with the distance
+ *     toll, fate dice + power for the raw harm, the one
+ *     mitigation, crits as ever. No Brick default answer
+ *     (a brick is spent on a foe, not on growth), no
+ *     element riders (nothing to wet, crack or shove), no
+ *     banner or watchtower lendings (those are read
+ *     against a living dark's ground), and no strike
+ *     witness (the witness keys on a wanderer; structures
+ *     have no wanderer row). Binders heal and purifiers
+ *     hold, as ever — neither strikes a structure. The
+ *     Tender's weapon and the written ground stay
+ *     darks-only in this build.
+ * (12) GROUND TAKEN FROM UNDER A STRUCTURE: if a Root's
+ *     or tendril's tile is purified, the growth dies with
+ *     its ground — the Root falls LOOTLESS (purification
+ *     pays its own rewards) and its tendril withers; a
+ *     purified tendril tile is cut there, lootless, and
+ *     the far side withers. Swept by this settle on both
+ *     its roads.
+ * (13) WITHERS resolve on the settle's roads once their
+ *     span passes; a wither falling due during an absence
+ *     resolves at the return, in the same pass — the held
+ *     land changes nothing behind the Tender's back.
+ */
+const AWAY_ROOT_ABSENCE_MS = 4 * 60 * 60 * 1000;
+const AWAY_THICKEN_HOURS_DIVISOR_MS = 60 * 60 * 1000;
+const TENDRIL_GROWTH_MS = 60 * 60 * 1000;
+const ROOT_SUMMON_MS = 10 * 60 * 1000;
+const TENDRIL_WITHER_MS = 10 * 60 * 1000;
+const ROOT_HP_PER_THICKNESS = 10;
+const AWAY_GROWTH_BEATS_CAP = 200;
+
+type DarkRootRow = {
+  id: number; tileId: number; hp: number; maxHp: number;
+  summonAnchorAt: number; growthAnchorAt: number; createdAt: number;
+};
+type DarkTendrilRow = {
+  id: number; rootId: number; tileId: number; ord: number;
+  hp: number; maxHp: number; witherAt: number | null;
+};
+
+function loadDarkRoot(ownerKey: string): DarkRootRow | null {
+  const row = sqlite.prepare("SELECT id, tile_id AS tileId, hp, max_hp AS maxHp, summon_anchor_at AS summonAnchorAt, growth_anchor_at AS growthAnchorAt, created_at AS createdAt FROM dark_roots WHERE owner_key = ? ORDER BY id LIMIT 1").get(ownerKey) as any;
+  if (!row) return null;
+  return {
+    id: Number(row.id), tileId: Number(row.tileId), hp: Number(row.hp), maxHp: Number(row.maxHp),
+    summonAnchorAt: Number(row.summonAnchorAt) || 0, growthAnchorAt: Number(row.growthAnchorAt) || 0,
+    createdAt: Number(row.createdAt) || 0,
+  };
+}
+
+function loadDarkTendrils(ownerKey: string): DarkTendrilRow[] {
+  return (sqlite.prepare("SELECT id, root_id AS rootId, tile_id AS tileId, ord, hp, max_hp AS maxHp, wither_at AS witherAt FROM dark_tendrils WHERE owner_key = ? ORDER BY ord, id").all(ownerKey) as any[]).map(r => ({
+    id: Number(r.id), rootId: Number(r.rootId), tileId: Number(r.tileId), ord: Number(r.ord),
+    hp: Number(r.hp), maxHp: Number(r.maxHp), witherAt: r.witherAt == null ? null : Number(r.witherAt),
+  }));
+}
+
+/** The served face of the dark's building: the Root's
+ *  standing and every tendril tile, with their wounds —
+ *  the numbers live on the tile's click card (Push 85's
+ *  law), never on the surface. */
+function darkGrowthView(ownerKey: string): { root: { id: number; tileId: number; hp: number; maxHp: number } | null; tendrils: { id: number; tileId: number; hp: number; maxHp: number; withering: boolean }[] } {
+  const root = loadDarkRoot(ownerKey);
+  const tendrils = loadDarkTendrils(ownerKey);
+  return {
+    root: root ? { id: root.id, tileId: root.tileId, hp: root.hp, maxHp: root.maxHp } : null,
+    tendrils: tendrils.map(t => ({ id: t.id, tileId: t.tileId, hp: t.hp, maxHp: t.maxHp, withering: t.witherAt != null })),
+  };
+}
+
+function darkRingOf(q: number, r: number): number {
+  return Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
+}
+
+const AWAY_HEX_DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+
+/** Each hex's distance, in the plane, from the nearest
+ *  purified ground — the measure the tendril's growth
+ *  walks down. A hex stands in the plane when any tile
+ *  stands on it (any z); it is a source when any of its
+ *  tiles is purified. BFS over the hexes present. */
+function planeDistanceToPurified(tiles: any[]): Map<string, number> {
+  const present = new Set<string>();
+  const dist = new Map<string, number>();
+  const queue: string[] = [];
+  for (const t of tiles) {
+    const key = `${t.q},${t.r}`;
+    present.add(key);
+    if (!t.cursed && !dist.has(key)) { dist.set(key, 0); queue.push(key); }
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const [q, r] = queue[i].split(",").map(Number);
+    const d = dist.get(queue[i])!;
+    for (const [dq, dr] of AWAY_HEX_DIRS) {
+      const nk = `${q + dq},${r + dr}`;
+      if (present.has(nk) && !dist.has(nk)) { dist.set(nk, d + 1); queue.push(nk); }
+    }
+  }
+  return dist;
+}
+
+/** A structure's take, landed exactly as a felled dark's
+ *  take lands (creditBattleKill's road): rolled whole by
+ *  drops.ts, dealt through the Pack's dealing law, spoken
+ *  on the land's ledger, and sprung from the tile on the
+ *  map by the drop event. Guarded so a fault here can
+ *  never break the settle or the battle that felled it. */
+async function payDarkTake(ownerKey: string, lineLead: string, drops: FellDrop[], tile: { q: number; r: number } | null): Promise<void> {
+  try {
+    if (!drops.length) return;
+    const { rested, dealt } = await settlePackDrops(ownerKey, drops);
+    if (rested.length) {
+      sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+        .run(ownerKey, `${lineLead} leaves behind: ${describeDrops(rested)} — gathered in your Pack.`, Date.now());
+    }
+    for (const share of dealt) {
+      sqlite.prepare("INSERT INTO drop_notices (owner_key, line, seen, created_at) VALUES (?, ?, 0, ?)")
+        .run(share.seatKey, `${lineLead} leaves behind: ${describeDrops([share.drop])} — dealt to you by the Pack's turn.`, Date.now());
+    }
+    if (tile && Number.isFinite(tile.q) && Number.isFinite(tile.r)) {
+      recordDropEvent(ownerKey, { at: Date.now(), fromQ: tile.q, fromR: tile.r, drops });
+    }
+  } catch (e) { console.error("[dark-growth] take failed:", e); }
+}
+
+/** THE ROOT'S RICH TAKE (reading 10): the Tangle's take
+ *  rolled three times, keeping the richest — a take
+ *  carrying a relic (an item keyed relic:*) beats one
+ *  without; else the take carrying the most goods; else
+ *  the first rolled. */
+function richestRootTake(groundElement: string | null): FellDrop[] {
+  const takes = [rollFellTake("tangle", groundElement), rollFellTake("tangle", groundElement), rollFellTake("tangle", groundElement)];
+  const score = (t: FellDrop[]): number =>
+    (t.some(d => d.kind === "item" && (d.itemKey ?? "").startsWith("relic:")) ? 1000 : 0) + t.length;
+  return takes.reduce((best, t) => (score(t) > score(best) ? t : best), takes[0]);
+}
+
+/** Mark every tendril tile of a Root beyond an ord (or
+ *  the whole chain, fromOrd = 0) as withering, keeping a
+ *  sooner deadline where one already stands. */
+function markTendrilsWithering(ownerKey: string, rootId: number, fromOrd: number, witherAt: number): void {
+  sqlite.prepare("UPDATE dark_tendrils SET wither_at = ? WHERE owner_key = ? AND root_id = ? AND ord > ? AND (wither_at IS NULL OR wither_at > ?)")
+    .run(witherAt, ownerKey, rootId, fromOrd, witherAt);
+}
+
+/** Reading 12's sweep: growth standing on ground that
+ *  has been purified dies with its ground. The Root falls
+ *  lootless and its whole tendril withers; a tendril tile
+ *  whose ground turned is cut there, lootless, and the
+ *  far side withers. */
+function sweepPurifiedStructures(ownerKey: string, tiles: any[], nowMs: number): void {
+  const byId = new Map<number, any>(tiles.map(t => [t.id, t]));
+  const root = loadDarkRoot(ownerKey);
+  const tendrils = loadDarkTendrils(ownerKey);
+  if (root) {
+    const rt = byId.get(root.tileId);
+    if (!rt || !rt.cursed) {
+      sqlite.prepare("DELETE FROM dark_roots WHERE id = ?").run(root.id);
+      markTendrilsWithering(ownerKey, root.id, 0, nowMs + TENDRIL_WITHER_MS);
+    }
+  }
+  let lowestCut: number | null = null;
+  for (const tn of tendrils) {
+    const t = byId.get(tn.tileId);
+    if (!t || !t.cursed) {
+      sqlite.prepare("DELETE FROM dark_tendrils WHERE id = ?").run(tn.id);
+      if (lowestCut == null || tn.ord < lowestCut) lowestCut = tn.ord;
+    }
+  }
+  if (lowestCut != null) {
+    for (const tn of tendrils) {
+      if (tn.ord > lowestCut) {
+        const t = byId.get(tn.tileId);
+        if (t && t.cursed) {
+          sqlite.prepare("UPDATE dark_tendrils SET wither_at = ? WHERE id = ? AND (wither_at IS NULL OR wither_at > ?)")
+            .run(nowMs + TENDRIL_WITHER_MS, tn.id, nowMs + TENDRIL_WITHER_MS);
+        }
+      }
+    }
+  }
+}
+
+/** Withers whose span has passed: the tile dies and pays
+ *  its take where it fell (reading 9). A tendril whose
+ *  Root is gone and which somehow carries no deadline is
+ *  given one — the chain cannot outlive its Root. */
+async function settleDarkWithers(ownerKey: string, tiles: any[], nowMs: number): Promise<void> {
+  const byId = new Map<number, any>(tiles.map(t => [t.id, t]));
+  const root = loadDarkRoot(ownerKey);
+  const tendrils = loadDarkTendrils(ownerKey);
+  for (const tn of tendrils) {
+    if (!root && tn.witherAt == null) {
+      sqlite.prepare("UPDATE dark_tendrils SET wither_at = ? WHERE id = ?").run(nowMs + TENDRIL_WITHER_MS, tn.id);
+      tn.witherAt = nowMs + TENDRIL_WITHER_MS;
+    }
+    if (tn.witherAt != null && tn.witherAt <= nowMs) {
+      sqlite.prepare("DELETE FROM dark_tendrils WHERE id = ?").run(tn.id);
+      const t = byId.get(tn.tileId);
+      await payDarkTake(ownerKey, "The withered tendril", rollFellTake("fray", t?.element ?? null), t ? { q: t.q, r: t.r } : null);
+    }
+  }
+}
+
+/** Reading 2: the frontier thickens by the absence — each
+ *  still-cursed frontier tile gains +1 curseHp per full
+ *  hour, capped at its own curseMaxHp. Purified tiles are
+ *  never written. */
+async function thickenFrontier(ownerKey: string, tiles: any[], fullHours: number): Promise<void> {
+  if (fullHours <= 0) return;
+  const purifiedPlane = new Set<string>();
+  for (const t of tiles) if (!t.cursed) purifiedPlane.add(`${t.q},${t.r}`);
+  for (const t of tiles) {
+    if (!t.cursed) continue;
+    if (t.curseHp == null || t.curseMaxHp == null) continue;
+    if (Number(t.curseHp) >= Number(t.curseMaxHp)) continue;
+    let frontier = purifiedPlane.has(`${t.q},${t.r}`);
+    if (!frontier) {
+      for (const [dq, dr] of AWAY_HEX_DIRS) {
+        if (purifiedPlane.has(`${t.q + dq},${t.r + dr}`)) { frontier = true; break; }
+      }
+    }
+    if (!frontier) continue;
+    const next = Math.min(Number(t.curseMaxHp), Number(t.curseHp) + fullHours * 1);
+    if (next !== Number(t.curseHp)) {
+      await db.update(schema.territoryTiles).set({ curseHp: next } as any).where(eq(schema.territoryTiles.id, t.id));
+      t.curseHp = next;
+    }
+  }
+}
+
+/** Reading 4 + 5: raise the Root on the deepest-ring
+ *  cursed tile, never in a beacon ring. Returns the new
+ *  Root's row, or null where no lawful ground stands. */
+async function raiseDarkRoot(ownerKey: string, tiles: any[], nowMs: number): Promise<DarkRootRow | null> {
+  const mood = (await getWorldMood()).mood;
+  const ringKeys = beaconRingKeys(ownerKey, tiles);
+  let best: any = null;
+  let bestRing = -1;
+  let bestThick = -1;
+  for (const t of tiles) {
+    if (!t.cursed) continue;
+    if (ringKeys.has(`${t.q},${t.r}`)) continue;
+    const ring = darkRingOf(t.q, t.r);
+    const thick = t.curseMaxHp != null ? Number(t.curseMaxHp) : curseHpFor(ring, mood);
+    if (ring > bestRing || (ring === bestRing && (thick > bestThick || (thick === bestThick && best && t.id < best.id)))) {
+      best = t; bestRing = ring; bestThick = thick;
+    }
+  }
+  if (!best) return null;
+  const maxHp = curseHpFor(bestRing, mood) * ROOT_HP_PER_THICKNESS;
+  const info = sqlite.prepare("INSERT INTO dark_roots (owner_key, tile_id, hp, max_hp, summon_anchor_at, growth_anchor_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(ownerKey, best.id, maxHp, maxHp, nowMs, nowMs, nowMs);
+  return { id: Number(info.lastInsertRowid), tileId: Number(best.id), hp: maxHp, maxHp, summonAnchorAt: nowMs, growthAnchorAt: nowMs, createdAt: nowMs };
+}
+
+/** Reading 7: grow the tendril up to `beats` tiles, one
+ *  step at a time from the chain's living far end (or the
+ *  Root itself while no tendril stands), each step onto a
+ *  cursed tile on the Root's plane at a strictly smaller
+ *  distance from purified ground. At distance 1 the
+ *  tendril presses and grows no further. */
+async function growDarkTendrils(ownerKey: string, tiles: any[], beats: number, nowMs: number): Promise<void> {
+  const root = loadDarkRoot(ownerKey);
+  if (!root || beats <= 0) return;
+  const mood = (await getWorldMood()).mood;
+  const byId = new Map<number, any>(tiles.map(t => [t.id, t]));
+  const rootTile = byId.get(root.tileId);
+  if (!rootTile) return;
+  const dist = planeDistanceToPurified(tiles);
+  let tendrils = loadDarkTendrils(ownerKey);
+  const steps = Math.min(Math.floor(beats), AWAY_GROWTH_BEATS_CAP);
+  for (let step = 0; step < steps; step++) {
+    const living = tendrils.filter(t => t.witherAt == null);
+    const far = living.length ? living[living.length - 1] : null;
+    const baseTile = far ? byId.get(far.tileId) : rootTile;
+    if (!baseTile) return;
+    const baseDist = dist.get(`${baseTile.q},${baseTile.r}`) ?? Number.POSITIVE_INFINITY;
+    if (baseDist <= 1) return; // pressing at the purified edge
+    const tendrilTileIds = new Set(tendrils.map(t => t.tileId));
+    let pick: any = null;
+    let pickDist = Number.POSITIVE_INFINITY;
+    for (const t of tiles) {
+      if (!t.cursed) continue;
+      if (t.z !== baseTile.z) continue;
+      if (t.id === root.tileId || tendrilTileIds.has(t.id)) continue;
+      if (!AWAY_HEX_DIRS.some(([dq, dr]) => baseTile.q + dq === t.q && baseTile.r + dr === t.r)) continue;
+      const d = dist.get(`${t.q},${t.r}`) ?? Number.POSITIVE_INFINITY;
+      if (d < baseDist && (d < pickDist || (d === pickDist && pick && t.id < pick.id))) { pick = t; pickDist = d; }
+    }
+    if (!pick) return;
+    const maxHp = pick.curseMaxHp != null ? Number(pick.curseMaxHp) : curseHpFor(darkRingOf(pick.q, pick.r), mood);
+    sqlite.prepare("INSERT INTO dark_tendrils (owner_key, root_id, tile_id, ord, hp, max_hp, wither_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)")
+      .run(ownerKey, root.id, pick.id, (far ? far.ord : 0) + 1, maxHp, maxHp, nowMs);
+    // The crossed tile thickens to its full measure as
+    // the tendril takes it.
+    if (pick.curseHp != null && pick.curseMaxHp != null && Number(pick.curseHp) < Number(pick.curseMaxHp)) {
+      await db.update(schema.territoryTiles).set({ curseHp: Number(pick.curseMaxHp) } as any).where(eq(schema.territoryTiles.id, pick.id));
+      pick.curseHp = Number(pick.curseMaxHp);
+    }
+    tendrils = loadDarkTendrils(ownerKey);
+  }
+}
+
+/** Reading 6: the Root calls dark ones — up to `beats`
+ *  births at the tendril's far end, on the cradle's own
+ *  reckoning, under the standing field cap, and never
+ *  while the beacon switch is lit. */
+function summonFromRoot(ownerKey: string, beats: number, nowMs: number): void {
+  if (beats <= 0) return;
+  const root = loadDarkRoot(ownerKey);
+  if (!root) return;
+  if (beaconSwitchLit(ownerKey)) return;
+  const prow = sqlite.prepare("SELECT wave_intensity AS intensity FROM tender_progress WHERE owner_key = ?").get(ownerKey) as any;
+  const intensity = Math.max(1, Number(prow?.intensity) || 1);
+  const cap = 8 + 2 * (intensity - 1);
+  const standing = Number((sqlite.prepare("SELECT COUNT(*) AS n FROM homeland_wanderers WHERE owner_key = ?").get(ownerKey) as any)?.n ?? 0);
+  if (standing >= cap) return;
+  const tendrils = loadDarkTendrils(ownerKey).filter(t => t.witherAt == null);
+  const farTileId = tendrils.length ? tendrils[tendrils.length - 1].tileId : root.tileId;
+  const tile = sqlite.prepare("SELECT id, q, r FROM territory_tiles WHERE id = ?").get(farTileId) as any;
+  if (!tile) return;
+  const kindPool = ["fray", "fray", "fray"];
+  if (intensity >= 2) kindPool.push("hollow", "hollow");
+  if (intensity >= 3) kindPool.push("unraveler", "unraveler");
+  if (intensity >= 4) kindPool.push("tangle");
+  let born = 0;
+  const due = Math.min(Math.floor(beats), cap - standing);
+  for (let i = 0; i < due; i++) {
+    const kind = kindPool[Math.floor(Math.random() * kindPool.length)];
+    sqlite.prepare("INSERT INTO homeland_wanderers (owner_key, tile_id, kind, spawned_at, hp, pos_q, pos_r, power, lvl, defend_tile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)")
+      .run(ownerKey, tile.id, kind, nowMs, (HOMELAND_DARK_HP[kind] ?? 3) + (intensity - 1), tile.q, tile.r, HOMELAND_DARK_POWER[kind] ?? 1, intensity);
+    born++;
+  }
+  void born;
+}
+
+/** THE AWAY-SETTLE (the header above is its law): resolve
+ *  one land's absence, growth and withers in one pass.
+ *  Rides the getTerritory read and the master clock's slow
+ *  gear, as the Grass programme does; internally fault-
+ *  contained, so it can never break a read or a tick. */
+export async function settleAwayChange(ownerKey: string, nowMs: number): Promise<void> {
+  try {
+    const seen = tenderLastSeenAt(ownerKey);
+    const state = sqlite.prepare("SELECT seen_at AS seenAt FROM away_change_state WHERE owner_key = ?").get(ownerKey) as any;
+    if (!state) {
+      // First observation only: the watermark is laid and
+      // nothing is measured yet — no absence can be read
+      // from a stamp the settle has never seen move.
+      sqlite.prepare("INSERT INTO away_change_state (owner_key, seen_at, updated_at) VALUES (?, ?, ?)").run(ownerKey, seen ?? 0, nowMs);
+      return;
+    }
+    const prevSeen = Number(state.seenAt) || 0;
+    const absenceEnded = prevSeen > 0 && seen != null && (seen - prevSeen) > PROTECTION_ONLINE_GAP_MS;
+    const online = landOnline(ownerKey, nowMs);
+    if (!absenceEnded && !online) {
+      // Away, and still away: the land is held. The growth
+      // is reckoned from the absence at her return, never
+      // dripped out behind her back.
+      return;
+    }
+    const tiles = await db.select().from(schema.territoryTiles).where(eq(schema.territoryTiles.ownerKey, ownerKey)) as any[];
+    if (tiles.length) {
+      sweepPurifiedStructures(ownerKey, tiles, nowMs);
+      await settleDarkWithers(ownerKey, tiles, nowMs);
+      if (absenceEnded) {
+        const absenceMs = (seen as number) - prevSeen;
+        // (c) the frontier thickens by the absence.
+        await thickenFrontier(ownerKey, tiles, Math.floor(absenceMs / AWAY_THICKEN_HOURS_DIVISOR_MS));
+        // (d) the Root is raised, the tendril grows, the
+        // Root calls — all from the one elapsed span.
+        let root = loadDarkRoot(ownerKey);
+        if (!root && absenceMs >= AWAY_ROOT_ABSENCE_MS) {
+          root = await raiseDarkRoot(ownerKey, tiles, nowMs);
+        }
+        if (root) {
+          await growDarkTendrils(ownerKey, tiles, Math.floor(absenceMs / TENDRIL_GROWTH_MS), nowMs);
+          summonFromRoot(ownerKey, Math.floor(absenceMs / ROOT_SUMMON_MS), nowMs);
+          // The absence is spent: both creep anchors reset
+          // to the return, so no span is settled twice.
+          sqlite.prepare("UPDATE dark_roots SET summon_anchor_at = ?, growth_anchor_at = ? WHERE id = ?").run(nowMs, nowMs, root.id);
+        }
+      } else {
+        // THE ONLINE CREEP: the same growth and calling,
+        // reckoned from the Root's anchors across the span
+        // the Tender has been present.
+        const root = loadDarkRoot(ownerKey);
+        if (root) {
+          const growthAnchor = root.growthAnchorAt > 0 ? root.growthAnchorAt : nowMs;
+          const growthBeats = Math.floor((nowMs - growthAnchor) / TENDRIL_GROWTH_MS);
+          if (growthBeats > 0) {
+            await growDarkTendrils(ownerKey, tiles, growthBeats, nowMs);
+            sqlite.prepare("UPDATE dark_roots SET growth_anchor_at = ? WHERE id = ?").run(growthAnchor + growthBeats * TENDRIL_GROWTH_MS, root.id);
+          }
+          const summonAnchor = root.summonAnchorAt > 0 ? root.summonAnchorAt : nowMs;
+          const summonBeats = Math.floor((nowMs - summonAnchor) / ROOT_SUMMON_MS);
+          if (summonBeats > 0) {
+            summonFromRoot(ownerKey, summonBeats, nowMs);
+            sqlite.prepare("UPDATE dark_roots SET summon_anchor_at = ? WHERE id = ?").run(summonAnchor + summonBeats * ROOT_SUMMON_MS, root.id);
+          }
+        }
+      }
+    }
+    sqlite.prepare("UPDATE away_change_state SET seen_at = ?, updated_at = ? WHERE owner_key = ?")
+      .run(seen ?? prevSeen, nowMs, ownerKey);
+  } catch (e) { console.error("[away-change] settle failed:", e); }
+}
+
+/** A dark structure as the living battle targets it: the
+ *  Root or one tendril tile, standing on its tile, with
+ *  the AC its reading gives it (reading 5). Structures
+ *  whose ground has been purified are skipped — the
+ *  away-settle's sweep reaps them on its own roads. */
+type DarkStruct = {
+  key: string; structKind: "root" | "tendril"; id: number; rootId: number; ord: number;
+  tileId: number; q: number; r: number; hp: number; maxHp: number; ac: number; dead: boolean;
+};
+
+function loadDarkStructures(ownerKey: string, byId: Map<number, any>): DarkStruct[] {
+  const out: DarkStruct[] = [];
+  const root = loadDarkRoot(ownerKey);
+  if (root) {
+    const t = byId.get(root.tileId);
+    if (t && t.cursed) {
+      out.push({ key: `root:${root.id}`, structKind: "root", id: root.id, rootId: root.id, ord: 0, tileId: root.tileId, q: t.q, r: t.r, hp: root.hp, maxHp: root.maxHp, ac: enemyACFor("tangle"), dead: false });
+    }
+  }
+  for (const tn of loadDarkTendrils(ownerKey)) {
+    const t = byId.get(tn.tileId);
+    if (!t || !t.cursed) continue;
+    out.push({ key: `tendril:${tn.id}`, structKind: "tendril", id: tn.id, rootId: tn.rootId, ord: tn.ord, tileId: tn.tileId, q: t.q, r: t.r, hp: tn.hp, maxHp: tn.maxHp, ac: enemyACFor("hollow"), dead: false });
+  }
+  return out;
+}
+
+/** Harm lands on a structure: the wound persists at once;
+ *  at nothing the structure falls — a tendril tile's fall
+ *  severs the chain (the far side withers, reading 9) and
+ *  pays the tile's take; the Root's fall stops the
+ *  calling at once, withers the whole tendril, and pays
+ *  the rich take (reading 10). Either fell divides the
+ *  standing XP pot among the Awoken who damaged it. */
+async function hurtDarkStructure(ownerKey: string, s: DarkStruct, dmg: number, byAwakenedId: number, structDamage: Map<string, Map<number, number>>): Promise<void> {
+  s.hp -= dmg;
+  const ledger = structDamage.get(s.key) ?? new Map<number, number>();
+  ledger.set(byAwakenedId, (ledger.get(byAwakenedId) ?? 0) + dmg);
+  structDamage.set(s.key, ledger);
+  if (s.hp > 0) {
+    if (s.structKind === "root") sqlite.prepare("UPDATE dark_roots SET hp = ? WHERE id = ?").run(Math.ceil(s.hp), s.id);
+    else sqlite.prepare("UPDATE dark_tendrils SET hp = ? WHERE id = ?").run(Math.ceil(s.hp), s.id);
+    return;
+  }
+  s.dead = true;
+  const tile = sqlite.prepare("SELECT q, r, element FROM territory_tiles WHERE id = ?").get(s.tileId) as any;
+  const at = tile ? { q: Number(tile.q), r: Number(tile.r) } : null;
+  if (s.structKind === "tendril") {
+    sqlite.prepare("DELETE FROM dark_tendrils WHERE id = ?").run(s.id);
+    markTendrilsWithering(ownerKey, s.rootId, s.ord, Date.now() + TENDRIL_WITHER_MS);
+    await payDarkTake(ownerKey, "The felled tendril", rollFellTake("fray", tile?.element ?? null), at);
+  } else {
+    sqlite.prepare("DELETE FROM dark_roots WHERE id = ?").run(s.id);
+    markTendrilsWithering(ownerKey, s.id, 0, Date.now() + TENDRIL_WITHER_MS);
+    await payDarkTake(ownerKey, "The felled Root", richestRootTake(tile?.element ?? null), at);
+  }
+  const paid = await grantDividedXpPot(XP_PER_ATTACK, ledger);
+  if (!paid) {
+    const scratch = new Map<number, XpGainReport>();
+    await grantEventXp(scratch, byAwakenedId, XP_PER_ATTACK);
+  }
+}
+
+/** Reading 11: a fighter with no dark in reach spends her
+ *  strike on the nearest structure in reach — her plain
+ *  elemental strike whole, judged exactly as the living
+ *  battle judges a blow at a dark, minus everything that
+ *  belongs to a living foe (no riders, no banners, no
+ *  tower, no witness). Returns true when a structure was
+ *  struck at (hit or miss — the strike is spent). */
+async function strikeDarkStructure(
+  ownerKey: string,
+  f: { awakenedId: number; level: number; dominant: string; q: number; r: number },
+  structs: DarkStruct[],
+  structDamage: Map<string, Map<number, number>>,
+  reach: number,
+  zCritAt: number,
+  zCritHalf: number,
+  zAwokinAb: number,
+  classKey: string | null | undefined,
+): Promise<boolean> {
+  const s = structs.filter(x => !x.dead && axialDist(f, x) <= reach)
+    .sort((a, b) => axialDist(f, a) - axialDist(f, b))[0];
+  if (!s) return false;
+  const roll = homelandDN(20);
+  const bonus = fateStep(f.level) + (ELEMENT_HIT_BONUS_MIRROR[f.dominant] ?? 0) + companyAttackBonusFor(classKey, ownerKey) + zAwokinAb;
+  const targetAC = strikeTargetAcFor(s.ac, strikeHexDistance(f, s));
+  const crit = roll >= zCritAt;
+  const hit = crit || (roll !== 1 && roll + bonus >= targetAC);
+  if (hit) {
+    const payload = await awakenedPayloadById(f.awakenedId);
+    const layers = (payload?.layers ?? []) as { element?: string | null; power?: number }[];
+    let raw = 0;
+    for (const l of layers) {
+      raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6) + (l.power ?? 0);
+      if (crit) raw += homelandDN(HOMELAND_FATE_DIE[l.element ?? "neutral"] ?? 6);
+    }
+    if (crit && zCritHalf > 0) raw = Math.round(raw * (2 + 0.5 * zCritHalf) / 2);
+    const dmg = homelandFateMitigate(raw, targetAC, f.level);
+    if (dmg > 0) await hurtDarkStructure(ownerKey, s, dmg, f.awakenedId, structDamage);
+  }
+  return true;
+}
+
 async function clockStep(land: string, name: string, fn: () => Promise<unknown>): Promise<void> {
   try { await fn(); } catch (e) { console.error(`[master-clock] ${name} failed for ${land}:`, e); }
 }
@@ -21946,6 +22612,16 @@ export async function settleLandByClock(ownerKey: string, now: number): Promise<
   // while the Tender is present — and only then (the
   // settle reads presence itself, at its own head).
   if (online) await clockStep(ownerKey, "grass-programme", () => settleGrassProgramme(ownerKey, now));
+
+  // (14) THE AWAY-CHANGE — every land: the settle reads
+  // presence itself, so the clock walks it for absent
+  // lands too and it simply holds there — a returning
+  // Tender's absence resolves in one pass at the return
+  // (the frontier's thickening, the tendril's growth, the
+  // Root's raising and calling), and while she is present
+  // the growth creeps at its slow hour on the same
+  // functions. Purified ground is never touched.
+  await clockStep(ownerKey, "away-change", () => settleAwayChange(ownerKey, now));
 }
 
 /** Settle ONE land's WAR by the realtime gear, in the
