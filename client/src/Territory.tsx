@@ -46,7 +46,7 @@ import { trackPlayer, type TrackData } from "./trackPlayer";
 import Battleground from "./Battleground";
 import BuildingMenu, { buildingImage, wheatStageImage, dreamWeedStageImage } from "./BuildingMenu";
 import WarGrounds from "./WarGrounds";
-import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, RuneStanding, Shrub, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
+import type { MapWorking, GrimoireState, PackView, BuildPiece, MoonShroom, RuneStanding, Shrub, DarkGrowth, StarSeed, IncursionColumn, LootEntry, DropEventView, RoomPackMode } from "./api";
 import { BACKPACK_FACE, faceForDrop, filterForDrop, dropSize, type DropLike } from "./dropFaces";
 import {
   axialToPlate, plateToAxial, edgesOf, edgeKeyOf,
@@ -791,6 +791,11 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
   // is armed (its tap names the ground the shrub rises on).
   const [shrubs, setShrubs] = useState<Shrub[]>([]);
   const [shrubFor, setShrubFor] = useState<number | null>(null);
+  // THE DARK'S BUILDING (Dark Builds, Nigel, 2026-11-20):
+  // the Root and its tendril chain as the refresh serves
+  // them — drawn on the land in the depth pass below, and
+  // spoken on the tiles' click cards.
+  const [darkGrowth, setDarkGrowth] = useState<DarkGrowth>({ root: null, tendrils: [] });
   // THE WEAPON'S WITNESS (Nigel, 2026-10-20): the server serves
   // the last strike its homeland referee struck; when a NEWER
   // strike arrives, the weapon lunges at that foe's hex on the
@@ -2483,6 +2488,7 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
     noteDropNotices(refreshed);
     setDefenceWorks(refreshed.defenceWorks ?? []);
     setShrubs(refreshed.shrubs ?? []);
+    setDarkGrowth(refreshed.darkGrowth ?? { root: null, tendrils: [] });
     noteWeaponStrikes(refreshed.weaponStrikes, refreshed.weaponStrike);
     notePlacementStrikes(refreshed.strikes, refreshed.tiles);
     noteRainFalls(refreshed.rainFalls);
@@ -8541,6 +8547,82 @@ export default function Territory({ tenderItems, assets, onUpdate, initialPatrol
       );
       standingItems.push({ key: `standing-shrub-${s.id}`, baseY: base, node });
     });
+    // THE DARK'S TENDRILS, creeping on the ground (Dark
+    // Builds, Nigel, 2026-11-20): each tendril tile wears
+    // a dark growth across its face — ink-dark strokes
+    // crawling from the tile's heart toward its edges over
+    // a faint curse-coloured seep, seeded per tendril so a
+    // tendril's creep is its own and never reshuffles. A
+    // tendril cut off from its Root withers pale. No new
+    // art: drawn shapes in the dark's own ink, as the
+    // defence nodes and the works are drawn.
+    darkGrowth.tendrils.forEach((tn) => {
+      const t = tiles.find(tt => tt.id === tn.tileId);
+      if (!t) return;
+      const { cx, cy } = tilePos(t);
+      const base = cy + size * 0.3;
+      let seedT = (tn.id * 2654435761) >>> 0 || 1;
+      const rndT = () => {
+        seedT = (seedT + 0x6d2b79f5) | 0;
+        let tt = Math.imul(seedT ^ (seedT >>> 15), 1 | seedT);
+        tt = (tt + Math.imul(tt ^ (tt >>> 7), 61 | tt)) ^ tt;
+        return ((tt ^ (tt >>> 14)) >>> 0) / 4294967296;
+      };
+      const ink = tn.withering ? "#4a3a42" : "#170a12";
+      const op = tn.withering ? 0.45 : 0.88;
+      const strokes = Array.from({ length: 4 }, (_, i) => {
+        const ang = rndT() * Math.PI * 2;
+        const bend = (rndT() - 0.5) * 1.2;
+        const ex = cx + Math.cos(ang) * size * 0.52, ey = cy + Math.sin(ang) * size * 0.30;
+        const mx = cx + Math.cos(ang + bend) * size * 0.26, my = cy + Math.sin(ang + bend) * size * 0.15;
+        return <path key={i} d={`M ${cx} ${cy} Q ${mx} ${my} ${ex} ${ey}`} fill="none" stroke={ink} strokeWidth={Math.max(1.4, size * 0.055)} strokeLinecap="round" opacity={op} />;
+      });
+      const knots = Array.from({ length: 3 }, (_, i) => {
+        const ang = rndT() * Math.PI * 2, rad = 0.12 + rndT() * 0.24;
+        return <circle key={i} cx={cx + Math.cos(ang) * size * rad} cy={cy + Math.sin(ang) * size * rad * 0.6} r={Math.max(1.2, size * 0.045)} fill={ink} opacity={op} />;
+      });
+      const node = (
+        <g key={`standing-tendril-${tn.id}`} className="dark-tendril" data-tendril={tn.id} data-withering={tn.withering ? "1" : undefined}>
+          <ellipse cx={cx} cy={cy} rx={size * 0.5} ry={size * 0.29} fill="#940e34" opacity={tn.withering ? 0.05 : 0.10} />
+          {strokes}
+          {knots}
+        </g>
+      );
+      standingItems.push({ key: `standing-tendril-${tn.id}`, baseY: base, node: <g key={`standing-tendril-${tn.id}`} pointerEvents="none">{node}</g> });
+    });
+    // THE ROOT, standing on its tile (Dark Builds, Nigel,
+    // 2026-11-20): the dark's building — a knotted mound
+    // of ink-dark spikes, drawn shapes in the dark's own
+    // palette, no new art. It stands a little over half a
+    // Tender tall. Its wounds show as pale cracks in the
+    // ink as its health falls; its numbers live on the
+    // tile's click card, never on the surface.
+    if (darkGrowth.root) {
+      const rt = darkGrowth.root;
+      const t = tiles.find(tt => tt.id === rt.tileId);
+      if (t) {
+        const { cx, cy } = tilePos(t);
+        const base = cy + size * 0.3;
+        const frac = rt.maxHp > 0 ? Math.max(0, Math.min(1, rt.hp / rt.maxHp)) : 0;
+        const node = (
+          <g key={`standing-root-${rt.id}`} className="the-root" data-root={rt.id} data-hp={rt.hp} data-max-hp={rt.maxHp}>
+            <ellipse cx={cx} cy={base + size * 0.03} rx={size * 0.46} ry={size * 0.15} fill="#12060d" />
+            <path d={`M ${cx - size * 0.30} ${base} Q ${cx - size * 0.26} ${base - size * 0.30} ${cx - size * 0.13} ${base - size * 0.40} Q ${cx - size * 0.20} ${base - size * 0.16} ${cx - size * 0.16} ${base} Z`} fill="#241019" />
+            <path d={`M ${cx + size * 0.14} ${base} Q ${cx + size * 0.20} ${base - size * 0.34} ${cx + size * 0.30} ${base - size * 0.46} Q ${cx + size * 0.30} ${base - size * 0.18} ${cx + size * 0.28} ${base} Z`} fill="#0d050a" />
+            <path d={`M ${cx - size * 0.17} ${base} Q ${cx - size * 0.10} ${base - size * 0.44} ${cx} ${base - size * 0.64} Q ${cx + size * 0.10} ${base - size * 0.44} ${cx + size * 0.17} ${base} Z`} fill="#170a12" />
+            <ellipse cx={cx - size * 0.34} cy={base + size * 0.02} rx={size * 0.13} ry={size * 0.05} fill="#170a12" />
+            <ellipse cx={cx + size * 0.34} cy={base + size * 0.02} rx={size * 0.13} ry={size * 0.05} fill="#241019" />
+            {frac < 0.66 && (
+              <path d={`M ${cx - size * 0.03} ${base - size * 0.58} L ${cx + size * 0.02} ${base - size * 0.40} L ${cx - size * 0.02} ${base - size * 0.24}`} fill="none" stroke="#7a5c68" strokeWidth={Math.max(0.8, size * 0.02)} opacity={0.9} />
+            )}
+            {frac < 0.33 && (
+              <path d={`M ${cx + size * 0.20} ${base - size * 0.40} L ${cx + size * 0.24} ${base - size * 0.22} L ${cx + size * 0.19} ${base - size * 0.08}`} fill="none" stroke="#7a5c68" strokeWidth={Math.max(0.8, size * 0.02)} opacity={0.9} />
+            )}
+          </g>
+        );
+        standingItems.push({ key: `standing-root-${rt.id}`, baseY: base, node: <g key={`standing-root-${rt.id}`} pointerEvents="none">{node}</g> });
+      }
+    }
     wanderers.forEach((w, i) => {
       const node = wandererNodes[i];
       if (!node) return;
@@ -10591,6 +10673,30 @@ function HallPanel({ tenderItems, onUpdate, onChampionChange }: { tenderItems: a
                     {sh.nodes > 0 && <div className="orb-info-row"><span>Bramble nodes</span><span>{sh.nodes}</span></div>}
                     {sh.watered && <div className="orb-info-row"><span>Watered</span><span>drinking</span></div>}
                     {sh.channelers.length > 0 && <div className="orb-info-row"><span>Channelling</span><span>{sh.channelers.map(id => placements.find(p => p.awakenedId === id)?.name ?? "an Awoken").join(", ")}</span></div>}
+                  </div>
+                );
+              })()}
+              {(() => {
+                // THE ROOT AND ITS TENDRILS on this tile
+                // (Dark Builds, Nigel, 2026-11-20): their
+                // facts live here, on the click card, in
+                // plain words, as every number on this face
+                // does — the surface itself carries none.
+                const rt = darkGrowth.root && darkGrowth.root.tileId === t.id ? darkGrowth.root : null;
+                const tn = darkGrowth.tendrils.find(x => x.tileId === t.id) ?? null;
+                if (!rt && !tn) return null;
+                return (
+                  <div className="orb-info-more">
+                    {rt && (<>
+                      <div className="orb-info-row"><span>The Root</span><span>standing</span></div>
+                      <div className="orb-info-row"><span>Health</span><span>{Math.ceil(rt.hp)} of {Math.ceil(rt.maxHp)}</span></div>
+                      <div className="orb-info-note">The dark's building. While it stands it calls dark ones down its tendrils. Break it and the tendrils die.</div>
+                    </>)}
+                    {tn && (<>
+                      <div className="orb-info-row"><span>Cursed tendril</span><span>{tn.withering ? "withering" : "growing"}</span></div>
+                      <div className="orb-info-row"><span>Health</span><span>{Math.ceil(tn.hp)} of {Math.ceil(tn.maxHp)}</span></div>
+                      <div className="orb-info-note">{tn.withering ? "Cut off from the Root — withering away." : "It grows from the Root toward your lands. Cut it and everything beyond the cut withers."}</div>
+                    </>)}
                   </div>
                 );
               })()}

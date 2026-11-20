@@ -1136,6 +1136,59 @@ export const grassProgrammeState = sqliteTable("grass_programme_state", {
   updatedAt: integer("updated_at").notNull().default(0),
 });
 
+// THE AWAY-CHANGE (Dark Builds, Nigel, 2026-11-20): the
+// settle's own presence watermark, one row per land — the
+// last presence stamp the away-settle observed. A jump
+// longer than the house presence gap between this stamp
+// and the Tender's standing last-seen stamp is an absence,
+// resolved once, in full, at the return. Written and read
+// by the away-settle alone (see settleAwayChange in
+// actions.ts for the law and the readings).
+export const awayChangeState = sqliteTable("away_change_state", {
+  ownerKey: text("owner_key").primaryKey(),
+  seenAt: integer("seen_at").notNull().default(0),
+  updatedAt: integer("updated_at").notNull().default(0),
+});
+
+// THE ROOT (Dark Builds, Nigel, 2026-11-20): the dark's
+// building, raised by the away-settle on a deep cursed
+// tile after a long absence — at most one standing per
+// land in this build. It does not move; while it stands
+// it summons dark ones down its tendril. summonAnchorAt /
+// growthAnchorAt are the online-creep watermarks: settled
+// summon and growth beats are reckoned from them while
+// the Tender is present, and an absence pass pays its own
+// beats in bulk and resets both anchors to the return.
+export const darkRoots = sqliteTable("dark_roots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  tileId: integer("tile_id").notNull(),
+  hp: integer("hp").notNull(),
+  maxHp: integer("max_hp").notNull(),
+  summonAnchorAt: integer("summon_anchor_at").notNull().default(0),
+  growthAnchorAt: integer("growth_anchor_at").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+});
+
+// TENDRILS (Dark Builds, Nigel, 2026-11-20): the Root's
+// growth, one row per tendril tile, ord counting outward
+// from the Root (1 = the tile beside the Root). A tendril
+// tile stands on cursed ground only and never enters
+// purified ground. witherAt is set when the chain is cut
+// beyond this tile (or its Root falls): at witherAt the
+// tile dies and pays its take where it fell.
+export const darkTendrils = sqliteTable("dark_tendrils", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerKey: text("owner_key").notNull(),
+  rootId: integer("root_id").notNull(),
+  tileId: integer("tile_id").notNull(),
+  ord: integer("ord").notNull(),
+  hp: integer("hp").notNull(),
+  maxHp: integer("max_hp").notNull(),
+  witherAt: integer("wither_at"),
+  createdAt: integer("created_at").notNull(),
+});
+
 // Hall of Champions residents: one Awoken per room, freely swappable.
 export const hallResidents = sqliteTable("hall_residents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
