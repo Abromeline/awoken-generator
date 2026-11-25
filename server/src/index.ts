@@ -4,7 +4,9 @@ import { existsSync } from "node:fs";
 import { blobs, DATA_DIR } from "./store.js";
 import { handlers, reconcileXpRecurve, reconcileStatEvery3, type ActionContext, type ActionName } from "./actions.js";
 import { convertInventedStacks } from "./drops.js";
-import { stripeConfig, createCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
+import { stripeConfig, createCheckoutSession, createBetaCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
+import { betaOwned, tenderFromPlayCookie, PLAY_COOKIE } from "./beta.js";
+import { BETA_PRICE_CENTS, BETA_PLAY_DIR, formatUsd } from "./config.js";
 import {
   claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
 } from "./welcome.js";
@@ -336,6 +338,59 @@ app.post("/api/stripe/portal", async (req, res) => {
     res.status(status).json({ error: error instanceof Error ? error.message : "The portal could not be opened." });
   }
 });
+
+// THE AWOKIN BETA (Nigel, ruled 2026-11-25): the buy-in door on the
+// Tender's home screen. Status and checkout hang on the Tender's own
+// session; buying in is recorded by the Stripe webhook (stripe.ts),
+// and /api/beta/enter trades the session for the play cookie.
+app.get("/api/beta/status", async (req, res) => {
+  const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+  if (!tender) { res.status(403).json({ error: "Become a Tender first — the beta is Tenders' to buy into." }); return; }
+  res.json({ owned: await betaOwned(tender.id), priceCents: BETA_PRICE_CENTS, priceLabel: formatUsd(BETA_PRICE_CENTS) });
+});
+app.post("/api/beta/checkout", async (req, res) => {
+  try {
+    const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+    if (!tender) throw Object.assign(new Error("Become a Tender first — the beta is Tenders' to buy into."), { status: 403 });
+    if (await betaOwned(tender.id)) throw Object.assign(new Error("You have already bought in — your link plays the game now."), { status: 409 });
+    const result = await createBetaCheckoutSession({
+      headers: req.headers as Record<string, string | string[] | undefined>,
+      tenderId: tender.id,
+    });
+    res.json(result);
+  } catch (error) {
+    const status = typeof (error as { status?: number }).status === "number" ? (error as { status: number }).status : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "Checkout could not begin." });
+  }
+});
+app.post("/api/beta/enter", async (req, res) => {
+  const token = tenderTokenFromHeader(req.headers["x-tender-token"]);
+  const tender = await tenderFromToken(token);
+  if (!tender || !token) { res.status(403).json({ error: "Become a Tender first — the beta is Tenders' to buy into." }); return; }
+  if (!(await betaOwned(tender.id))) { res.status(403).json({ error: "The play door opens after the buy-in." }); return; }
+  const secure = (req.headers["x-forwarded-proto"] as string | undefined) === "https";
+  res.setHeader("Set-Cookie",
+    `${PLAY_COOKIE}=${token}; Path=/play; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}${secure ? "; Secure" : ""}`);
+  res.json({ url: "/play/" });
+});
+
+// The buyers' play door itself, mounted before the static bundle so
+// its guard — never the SPA fallback — answers /play/*. Every file
+// request re-proves the session and the buy-in (beta.ts); everyone
+// else meets a closed door with the way home.
+if (existsSync(join(BETA_PLAY_DIR, "index.html"))) {
+  app.use("/play", async (req, res, next) => {
+    let buyer: unknown = null;
+    try { buyer = await tenderFromPlayCookie(req.headers.cookie); } catch { buyer = null; }
+    if (buyer) { next(); return; }
+    res.status(403).type("html").send(
+      "<!doctype html><meta charset=\"utf-8\"><title>Awokin Beta</title>" +
+      "<body style=\"background:#07070d;color:#cfc7ae;font-family:Georgia,serif;text-align:center;padding:4rem 1rem\">" +
+      "<h1 style=\"font-weight:normal\">The Awokin Beta</h1>" +
+      "<p>This door opens for Tenders who have bought in.</p>" +
+      "<p><a href=\"/\" style=\"color:#b89b5e\">Return to the homeland</a></p></body>");
+  }, express.static(BETA_PLAY_DIR, { maxAge: "1d" }));
+}
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, dataDir: DATA_DIR }));
 

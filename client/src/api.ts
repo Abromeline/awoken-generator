@@ -1351,6 +1351,12 @@ export const api = {
   stripeConfig: () => postPath<StripeConfig>("/api/stripe/config"),
   createCheckoutSession: () => postPath<{ url: string }>("/api/stripe/checkout", {}),
   createPortalSession: () => postPath<{ url: string }>("/api/stripe/portal", {}),
+  /** THE AWOKIN BETA (Nigel, ruled 2026-11-25): the buy-in door —
+   *  status hangs on the Tender's session, checkout opens Stripe,
+   *  and enter trades the session for the play cookie. */
+  betaStatus: () => postPath<{ owned: boolean; priceCents: number; priceLabel: string }>("/api/beta/status"),
+  createBetaCheckout: () => postPath<{ url: string }>("/api/beta/checkout", {}),
+  betaEnter: () => postPath<{ url: string }>("/api/beta/enter", {}),
   getWelcome: () => postPath<WelcomeStatus>("/api/welcome"),
   // The whisper's front-screen lesson registry (Nigel, 2026-10-23
   // 23:23; shape law 23:37): which first-touch lessons this Tender

@@ -10,6 +10,14 @@ function intEnv(name: string, fallback: number): number {
 
 /** $5.00 = 20 wakes → $0.25 per wake. Configurable; Nigel sets the numbers. */
 export const PACK_PRICE_CENTS = intEnv("PACK_PRICE_CENTS", 500);
+
+/** THE AWOKIN BETA BUY-IN (Nigel, ruled 2026-11-25): a Tender buys
+ *  into the tournament for $5 and the Awokin Beta link on their home
+ *  screen turns from the buying door into the playing door. The
+ *  price is the game's ruled $5; the play files are the Godot web
+ *  build, kept outside the repo and served only to buyers. */
+export const BETA_PRICE_CENTS = intEnv("BETA_PRICE_CENTS", 500);
+export const BETA_PLAY_DIR = (process.env.BETA_PLAY_DIR ?? "/srv/awokin-beta-play").trim();
 export const CREDITS_PER_PACK = intEnv("CREDITS_PER_PACK", 20);
 export const PRICE_PER_WAKE_CENTS = intEnv("PRICE_PER_WAKE_CENTS", 25);
 

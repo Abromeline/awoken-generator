@@ -970,6 +970,36 @@ body.defeat-flash {
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 .art-shop-button:hover { color: #fff; text-decoration: underline; }
+/* The Awokin Beta door (Nigel, ruled 2026-11-25): a smaller, quieter
+   link seated directly under the art shop button — before the buy-in
+   it opens the purchase panel; after it, the same seat plays. */
+.beta-door-link {
+  position: fixed; top: 96px; right: 16px; z-index: 40;
+  padding: 5px 11px;
+  background: rgba(10,10,20,0.88);
+  border: 1px solid rgba(184,155,94,0.65); border-radius: 10px;
+  color: #b89b5e; font-weight: 600; font-size: 12px; line-height: 1.5;
+  cursor: pointer; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.beta-door-link:hover { color: #fff; text-decoration: underline; }
+.beta-note {
+  position: fixed; top: 140px; right: 16px; z-index: 40;
+  max-width: 290px; padding: 9px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: rgba(10,10,20,0.92);
+  border: 1px solid rgba(184,155,94,0.65); border-radius: 10px;
+  color: #e8dcc3; font-size: 12.5px; line-height: 1.45;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.beta-note a { color: #b89b5e; font-weight: 600; }
+.beta-note button {
+  position: absolute; top: 2px; right: 6px;
+  background: none; border: none; color: #b89b5e; cursor: pointer; font-size: 12px;
+}
+.beta-card { max-width: 520px; }
+.beta-card h3 { margin-top: 0; }
+.beta-actions { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+.beta-error { color: #e89a9a; }
 @keyframes guide-rise {
   0% { opacity: 0; transform: translateY(40px); }
   100% { opacity: 1; transform: translateY(0); }
@@ -1014,6 +1044,8 @@ body.defeat-flash {
   .margin-guide.left { left: 8px; top: 84px; }
   .margin-guide-bubble { width: 170px; left: 64px; top: 16px; font-size: 12px; }
   .art-shop-button { right: 8px; }
+  .beta-door-link { right: 8px; }
+  .beta-note { right: 8px; }
 }
 @media (max-width: 520px) {
   .margin-guide-bubble { width: 150px; }
