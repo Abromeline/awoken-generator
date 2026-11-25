@@ -6,6 +6,7 @@ import { createHash, createHmac } from "node:crypto";
 import {
   CREDITS_PER_PACK,
   PACK_PRICE_CENTS,
+  BETA_PRICE_CENTS,
   STRIPE_PUBLISHABLE_KEY,
   STRIPE_WEBHOOK_SECRET,
   APP_URL,
@@ -14,6 +15,7 @@ import {
   stripeLiveMode,
 } from "./config.js";
 import { alreadyCredited, grantCredits, SINGLE_OWNER } from "./credits.js";
+import { grantBeta } from "./beta.js";
 import { groveAccrue } from "./grove.js";
 import { GROVE_PER_PACK_CENTS } from "./config.js";
 import { db, eq, schema } from "./store.js";
@@ -88,6 +90,40 @@ export async function createCheckoutSession(req: {
     metadata: { user_id: owner, credits: String(CREDITS_PER_PACK) },
     success_url: `${baseUrl(req)}/?wakes=welcome`,
     cancel_url: `${baseUrl(req)}/?wakes=cancelled`,
+  });
+  if (!session.url) throw new Error("Stripe did not return a checkout page.");
+  return { url: session.url };
+}
+
+/** The Awokin Beta buy-in (Nigel, ruled 2026-11-25): a Tender pays
+ *  $5 once and the buy-in hangs on their own account — the metadata
+ *  carries the Tender's id so the webhook grants the right door.
+ *  No credits, no pack; the tournament entry is the good. */
+export async function createBetaCheckoutSession(req: {
+  headers: Record<string, string | string[] | undefined>;
+  tenderId: number;
+}): Promise<{ url: string }> {
+  const s = client();
+  if (!s) throw Object.assign(new Error("Payments are not configured yet — add your Stripe keys to .env."), { status: 503 });
+  const session = await s.checkout.sessions.create({
+    mode: "payment",
+    client_reference_id: `tender:${req.tenderId}`,
+    line_items: [
+      {
+        price_data: {
+          currency: "usd",
+          unit_amount: BETA_PRICE_CENTS,
+          product_data: {
+            name: "Awokin Beta — buy-in",
+            description: "An unfinished game, still being built. Buying in is a vote to see it developed further — not a promise that it will be.",
+          },
+        },
+        quantity: 1,
+      },
+    ],
+    metadata: { kind: "awokin_beta", tender_id: String(req.tenderId) },
+    success_url: `${baseUrl(req)}/?beta=welcome`,
+    cancel_url: `${baseUrl(req)}/?beta=cancelled`,
   });
   if (!session.url) throw new Error("Stripe did not return a checkout page.");
   return { url: session.url };
@@ -205,13 +241,22 @@ export async function stripeWebhookHandler(req: { body: Buffer; headers: Record<
     }
   }
   if (session) {
-    const buyer = typeof session.client_reference_id === "string" && session.client_reference_id
-      ? session.client_reference_id
-      : SINGLE_OWNER;
-    if (session.payment_status === "paid" && !(await alreadyCredited(session.id))) {
-      await grantCredits(buyer, CREDITS_PER_PACK, "stripe_pack", session.id);
-      // The Grove Fund: a share of every pack accrues toward native trees.
-      await groveAccrue(GROVE_PER_PACK_CENTS);
+    if (session.metadata?.kind === "awokin_beta") {
+      // The beta buy-in grants no credits — it opens the play door
+      // for the Tender named in the metadata, once, on payment.
+      const tenderId = Number(session.metadata.tender_id);
+      if (session.payment_status === "paid" && Number.isInteger(tenderId) && tenderId > 0) {
+        await grantBeta(tenderId, session.id);
+      }
+    } else {
+      const buyer = typeof session.client_reference_id === "string" && session.client_reference_id
+        ? session.client_reference_id
+        : SINGLE_OWNER;
+      if (session.payment_status === "paid" && !(await alreadyCredited(session.id))) {
+        await grantCredits(buyer, CREDITS_PER_PACK, "stripe_pack", session.id);
+        // The Grove Fund: a share of every pack accrues toward native trees.
+        await groveAccrue(GROVE_PER_PACK_CENTS);
+      }
     }
   }
   res.status(200).json({ received: true });

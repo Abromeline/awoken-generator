@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY NOT NULL,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS beta_entitlements (
+  tender_id INTEGER PRIMARY KEY NOT NULL,
+  stripe_session_id TEXT NOT NULL UNIQUE,
+  purchased_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS visitors (
   visitor_id TEXT PRIMARY KEY NOT NULL,
   created_at INTEGER NOT NULL,

@@ -198,6 +198,17 @@ export const tenders = sqliteTable("tenders", {
     .$defaultFn(() => new Date()),
 });
 
+// THE AWOKIN BETA (Nigel, ruled 2026-11-25): one row per Tender who
+// has bought into the tournament. The Stripe session id is unique, so
+// a webhook delivered twice grants once. No row, no play door.
+export const betaEntitlements = sqliteTable("beta_entitlements", {
+  tenderId: integer("tender_id").primaryKey(),
+  stripeSessionId: text("stripe_session_id").notNull().unique(),
+  purchasedAt: integer("purchased_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // Password-reset seals (Nigel, 2026-10-19 — email reset links): one
 // row per asked-for reset. Only the token's HASH is held; the token
 // itself travels once, inside the emailed link, and dies on use or
