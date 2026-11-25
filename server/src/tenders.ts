@@ -317,12 +317,19 @@ export async function loginTender(args: unknown): Promise<{ token: string; tende
   if (!parsed.success) badRequest("A Tender name (or secret key) and password are needed.");
   const identity = parsed.data.identity;
   // Try the name first (case-insensitive), then the immutable key.
-  let rows = await db.select().from(schema.tenders).where(sql`lower(${schema.tenders.tenderName}) = lower(${identity})`).limit(1);
+  // Names were meant to be unique, but the earliest bonds left a
+  // duplicate or two behind; a name sign-in tries the password
+  // against EVERY Tender carrying that name and lets in the one
+  // it matches, so a rightful owner is never locked out by an
+  // old duplicate (Nigel's own two "Tender of the Quiet Moss"
+  // bonds, found 2026-11-25). The key road stays exact: one
+  // key, one Tender.
+  let rows = await db.select().from(schema.tenders).where(sql`lower(${schema.tenders.tenderName}) = lower(${identity})`);
   if (!rows[0]) {
     rows = await db.select().from(schema.tenders).where(eq(schema.tenders.code, identity)).limit(1);
   }
-  const tender = rows[0];
-  if (!tender || !verifyPassword(parsed.data.password, tender.passwordHash)) {
+  const tender = rows.find((r) => verifyPassword(parsed.data.password, r.passwordHash));
+  if (!tender) {
     throw Object.assign(new Error("That name (or key) and password do not match any Tender."), { status: 401 });
   }
   const token = await createSession(tender.id);
