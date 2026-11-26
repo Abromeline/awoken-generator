@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS beta_entitlements (
   stripe_session_id TEXT NOT NULL UNIQUE,
   purchased_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS beta_codes (
+  code TEXT PRIMARY KEY NOT NULL,
+  redeemed_by INTEGER,
+  redeemed_at INTEGER,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS visitors (
   visitor_id TEXT PRIMARY KEY NOT NULL,
   created_at INTEGER NOT NULL,

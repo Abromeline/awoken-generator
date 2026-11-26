@@ -25,6 +25,7 @@ export function BetaDoor() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [code, setCode] = useState("");
   const started = useRef(false);
 
   useEffect(() => {
@@ -83,6 +84,23 @@ export function BetaDoor() {
       });
   };
 
+  const redeem = (): void => {
+    if (!code.trim()) return;
+    setBusy(true);
+    setError("");
+    api.betaRedeem(code.trim())
+      .then(() => {
+        setBusy(false);
+        setStatus((s) => (s ? { ...s, owned: true } : s));
+        setPanel(false);
+        setNote("You're in. This link now plays the game.");
+      })
+      .catch((e) => {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : "That code doesn't open the door.");
+      });
+  };
+
   return (
     <>
       <button type="button" className="beta-door-link" onClick={openDoor} disabled={busy}>
@@ -111,6 +129,26 @@ export function BetaDoor() {
               <button type="button" className="quiet-link" onClick={() => setPanel(false)}>
                 Not now
               </button>
+            </div>
+            <div className="beta-redeem">
+              <label htmlFor="beta-code">Have a code instead?</label>
+              <div className="beta-redeem-row">
+                <input
+                  id="beta-code"
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") redeem(); }}
+                  placeholder="XXXX-XXXX"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  disabled={busy}
+                />
+                <button type="button" className="abtn" onClick={redeem} disabled={busy || !code.trim()}>
+                  Redeem
+                </button>
+              </div>
             </div>
           </div>
         </div>

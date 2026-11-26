@@ -209,6 +209,20 @@ export const betaEntitlements = sqliteTable("beta_entitlements", {
     .$defaultFn(() => new Date()),
 });
 
+// REDEEM CODES (Nigel, ruled 2026-11-25): one-time codes, one per
+// person, minted in a batch by the Keeper (scripts/mint-beta-codes.mjs)
+// and handed out by Nigel. A code stands unspent until its row names
+// the Tender who redeemed it; redemption and the entitlement grant
+// land in one transaction, so a code can never open two doors.
+export const betaCodes = sqliteTable("beta_codes", {
+  code: text("code").primaryKey(),
+  redeemedBy: integer("redeemed_by"),
+  redeemedAt: integer("redeemed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // Password-reset seals (Nigel, 2026-10-19 — email reset links): one
 // row per asked-for reset. Only the token's HASH is held; the token
 // itself travels once, inside the emailed link, and dies on use or

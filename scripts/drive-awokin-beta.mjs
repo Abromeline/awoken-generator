@@ -19,6 +19,13 @@
 //      the game files to the buyer's cookie only — no cookie, a
 //      stranger's session, and a non-buyer's session all meet
 //      the closed door, never the game.
+//   §E REDEEM CODES: one-time codes (Nigel, 2026-11-25 — a batch,
+//      one per person). No session → 403; unknown code → 400; a
+//      good code redeems (case/dash forgiven), marks itself
+//      spent with its Tender, and grants an entitlement naming
+//      its road; a spent code opens nothing for anyone else; an
+//      owner is refused before their code is touched, so the
+//      code stays good to give away.
 // Run AFTER `npm run build`:
 //   node scripts/drive-awokin-beta.mjs
 import { spawn } from "node:child_process";
@@ -118,6 +125,7 @@ async function deliverWebhook(event, secret) {
 const buyer = await call("claimTender", { password: PW, tenderName: "Beta Buyer" });
 const buyerId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(buyer.tender.code).id;
 const other = await call("claimTender", { password: PW, tenderName: "Beta Bystander" });
+const otherId = db.prepare("SELECT id FROM tenders WHERE code = ?").get(other.tender.code).id;
 
 /* ── §A STATUS ────────────────────────────────────────── */
 console.log("§A status");
@@ -212,6 +220,51 @@ console.log("§D the play door");
   ok("§D the game files ride the same door", pck.status === 200 && (await pck.text()) === "PCK-STUB-BYTES", String(pck.status));
   const pckOut = await fetch(`${BASE}/play/index.pck`);
   ok("§D the game files refuse the cookieless", pckOut.status === 403, String(pckOut.status));
+}
+
+/* ── §E REDEEM CODES ──────────────────────────────────── */
+console.log("§E redeem codes");
+{
+  // Seed two codes straight into the fixture DB — the drive
+  // stands in for scripts/mint-beta-codes.mjs here.
+  const seed = new Database(join(DATA_DIR, "app.db"));
+  seed.prepare("INSERT INTO beta_codes (code, created_at) VALUES (?, ?)").run("K7QX9M2R", Date.now());
+  seed.prepare("INSERT INTO beta_codes (code, created_at) VALUES (?, ?)").run("BETA2TRY", Date.now());
+  seed.close();
+  const redeem = async (token, code) => {
+    const res = await fetch(`${BASE}/api/beta/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { "x-tender-token": token } : {}) },
+      body: JSON.stringify({ code }),
+    });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  const anon = await redeem(null, "K7QX9M2R");
+  ok("§E no session is refused (403)", anon.status === 403, String(anon.status));
+  const bad = await redeem(other.token, "ZZZZ9999");
+  ok("§E an unknown code is refused (400)", bad.status === 400, String(bad.status));
+  const good = await redeem(other.token, "k7qx-9m2r");
+  ok("§E a good code redeems — typed loosely, case and dash forgiven (200)",
+    good.status === 200 && good.data.owned === true, JSON.stringify(good));
+  const st = await betaStatus(other.token);
+  ok("§E the redeemer's status now reads owned", st.data.owned === true, JSON.stringify(st.data));
+  const row = db.prepare("SELECT redeemed_by FROM beta_codes WHERE code = 'K7QX9M2R'").get();
+  ok("§E the code stands spent, marked with its Tender", !!row && row.redeemed_by === otherId, JSON.stringify(row));
+  const ent = db.prepare("SELECT stripe_session_id FROM beta_entitlements WHERE tender_id = ?").get(otherId);
+  ok("§E the entitlement names its road (code:…)", !!ent && ent.stripe_session_id === "code:K7QX9M2R", JSON.stringify(ent));
+  const third = await call("claimTender", { password: PW, tenderName: "Beta Third" });
+  const again = await redeem(third.token, "K7QX9M2R");
+  ok("§E a spent code opens nothing for anyone else (400)", again.status === 400, String(again.status));
+  const ownedTry = await redeem(buyer.token, "BETA2TRY");
+  ok("§E an owner is refused before the code is touched (409)", ownedTry.status === 409, String(ownedTry.status));
+  const row2 = db.prepare("SELECT redeemed_by FROM beta_codes WHERE code = 'BETA2TRY'").get();
+  ok("§E the owner's code was NOT spent", !!row2 && row2.redeemed_by === null, JSON.stringify(row2));
+  const enter = await fetch(`${BASE}/api/beta/enter`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-tender-token": other.token },
+    body: "{}",
+  });
+  ok("§E the redeemer's play door opens (enter 200)", enter.status === 200, String(enter.status));
 }
 
 child.kill("SIGTERM");
