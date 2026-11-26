@@ -1356,6 +1356,7 @@ export const api = {
    *  and enter trades the session for the play cookie. */
   betaStatus: () => postPath<{ owned: boolean; priceCents: number; priceLabel: string }>("/api/beta/status"),
   createBetaCheckout: () => postPath<{ url: string }>("/api/beta/checkout", {}),
+  betaRedeem: (code: string) => postPath<{ owned: boolean }>("/api/beta/redeem", { code }),
   betaEnter: () => postPath<{ url: string }>("/api/beta/enter", {}),
   getWelcome: () => postPath<WelcomeStatus>("/api/welcome"),
   // The whisper's front-screen lesson registry (Nigel, 2026-10-23

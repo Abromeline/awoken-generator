@@ -5,7 +5,7 @@ import { blobs, DATA_DIR } from "./store.js";
 import { handlers, reconcileXpRecurve, reconcileStatEvery3, type ActionContext, type ActionName } from "./actions.js";
 import { convertInventedStacks } from "./drops.js";
 import { stripeConfig, createCheckoutSession, createBetaCheckoutSession, createPortalSession, stripeWebhookHandler } from "./stripe.js";
-import { betaOwned, tenderFromPlayCookie, PLAY_COOKIE } from "./beta.js";
+import { betaOwned, redeemBetaCode, tenderFromPlayCookie, PLAY_COOKIE } from "./beta.js";
 import { BETA_PRICE_CENTS, BETA_PLAY_DIR, formatUsd } from "./config.js";
 import {
   claimFreeWake, claimWelcome, getWelcomeStatus, reconstituteWelcome, seedWelcome, visitorIdFromHeader, welcomeIdentity,
@@ -362,6 +362,18 @@ app.post("/api/beta/checkout", async (req, res) => {
     const status = typeof (error as { status?: number }).status === "number" ? (error as { status: number }).status : 500;
     res.status(status).json({ error: error instanceof Error ? error.message : "Checkout could not begin." });
   }
+});
+// The code road (Nigel, ruled 2026-11-25): a one-time code, handed
+// out by Nigel one per person, opens the same door the buy-in does.
+// An owner is refused BEFORE the code is touched — their code stays
+// good to give to another Tender.
+app.post("/api/beta/redeem", async (req, res) => {
+  const tender = await tenderFromToken(tenderTokenFromHeader(req.headers["x-tender-token"]));
+  if (!tender) { res.status(403).json({ error: "Become a Tender first — the beta is Tenders' to buy into." }); return; }
+  if (await betaOwned(tender.id)) { res.status(409).json({ error: "You have already bought in — your link plays the game now, and this code stays good for another Tender." }); return; }
+  const code = typeof (req.body as { code?: unknown })?.code === "string" ? (req.body as { code: string }).code : "";
+  if (!redeemBetaCode(tender.id, code)) { res.status(400).json({ error: "That code doesn't open the door — it may be mistyped, or already spent." }); return; }
+  res.json({ owned: true });
 });
 app.post("/api/beta/enter", async (req, res) => {
   const token = tenderTokenFromHeader(req.headers["x-tender-token"]);

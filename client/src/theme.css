@@ -1000,6 +1000,15 @@ body.defeat-flash {
 .beta-card h3 { margin-top: 0; }
 .beta-actions { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
 .beta-error { color: #e89a9a; }
+.beta-redeem { margin-top: 18px; border-top: 1px solid rgba(184, 155, 94, 0.35); padding-top: 14px; }
+.beta-redeem label { display: block; margin-bottom: 8px; }
+.beta-redeem-row { display: flex; align-items: center; gap: 10px; }
+.beta-redeem-row input {
+  flex: 1; min-width: 0; padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(184, 155, 94, 0.55);
+  border-radius: 6px; color: inherit; font: inherit; letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 @keyframes guide-rise {
   0% { opacity: 0; transform: translateY(40px); }
   100% { opacity: 1; transform: translateY(0); }
